@@ -1,0 +1,9 @@
+build
+bsim
+rtl
+Mem.hex
+log.txt
+soft/zig-cache
+soft/zig-out
+*.log
+elf_to_hex

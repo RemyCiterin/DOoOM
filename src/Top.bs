@@ -1,0 +1,177 @@
+package Top where
+
+import Utils
+import GetPut
+import ClientServer
+import Connectable
+
+import Vector
+import AXI4
+import AXI4_Lite
+import AXI4_Lite_Adapter
+
+import TestBench
+import UART
+import DCache
+
+import Core
+import Screen
+
+
+interface CPU_IFC =
+  -- write SDRAM port using AXI4 protocol
+  wr_axi4 :: WrAXI4_Master_Fab 4 32 4 {-# prefix="" #-}
+  -- read SDRAM port using AXI4 protocol
+  rd_axi4 :: RdAXI4_Master_Fab 4 32 4 {-# prefix="" #-}
+  led :: Bit 8 {-# always_ready, always_enabled #-}
+  ftdi_rxd :: Bit 1 {-# always_ready, always_enabled #-}
+  ftdi_txd :: Bit 1 -> Action {-# always_ready, always_enabled, arg_names= [ftdi_txd], prefix="" #-}
+  vga_out :: VGAFabric {-# prefix = "" #-}
+  btn_in :: Bit 6 -> Action {-# always_ready, always_enabled, arg_names= [btn], prefix = "" #-}
+
+{-# verilog mkCPU #-}
+mkCPU :: Module CPU_IFC
+mkCPU = module
+  wr_port <- mkWrAXI4_Master (Bypass 1)
+  rd_port <- mkRdAXI4_Master (Bypass 1)
+
+  --tx_uart :: TxUART <- mkTxUART 217
+
+  led_output :: Reg (Bit 8) <- mkReg 0
+  dcache :: DCache <- mkDCache
+
+  --mkConnection dcache.mem_read rd_port.server
+  --mkConnection dcache.mem_write wr_port.server
+
+  core <- mkCoreOOO
+  --core_d_wr <- mkAXI4_Lite_WrAXI4_Master_Adapter core.wr_dmem 4'b0
+  --core_d_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_dmem 4'b0
+  core_i_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_imem 4'b1
+
+  --mkConnection dcache.cpu_read core.rd_dmem
+  --mkConnection dcache.cpu_write core.wr_dmem
+
+  let alloc_size :: Bit 32 = 32'h10 -- 32'h800 -- 32'h660 -- 32'h23000
+  let offset :: Bit 32 = 32'h80000000
+  let is_vga :: Bit 32 -> Bool = \x -> x >= 32'h40000000 && x < 32'h50000000
+  let is_btn :: Bit 32 -> Bool = \x -> x == 32'h20000000
+
+  rom <- mkRom (RomConfig{name="Mem.hex"; start=offset; size=alloc_size})
+  vga <- mkVGA_AXI4_Lite 32'h40000000
+  uart <- mkUART 32'h10000000
+  btn <- mkBtn 32'h20000000
+
+  let rd_masters_lite :: Vector 1 (RdAXI4_Lite_Master 32 4) = core.rd_dmem :> nil
+  let wr_masters_lite :: Vector 1 (WrAXI4_Lite_Master 32 4) = core.wr_dmem :> nil
+
+  let rd_slaves_lite :: Vector 4 (RdAXI4_Lite_Slave 32 4) =
+        dcache.cpu_read :> uart.axi4.read :> vga.axi4.read :> btn.axi4.read :> nil
+  let wr_slaves_lite :: Vector 4 (WrAXI4_Lite_Slave 32 4) =
+        dcache.cpu_write :> uart.axi4.write :> vga.axi4.write :> btn.axi4.write :> nil
+
+  let rdReqLiteDispatch :: AXI4_Lite_RRequest 32 -> Bit 2 =
+        \ req -> if req.addr == 32'h10000000 then 1 else
+        if is_vga req.addr then 2 else if is_btn req.addr then 3 else 0
+  let wrReqLiteDispatch :: AXI4_Lite_WRequest 32 4 -> Bit 2 =
+        \ req -> if req.addr == 32'h10000000 then 1 else
+        if is_vga req.addr then 2 else if is_btn req.addr then 3 else 0
+
+  mkXBarRdAXI4_Lite rd_masters_lite rd_slaves_lite rdReqLiteDispatch
+  mkXBarWrAXI4_Lite wr_masters_lite wr_slaves_lite wrReqLiteDispatch
+
+  let rd_masters :: Vector 2 (RdAXI4_Master 4 32 4) = dcache.mem_read :> core_i_rd :> nil
+  let wr_masters :: Vector 1 (WrAXI4_Master 4 32 4) = dcache.mem_write :> nil
+
+  let rd_slaves :: Vector 2 (RdAXI4_Slave 4 32 4) = rom.read :> rd_port.server :> nil
+  let wr_slaves :: Vector 2 (WrAXI4_Slave 4 32 4) = rom.write :> wr_port.server :> nil
+
+  let rdReqDispatch :: AXI4_RRequest 4 32 -> Bit 1 =
+        \ req -> if req.addr < offset || req.addr >= offset + alloc_size then 1 else 0
+  let wrReqDispatch :: AXI4_AWRequest 4 32 -> Bit 1 =
+        \ req -> if req.addr < offset || req.addr >= offset + alloc_size then 1 else 0
+
+  mkXBarRdAXI4 rd_masters rd_slaves rdReqDispatch
+  mkXBarWrAXI4 wr_masters wr_slaves wrReqDispatch
+
+  rules
+    "uart interrupt": when True ==> do
+      core.set_meip(True)
+      uart.interrupt
+
+    "btn interrupt": when True ==> do
+      core.set_meip(True)
+      btn.interrupt
+
+  interface
+    wr_axi4 = wr_port.fabric
+    rd_axi4 = rd_port.fabric
+    ftdi_rxd = uart.transmit
+    ftdi_txd = uart.receive
+    vga_out = vga.fabric
+    btn_in = btn.fabric
+    led = uart.leds
+
+{-# verilog mkCPU #-}
+mkCPU_SIM :: Module Empty
+mkCPU_SIM = module
+  dcache :: DCache <- mkDCache
+
+  core <- mkCoreOOO
+  --core_d_wr <- mkAXI4_Lite_WrAXI4_Master_Adapter core.wr_dmem 4'b0
+  --core_d_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_dmem 4'b0
+  core_i_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_imem 4'b1
+
+  let alloc_size :: Bit 32 = 10000000 -- maxBound
+  let offset :: Bit 32 = 32'h80000000
+  let is_vga :: Bit 32 -> Bool = \x -> x >= 32'h40000000 && x < 32'h50000000
+  let is_btn :: Bit 32 -> Bool = \x -> x == 32'h20000000
+
+  rom <- mkRom (RomConfig{name="Mem.hex"; start=offset; size=alloc_size})
+  vga <- mkVGA_AXI4_Lite 32'h40000000
+  uart <- mkUART 32'h10000000
+  btn <- mkBtn 32'h20000000
+
+  let rd_masters_lite :: Vector 1 (RdAXI4_Lite_Master 32 4) = core.rd_dmem :> nil
+  let wr_masters_lite :: Vector 1 (WrAXI4_Lite_Master 32 4) = core.wr_dmem :> nil
+
+  let rd_slaves_lite :: Vector 4 (RdAXI4_Lite_Slave 32 4) =
+        dcache.cpu_read :> uart.axi4.read :> vga.axi4.read :> btn.axi4.read :> nil
+  let wr_slaves_lite :: Vector 4 (WrAXI4_Lite_Slave 32 4) =
+        dcache.cpu_write :> uart.axi4.write :> vga.axi4.write :> btn.axi4.write :> nil
+
+  let rdReqLiteDispatch :: AXI4_Lite_RRequest 32 -> Bit 2 =
+        \ req -> if req.addr == 32'h10000000 then 1 else
+        if is_vga req.addr then 2 else if is_btn req.addr then 3 else 0
+  let wrReqLiteDispatch :: AXI4_Lite_WRequest 32 4 -> Bit 2 =
+        \ req -> if req.addr == 32'h10000000 then 1 else
+        if is_vga req.addr then 2 else if is_btn req.addr then 3 else 0
+
+  mkXBarRdAXI4_Lite rd_masters_lite rd_slaves_lite rdReqLiteDispatch
+  mkXBarWrAXI4_Lite wr_masters_lite wr_slaves_lite wrReqLiteDispatch
+
+  let rd_masters :: Vector 2 (RdAXI4_Master 4 32 4) = dcache.mem_read :> core_i_rd :> nil
+  let wr_masters :: Vector 1 (WrAXI4_Master 4 32 4) = dcache.mem_write :> nil
+
+  let rd_slaves :: Vector 1 (RdAXI4_Slave 4 32 4) = rom.read :> nil
+  let wr_slaves :: Vector 1 (WrAXI4_Slave 4 32 4) = rom.write :> nil
+
+  let rdReqDispatch :: AXI4_RRequest 4 32 -> Bit 0 = \ _ -> 0
+  let wrReqDispatch :: AXI4_AWRequest 4 32 -> Bit 0 = \ _ -> 0
+
+  mkXBarRdAXI4 rd_masters rd_slaves rdReqDispatch
+  mkXBarWrAXI4 wr_masters wr_slaves wrReqDispatch
+
+  rules
+    "uart interrupt": when False ==> do
+      core.set_meip(True)
+      uart.interrupt
+
+    "btn interrupt": when False ==> do
+      core.set_meip(True)
+      btn.interrupt
+
+    "receive_uart": when True ==> do
+      uart.receive 1
+
+    "receive btn": when True ==> do
+      btn.fabric 0

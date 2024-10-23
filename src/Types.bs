@@ -1,0 +1,108 @@
+package Types where
+
+import Utils
+import Decode
+import Vector
+import CSR
+
+-- This packages describe the types used to communicate between the differents
+-- states of the CPU, represent exceptions, retire datas...
+
+
+--      ---------> IMEM ---------
+--     /                         \
+--    /                           \
+--   /                             v
+-- Fetch  ---Fetch_to_Decode-->  Decode
+--                                  |
+--                                  |
+--                             Decode_to_RR
+--                                  |
+--                                  |
+--                                  v
+--             +------------- Register Read
+--             |                /   |   \
+--             |               /    |    \
+--             |              RR_to_Pipeline
+--             |             /      |      \
+--             |             v      v      v
+--             |            EX1    EX2    EX3
+--          RR_to_WB         \      |      /
+--             |              \     |     /
+--             |             Pipeline_to_WB
+--             |                \   |   /
+--             |                 \  |  /
+--             |                  \ | /
+--             |                   \|/
+--             |                    v
+--             +--------------> WriteBack
+
+
+-- Fetch ==> Decode
+
+
+struct Fetch_to_Decode =
+  { pc :: Bit 32; predicted_pc :: Bit 32; epoch :: Epoch; inum :: INum }
+  deriving(Bits, FShow, Eq)
+
+-- Decode ==> Register Read (RR)
+
+
+struct Decode_to_RR =
+  { exception :: Bool
+  ; cause :: CauseException
+  ; tval :: Bit 32
+  ; epoch :: Epoch
+  ; pc :: Bit 32
+  ; instr :: Instr
+  ; predicted_pc :: Bit 32
+  ; inum :: INum
+  } deriving(Bits, Eq, FShow)
+
+
+struct RR_to_WB =
+  { exec_tag :: Exec_Tag
+  ; exception :: Bool
+  ; cause :: CauseException
+  ; tval :: Bit 32
+  ; epoch :: Epoch
+  ; pc :: Bit 32
+  ; inum :: INum
+  ; instr :: Instr
+  ; predicted_pc :: Bit 32
+  ; rs1_val :: Bit 32 -- for CSRxx
+  ; rs2_val :: Bit 32 -- for CSRxx
+  } deriving(Bits, Eq, FShow)
+
+-- Message from Register Read to the pipeline (DMEM, ALU, Control...)
+struct RR_to_Pipeline =
+  { pc :: Bit 32
+  ; epoch :: Epoch
+  ; instr :: Instr
+  ; rs1_val :: Bit 32
+  ; rs2_val :: Bit 32
+  } deriving(Bits, FShow, Eq)
+
+struct WB_to_Fetch =
+  { next_pc :: Bit 32
+  ; next_epoch :: Epoch
+  ; instr :: Maybe Instr -- is isJust instr, then the error is due to a branch misprediction, either it's an exception/interrupt
+  ; pc :: Bit 32
+  } deriving(Bits, FShow, Eq)
+
+struct Pipeline_to_WB =
+  { exception :: Bool
+  ; cause :: CauseException
+  ; tval :: Bit 32
+  -- ; instr :: Instr
+  ; next_pc :: Bit 32
+  ; result :: Bit 32
+  ; epoch :: Epoch
+  } deriving(Bits, FShow, Eq)
+
+
+struct WB_to_RR =
+  { rd :: RegName
+  ; commit :: Bool -- if true, update the value, otherwise just release scoreboard reservation
+  ; val :: Bit 32
+  } deriving(Bits, FShow, Eq)
