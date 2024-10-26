@@ -478,6 +478,7 @@ pub export fn kernel_start() callconv(.C) void {
         };
     };
 
+    print("start linklist test!\n");
     var list: LinkList = .nil;
 
     for (0..1000) |i| {
@@ -492,6 +493,30 @@ pub export fn kernel_start() callconv(.C) void {
         const tmp = list.cons.*;
         allocator.destroy(list.cons);
         list = tmp.next;
+    }
+
+    print("start matmul test!\n");
+
+    const N = 20;
+    var m1 = allocator.alloc(i32, N * N) catch unreachable;
+    var m2 = allocator.alloc(i32, N * N) catch unreachable;
+    var m3 = allocator.alloc(i32, N * N) catch unreachable;
+    defer allocator.free(m1);
+    defer allocator.free(m2);
+    defer allocator.free(m3);
+
+    for (0..N * N) |i| {
+        m1[i] = @intCast(i);
+        m2[i] = @intCast(i);
+        m3[i] = 0;
+    }
+
+    for (0..N) |k| {
+        for (0..N) |i| {
+            for (0..N) |j| {
+                m3[i * N + j] += m1[i * N + k] * m2[k * N + j];
+            }
+        }
     }
 
     asm volatile ("j userret32");

@@ -38,19 +38,19 @@ module mkIssueQueue(IssueQueue#(size));
   endfunction
 
   function Maybe#(Bit#(TLog#(size))) getReadyIndex;
-    Maybe#(Bit#(TLog#(size))) index = Invalid;
+    Bit#(size) mask = 0;
 
     for (Integer i=0; i < valueOf(size); i = i + 1) begin
       if (valid[i][0]) begin
         let rs1_val = queue[i][0].rs1_val;
         let rs2_val = queue[i][0].rs2_val;
         if (rs1_val matches tagged Value .* &&& rs2_val matches tagged Value .*) begin
-          index = tagged Valid fromInteger(i);
+          mask[i] = 1;
         end
       end
     end
 
-    return index;
+    return firstOneFrom(mask, 0);
   endfunction
 
   method ActionValue#(ExecInput) issue

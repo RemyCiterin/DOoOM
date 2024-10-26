@@ -234,10 +234,10 @@ typedef 2 StbSize;
 typedef Bit#(TLog#(StbSize)) StbIndex;
 
 // Store Queue Size
-typedef 3 SqSize;
+typedef 2 SqSize;
 
 // Load Queue Size
-typedef 4 LqSize;
+typedef 2 LqSize;
 
 // Store Queue Index
 typedef Bit#(TLog#(SqSize)) SqIndex;
@@ -283,6 +283,48 @@ module mkLoadStoreUnit2(LoadStoreUnit);
     return diff < -3 || diff > 3;
   endfunction
 
+  // return the youngest store that overwite an address in the store buffer
+  function Maybe#(StbIndex) searchSTB(Bit#(32) addr);
+    Bit#(StbSize) subset = 0;
+
+    for (Integer i=0; i < valueOf(StbSize); i = i + 1) begin
+      let store = stb[i];
+
+      if (store.isFence || !compatible(addr, store.addr)) begin
+        subset[i] = 1;
+      end
+    end
+
+    return lastOneFrom(subset & stbM.valid[0], stbM.head[0]);
+  endfunction
+
+  // return the youngest store that overwrite an address in the store buffer
+  function Maybe#(SqIndex) searchStoreQ(Bit#(32) addr, Bit#(SqSize) mask);
+    Bit#(SqSize) subset = 0;
+
+    for (Integer i=0; i < valueOf(SqSize); i = i + 1) begin
+      let store = storeQ[i][0];
+      let is_fence = isIssueFence(store);
+
+      if (isIssueFence(store)) begin
+
+        subset[i] = 1;
+
+      end else if (getIssueAddr(store) matches tagged Valid .storeAddr) begin
+
+        if (!compatible(addr, storeAddr)) begin
+          subset[i] = 1;
+        end
+
+      end else if (!loadSpeculation) begin
+        subset[i] = 1;
+      end
+    end
+
+    return lastOneFrom(subset & mask & storeM.valid[0], storeM.head[0]);
+  endfunction
+
+
   // Search if their is a store such that it address conflict with the given
   // address, the mask is used to check in a subset of stores. This function
   // return it their is such a load and it it comme from the store buffer (it is
@@ -291,62 +333,27 @@ module mkLoadStoreUnit2(LoadStoreUnit);
   function StoreConflict
     searchConflictStore(Bit#(32) addr, Bit#(SqSize) mask);
 
-    StoreConflict conflict = StoreConflict{
-      forward: Invalid,
-      found: False
-    };
+    if (searchStoreQ(addr, mask) matches tagged Valid .*) begin
 
-    StbIndex stb_index = stbM.head[0];
-    for (Integer i=0; i < valueOf(StbSize); i = i + 1) begin
-      if (stbM.valid[0][stb_index] == 1) begin
-        let store = stb[stb_index];
+      return StoreConflict{
+        found: True,
+        forward: ?
+      };
 
-        if (!store.isFence && !compatible(addr, store.addr)) begin
-          conflict.forward =
-            addr == store.addr && store.size == Word ?
-            tagged Valid store.data : Invalid;
-          conflict.found = True;
-        end
+    end else if (searchSTB(addr) matches tagged Valid .*) begin
 
-        if (store.isFence) begin
-          conflict.forward = Invalid;
-          conflict.found = True;
-        end
-      end
+      return StoreConflict{
+        found: True,
+        forward: ?
+      };
 
-      stb_index = stbM.succ(stb_index);
-    end
 
-    SqIndex sq_index = storeM.head[0];
-    for (Integer i=0; i < valueOf(SqSize); i = i + 1) begin
-      if (mask[sq_index] == 1) begin
-        let store = storeQ[sq_index][0];
-        let is_fence = isIssueFence(store);
+    end else
+      return StoreConflict{
+        found: False,
+        forward: ?
+      };
 
-        if (isIssueFence(store)) begin
-
-          conflict.forward = Invalid;
-          conflict.found = True;
-
-        end else if (getIssueAddr(store) matches tagged Valid .storeAddr) begin
-
-          if (!compatible(addr, storeAddr)) begin
-            conflict.forward = Invalid;
-            conflict.found = True;
-          end
-
-        end else begin
-          conflict.forward = Invalid;
-          conflict.found = True;
-        end
-      end
-
-      sq_index = storeM.succ(sq_index);
-    end
-
-    //found = found || mask != 0 || !stbM.empty[0];
-
-    return conflict;
   endfunction
 
   (* descending_urgency = "deqFenceStb, deqStoreStb" *)
@@ -525,7 +532,7 @@ module mkLoadStoreUnit2(LoadStoreUnit);
 endmodule
 
 // Choose if mkLoadStoreUnit3 use speculation
-Bool loadSpeculation = True;
+Bool loadSpeculation = False;
 
 // A Load Store Unit with load speculation: this unit may have a larger critical
 // path than the others but may be faster in term of IPC because it doesn't wait
@@ -539,7 +546,7 @@ module mkLoadStoreUnit3(LoadStoreUnit);
   FIFOF#(Riscv_RResponse) rd_response_fifo <- mkPipelineFIFOF;
 
   // todo: find a way to use a pipeline fifo: decreases the critical path
-  FIFOF#(Tuple2#(RobIndex, ExecOutput)) loadOutputs <- mkBypassFIFOF;
+  FIFOF#(Tuple2#(RobIndex, ExecOutput)) loadOutputs <- mkPipelineFIFOF;
   FIFOF#(Tuple2#(RobIndex, ExecOutput)) storeOutputs <- mkPipelineFIFOF;
 
   // todo: remove it: we may use the RobIndex to remove the ambiguity
@@ -570,21 +577,19 @@ module mkLoadStoreUnit3(LoadStoreUnit);
   // Fifo of commited loads
   Fifo#(LqSize, LqIndex) loadF <- mkPipelineFifo;
 
+  // Instantiate the next load address
+  RWire#(LqIndex) nextLoad <- mkRWire;
+
   // Choose the next load to commit to the main memory
   function Maybe#(LqIndex) chooseLoad;
-    Bit#(LqSize) valid = loadM.valid[0];
-    Bit#(LqSize) commit = loadCommit[0];
-
-    Bit#(LqSize) mask = valid & ~commit;
-
-    Maybe#(LqIndex) result = Invalid;
+    Bit#(LqSize) subset = loadM.valid[0] & ~loadCommit[0];
 
     for (Integer i=0; i < valueOf(LqSize); i = i + 1) begin
-      if (mask[i] == 1 && getIssueAddr(loadQ[i][0]) != Invalid)
-        result = Valid(fromInteger(i));
+      if (getIssueAddr(loadQ[i][0]) matches Invalid)
+        subset[i] = 0;
     end
 
-    return result;
+    return firstOneFrom(subset, loadM.head[0]);
   endfunction
 
   function Bool compatible(Bit#(32) addr1, Bit#(32) addr2);
@@ -592,27 +597,66 @@ module mkLoadStoreUnit3(LoadStoreUnit);
     return diff < -3 || diff > 3;
   endfunction
 
-  // This function search if their is a load that conflict with a given address,
-  // and return the index of the oldest one if their is one
-  function Maybe#(LqIndex) searchLoad(Bit#(32) addr);
-    Maybe#(LqIndex) result = Invalid;
-    LqIndex idx = loadM.head[0];
+  // return the oldest load that read an address and is already commited in
+  // the load queue
+  function Maybe#(LqIndex) searchLoadQ(Bit#(32) addr);
+    Bit#(LqSize) subset = 0;
 
     // If we already found a result, we stop the research:
     //   We search only the oldest load
-    for (Integer i=0; i < valueOf(LqSize); i = i + 1) if (result == Invalid) begin
-      if (loadM.valid[0][idx] == 1 && loadCommit[0][idx] == 1) begin
-        if (getIssueAddr(loadQ[idx][0]) matches tagged Valid .a) begin
+    for (Integer i=0; i < valueOf(LqSize); i = i + 1) begin
+      if (loadM.valid[0][i] == 1 && loadCommit[0][i] == 1) begin
+        if (getIssueAddr(loadQ[i][0]) matches tagged Valid .a) begin
           if (!compatible(addr, a))
-            result = Valid(idx);
+            subset[i] = 1;
         end
       end
-
-      idx = idx + 1;
     end
 
-    return result;
+    return firstOneFrom(subset, loadM.head[0]);
   endfunction
+
+  // return the youngest store that overwite an address in the store buffer
+  function Maybe#(StbIndex) searchSTB(Bit#(32) addr);
+    Bit#(StbSize) subset = 0;
+
+    for (Integer i=0; i < valueOf(StbSize); i = i + 1) begin
+      let store = stb[i];
+
+      if (store.isFence || !compatible(addr, store.addr)) begin
+        subset[i] = 1;
+      end
+    end
+
+    return lastOneFrom(subset & stbM.valid[0], stbM.head[0]);
+  endfunction
+
+  // return the youngest store that overwrite an address in the store buffer
+  function Maybe#(SqIndex) searchStoreQ(Bit#(32) addr, Bit#(SqSize) mask);
+    Bit#(SqSize) subset = 0;
+
+    for (Integer i=0; i < valueOf(SqSize); i = i + 1) begin
+      let store = storeQ[i][0];
+      let is_fence = isIssueFence(store);
+
+      if (isIssueFence(store)) begin
+
+        subset[i] = 1;
+
+      end else if (getIssueAddr(store) matches tagged Valid .storeAddr) begin
+
+        if (!compatible(addr, storeAddr)) begin
+          subset[i] = 1;
+        end
+
+      end else if (!loadSpeculation) begin
+        subset[i] = 1;
+      end
+    end
+
+    return lastOneFrom(subset & mask & storeM.valid[0], storeM.head[0]);
+  endfunction
+
 
   // Search if their is a store such that it address conflict with the given
   // address, the mask is used to check in a subset of stores. This function
@@ -622,62 +666,27 @@ module mkLoadStoreUnit3(LoadStoreUnit);
   function StoreConflict
     searchConflictStore(Bit#(32) addr, Bit#(SqSize) mask);
 
-    StoreConflict conflict = StoreConflict{
-      forward: Invalid,
-      found: False
-    };
+    if (searchStoreQ(addr, mask) matches tagged Valid .*) begin
 
-    StbIndex stb_index = stbM.head[0];
-    for (Integer i=0; i < valueOf(StbSize); i = i + 1) begin
-      if (stbM.valid[0][stb_index] == 1) begin
-        let store = stb[stb_index];
+      return StoreConflict{
+        found: True,
+        forward: ?
+      };
 
-        if (!store.isFence && !compatible(addr, store.addr)) begin
-          conflict.forward =
-            addr == store.addr && store.size == Word ?
-            tagged Valid store.data : Invalid;
-          conflict.found = True;
-        end
+    end else if (searchSTB(addr) matches tagged Valid .*) begin
 
-        if (store.isFence) begin
-          conflict.forward = Invalid;
-          conflict.found = True;
-        end
-      end
+      return StoreConflict{
+        found: True,
+        forward: ?
+      };
 
-      stb_index = stbM.succ(stb_index);
-    end
 
-    SqIndex sq_index = storeM.head[0];
-    for (Integer i=0; i < valueOf(SqSize); i = i + 1) begin
-      if (mask[sq_index] == 1) begin
-        let store = storeQ[sq_index][0];
-        let is_fence = isIssueFence(store);
+    end else
+      return StoreConflict{
+        found: False,
+        forward: ?
+      };
 
-        if (isIssueFence(store)) begin
-
-          conflict.forward = Invalid;
-          conflict.found = True;
-
-        end else if (getIssueAddr(store) matches tagged Valid .storeAddr) begin
-
-          if (!compatible(addr, storeAddr)) begin
-            conflict.forward = Invalid;
-            conflict.found = True;
-          end
-
-        end else if (!loadSpeculation) begin
-          conflict.forward = Invalid;
-          conflict.found = True;
-        end
-      end
-
-      sq_index = storeM.succ(sq_index);
-    end
-
-    //found = found || mask != 0 || !stbM.empty[0];
-
-    return conflict;
   endfunction
 
   (* descending_urgency = "deqFenceStb, deqStoreStb" *)
@@ -690,29 +699,38 @@ module mkLoadStoreUnit3(LoadStoreUnit);
     stbM.deq;
   endrule
 
-  // Commit the next load if possible
-  rule enqLoadRequest if (
+  rule chooseLoadIndex if (
       chooseLoad matches tagged Valid .index
     );
-
     let addr = unJust(getIssueAddr(loadQ[index][0]));
     Bit#(SqSize) mask = read_from[index][0];
 
     let conflict = searchConflictStore(addr, mask);
 
     if (!conflict.found) begin
-      loadCommit[0][index] <= 1;
-      rd_request_fifo.enq(Riscv_RRequest{
-        size: getIssueSize(loadQ[index][0]),
-        addr: addr
-      });
-
-      loadF.enq(index);
+      nextLoad.wset(index);
     end
   endrule
 
-  (* descending_urgency = "deqLoadResponse, enq" *)
-  (* execution_order = "deqLoadResponse, enqLoadRequest" *)
+  // Commit the next load if possible
+  rule enqLoadRequest if (
+      nextLoad.wget matches tagged Valid .index
+    );
+
+    let addr = unJust(getIssueAddr(loadQ[index][0]));
+
+    loadCommit[0][index] <= 1;
+    rd_request_fifo.enq(Riscv_RRequest{
+      size: getIssueSize(loadQ[index][0]),
+      addr: addr
+    });
+
+    loadF.enq(index);
+  endrule
+
+  //(* descending_urgency = "deqLoadResponse, enq" *)
+  //(* execution_order = "deqLoadResponse, enqLoadRequest" *)
+  (* execution_order = "chooseLoadIndex, commit, deqLoadResponse, enqLoadRequest" *)
   rule deqLoadResponse;
     let index = loadF.first;
     let entry = loadQ[index][0];
@@ -831,7 +849,7 @@ module mkLoadStoreUnit3(LoadStoreUnit);
 
           // Check for load misspeculation
           if (
-            searchLoad(addr) matches tagged Valid .l_id &&&
+            searchLoadQ(addr) matches tagged Valid .l_id &&&
             loadSpeculation && isStore
           ) begin
 
@@ -860,6 +878,7 @@ module mkLoadStoreUnit3(LoadStoreUnit);
       return result;
     endactionvalue
   endmethod
+
   method canDeq = loadOutputs.notEmpty || storeOutputs.notEmpty;
 
   interface Riscv_Write_Master mem_write;
