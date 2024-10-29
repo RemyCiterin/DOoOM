@@ -238,6 +238,7 @@ module mkCoreOOO(Core_IFC);
         end
         tagged Error {cause: .cause, tval: .tval} : begin
           //$display("%d %h  ", index, entry.pc, displayInstr(entry.instr));
+          $display("exception from %h ", entry.pc, fshow(cause));
           Bit#(32) trap_pc <- csr.exec_exception(entry.pc, False, pack(cause), tval);
           deqRob(Invalid, Valid(trap_pc));
 
@@ -303,7 +304,9 @@ module mkCoreOOO(Core_IFC);
     control_fu.enq(request);
   endrule
 
-  (* descending_urgency = "commit_interrupt, execute_csr, writeback_mispredicted_csr, write_back" *)
+  (* descending_urgency =
+    "commit_interrupt, execute_csr, writeback_mispredicted_csr, write_back"
+  *)
   rule write_back;
     let response <- toWB.get;
     wakeupFn(response.fst, response.snd);
@@ -320,6 +323,8 @@ module mkCoreOOO(Core_IFC);
     deqRob(Invalid, Invalid);
   endrule
 
+  (* mutually_exclusive = "commit_interrupt, execute_csr" *)
+  (* preempts = "commit_interrupt, execute_csr" *)
   rule commit_interrupt if (
       csr.readyInterrupt matches tagged Valid .cause &&&
       rob.first.result matches Invalid &&&
@@ -329,7 +334,10 @@ module mkCoreOOO(Core_IFC);
     let entry = rob.first;
 
     let trap_pc <- csr.exec_exception(entry.pc, True, pack(cause), 0);
-    registers.setReady(RegName{name: 0}, 0, Invalid, False);
+    $display("interrupt at %h ", entry.pc, fshow(cause));
+
+    registers.setReady(RegName{name: 0}, 0, Invalid, True);
+    fn_mispredict(trap_pc);
 
     fetch.trainMis(BranchPredTrain{
       pc: entry.pc,
@@ -362,15 +370,21 @@ module mkCoreOOO(Core_IFC);
   endrule
 
   // write back a direct instruction so we may commit it at the next cycle
-  rule writeback_mispredicted_csr
-    if (rob.first.tag == EXEC_TAG_DIRECT && rob.first.epoch != epoch[0] &&& rob.first.result matches Invalid);
+  rule writeback_mispredicted_csr if (
+    rob.first.tag == EXEC_TAG_DIRECT &&
+    rob.first.epoch != epoch[0] &&&
+    rob.first.result matches Invalid);
+
     rob.writeBack(rob.first_index, ?);
     wakeupFn(rob.first_index, ?);
   endrule
 
   // write back a direct instruction so we may commit it at the next cycle
-  rule execute_csr
-    if (rob.first.tag == EXEC_TAG_DIRECT && rob.first.epoch == epoch[0] &&& rob.first.result matches Invalid);
+  rule execute_csr if (
+    rob.first.tag == EXEC_TAG_DIRECT &&
+    rob.first.epoch == epoch[0] &&&
+    rob.first.result matches Invalid);
+
     execCSR(rob.first_index, rob.first);
   endrule
 

@@ -30,7 +30,7 @@ BSC_FLAGS = -show-schedule -show-range-conflict -keep-fires -aggressive-conditio
 						-check-assert -no-warn-action-shadowing
 
 SYNTH_FLAGS = -bdir $(BUILD) -vdir $(RTL) -simdir $(BUILD) \
-							-info-dir $(BUILD) -fdir $(BUILD) -D BSIM
+							-info-dir $(BUILD) -fdir $(BUILD) #-D BSIM
 
 BSIM_FLAGS = -bdir $(BSIM) -vdir $(BSIM) -simdir $(BSIM) \
 							-info-dir $(BSIM) -fdir $(BSIM) -D BSIM -l pthread
@@ -54,10 +54,11 @@ sim:
 	bsc $(BSC_FLAGS) $(BSIM_FLAGS) -p $(PACKAGES) -sim -u -g mkCPU_SIM $(TOP)
 	bsc $(BSC_FLAGS) $(BSIM_FLAGS) -sim -e mkCPU_SIM -o \
 		$(BSIM)/bsim $(BSIM)/*.ba
+	./bsim/bsim -m 10000000
 
 yosys:
 	yosys \
-		-DULX3S -q -p "synth_ecp5 -abc9 -top mkTop -json ./build/mkTop.json" \
+		-DULX3S -p "synth_ecp5 -abc9 -abc2 -top mkTop -json ./build/mkTop.json" \
 		rtl/* $(LIB) $(VGA_LIB)
 
 		#-DULX3S -q -p "synth_ecp5 -noabc9 -top mkTop -json ./build/mkTop.json" \

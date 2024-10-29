@@ -90,12 +90,22 @@ module mkBtn#(Bit#(32) btn_addr) (Btn);
   FIFOF#(AXI4_Lite_WRequest#(32, 4)) wrequest <- mkPipelineFIFOF;
   FIFOF#(AXI4_Lite_WResponse) wresponse <- mkBypassFIFOF;
 
+  Reg#(Bit#(6)) cycle <- mkReg(0);
+
+  rule cycle_update;
+    cycle <= cycle + 1;
+  endrule
+
   rule read;
     let req = rrequest.first;
     rrequest.deq;
 
     rresponse.enq(AXI4_Lite_RResponse{
+`ifdef BSIM
+      bytes: (req.addr == btn_addr ? zeroExtend(cycle) : 0), resp: OKAY
+`else
       bytes: (req.addr == btn_addr ? zeroExtend(ehr[1]) : 0), resp: OKAY
+`endif
     });
   endrule
 
@@ -239,7 +249,9 @@ module mkUART#(Bit#(32) uart_addr) (UART);
   method receive = rx_uart.receive;
 
 `ifdef BSIM
-  method Action interrupt = noAction;
+  method Action interrupt if (False);
+    noAction;
+  endmethod
 `else
   method Action interrupt if (rx_uart.valid);
     rx_uart.ack;
@@ -277,8 +289,10 @@ module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
 
   function Bit#(32) currentAddr;
     return case (state[0]) matches
-      tagged Read{req: .req} : inBounds(req.addr) ? getAddr(req.addr) : 0;
-      tagged Write{req: .req} : inBounds(req.addr) ? getAddr(req.addr) : 0;
+      tagged Read{req: .req} :
+        inBounds(req.addr) ? getAddr(req.addr) : 32'h0;
+      tagged Write{req: .req} :
+        inBounds(req.addr) ? getAddr(req.addr) : 32'h0;
       default: 0;
     endcase;
   endfunction

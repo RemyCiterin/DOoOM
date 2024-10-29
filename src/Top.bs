@@ -43,7 +43,7 @@ mkCPU = module
   --mkConnection dcache.mem_read rd_port.server
   --mkConnection dcache.mem_write wr_port.server
 
-  core <- mkCoreOOO
+  core <- mkCore
   --core_d_wr <- mkAXI4_Lite_WrAXI4_Master_Adapter core.wr_dmem 4'b0
   --core_d_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_dmem 4'b0
   core_i_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_imem 4'b1
@@ -51,7 +51,7 @@ mkCPU = module
   --mkConnection dcache.cpu_read core.rd_dmem
   --mkConnection dcache.cpu_write core.wr_dmem
 
-  let alloc_size :: Bit 32 = 32'h10 -- 32'h800 -- 32'h660 -- 32'h23000
+  let alloc_size :: Bit 32 = 32'hba6 -- 32'h800 -- 32'h660 -- 32'h23000
   let offset :: Bit 32 = 32'h80000000
   let is_vga :: Bit 32 -> Bool = \x -> x >= 32'h40000000 && x < 32'h50000000
   let is_btn :: Bit 32 -> Bool = \x -> x == 32'h20000000
@@ -116,7 +116,7 @@ mkCPU_SIM :: Module Empty
 mkCPU_SIM = module
   dcache :: DCache <- mkDCache
 
-  core <- mkCoreOOO
+  core <- mkCore
   --core_d_wr <- mkAXI4_Lite_WrAXI4_Master_Adapter core.wr_dmem 4'b0
   --core_d_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_dmem 4'b0
   core_i_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_imem 4'b1
@@ -161,14 +161,19 @@ mkCPU_SIM = module
   mkXBarRdAXI4 rd_masters rd_slaves rdReqDispatch
   mkXBarWrAXI4 wr_masters wr_slaves wrReqDispatch
 
+  cycle :: Reg (Bit 32) <- mkReg 0
+
   rules
+    "cycle count": when True ==> do
+      cycle := cycle + 1
+
     "uart interrupt": when False ==> do
       core.set_meip(True)
       uart.interrupt
 
-    "btn interrupt": when False ==> do
+    "btn interrupt": when (cycle + 1) % 20000 == 0 ==> do
       core.set_meip(True)
-      btn.interrupt
+      --btn.interrupt
 
     "receive_uart": when True ==> do
       uart.receive 1

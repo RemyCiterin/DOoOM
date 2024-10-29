@@ -15,8 +15,8 @@ var frame_slide_index: u32 = 0;
 var slide_index: u32 = 0;
 var slide_number: u32 = 100;
 
-const row_number: u32 = 100; //480;
-const col_number: u32 = 100; //640;
+const row_number: u32 = 20; // 480;
+const col_number: u32 = 20; // 640;
 
 var row_index: u32 = 0;
 var col_index: u32 = 0;
@@ -87,7 +87,7 @@ pub export fn _start() linksection(".text.init") callconv(.Naked) noreturn {
         \\  csrr tp, mhartid
         \\  add sp, t0, zero
         \\clear_bss:
-        \\  beq t1, t2, call_kernel_start
+        \\  bgt t1, t2, call_kernel_start
         \\  lb zero, 0(t1)
         \\  addi t1, t1, 1
         \\  j clear_bss
@@ -271,23 +271,32 @@ pub fn requestLine(x: u32, y: u32) void {
 
 pub export fn handler(state: *TrapState) callconv(.C) void {
     TRAP_STATE.mstatus.MPIE = 1;
+    print("trap!\n");
 
     if (RV.mcause.read().INTERRUPT == 0) {
-        //print("exception!\n");
+        print("exception!\n");
         state.mepc += 4;
     } else {
-        //print("interrupt!!!\n");
+        print("interrupt!!!\n");
         RV.mip.modify(.{ .MEIP = 0 });
 
         if (!std.meta.eql(btn.*, prev_btn)) {
             if (btn.*.right) {
                 incrFrameSlideIndex();
-                //putChar('>');
+                putChar('>');
             }
 
             if (btn.*.left) {
                 decrFrameSlideIndex();
-                //putChar('<');
+                putChar('<');
+            }
+
+            if (btn.*.up) {
+                putChar('^');
+            }
+
+            if (btn.*.down) {
+                putChar('v');
             }
         } else {
             interrupt_count += 1;
@@ -467,57 +476,57 @@ pub export fn kernel_start() callconv(.C) void {
     RV.mie.modify(.{ .MEIE = 1 });
     trap_init();
 
-    const LinkList = union(enum) {
-        const Self = @This();
-        cons: *Node,
-        nil: void,
+    //const LinkList = union(enum) {
+    //    const Self = @This();
+    //    cons: *Node,
+    //    nil: void,
 
-        const Node = struct {
-            item: u32,
-            next: Self,
-        };
-    };
+    //    const Node = struct {
+    //        item: u32,
+    //        next: Self,
+    //    };
+    //};
 
-    print("start linklist test!\n");
-    var list: LinkList = .nil;
+    //print("start linklist test!\n");
+    //var list: LinkList = .nil;
 
-    for (0..1000) |i| {
-        const tmp = allocator.create(LinkList.Node) catch unreachable;
-        tmp.next = list;
-        tmp.item = i;
+    //for (0..1000) |i| {
+    //    const tmp = allocator.create(LinkList.Node) catch unreachable;
+    //    tmp.next = list;
+    //    tmp.item = i;
 
-        list = .{ .cons = tmp };
-    }
+    //    list = .{ .cons = tmp };
+    //}
 
-    while (list != .nil) {
-        const tmp = list.cons.*;
-        allocator.destroy(list.cons);
-        list = tmp.next;
-    }
+    //while (list != .nil) {
+    //    const tmp = list.cons.*;
+    //    allocator.destroy(list.cons);
+    //    list = tmp.next;
+    //}
 
-    print("start matmul test!\n");
+    //print("start matmul test!\n");
 
-    const N = 20;
-    var m1 = allocator.alloc(i32, N * N) catch unreachable;
-    var m2 = allocator.alloc(i32, N * N) catch unreachable;
-    var m3 = allocator.alloc(i32, N * N) catch unreachable;
-    defer allocator.free(m1);
-    defer allocator.free(m2);
-    defer allocator.free(m3);
+    //const N = 20;
+    //var m1 = allocator.alloc(i32, N * N) catch unreachable;
+    //var m2 = allocator.alloc(i32, N * N) catch unreachable;
+    //var m3 = allocator.alloc(i32, N * N) catch unreachable;
+    //defer allocator.free(m1);
+    //defer allocator.free(m2);
+    //defer allocator.free(m3);
 
-    for (0..N * N) |i| {
-        m1[i] = @intCast(i);
-        m2[i] = @intCast(i);
-        m3[i] = 0;
-    }
+    //for (0..N * N) |i| {
+    //    m1[i] = @intCast(i);
+    //    m2[i] = @intCast(i);
+    //    m3[i] = 0;
+    //}
 
-    for (0..N) |k| {
-        for (0..N) |i| {
-            for (0..N) |j| {
-                m3[i * N + j] += m1[i * N + k] * m2[k * N + j];
-            }
-        }
-    }
+    //for (0..N) |k| {
+    //    for (0..N) |i| {
+    //        for (0..N) |j| {
+    //            m3[i * N + j] += m1[i * N + k] * m2[k * N + j];
+    //        }
+    //    }
+    //}
 
     asm volatile ("j userret32");
     my_panic();
@@ -542,11 +551,9 @@ pub export fn user_main() callconv(.C) void {
         frame_number += 1;
 
         asm volatile ("ecall");
+        try uart.print("display slide: {}\n", .{frame_slide_index});
 
-        try uart.print("minstret {}\n", .{RV.minstret.read()});
-        try uart.print("minstreth {}\n", .{RV.minstreth.read()});
-
-        if (frame_number == 5)
+        if (frame_number == 100)
             putChar(0);
     }
 }
