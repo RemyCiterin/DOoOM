@@ -77,10 +77,10 @@ typedef enum {
     CSRmibound          = 12'h383,
     CSRmdbase           = 12'h384,
     CSRmdbound          = 12'h385,
-    CSRmcycle           = 12'hf00,
+    CSRmcycle           = 12'hb00,
     CSRmtime            = 12'hf01,
     CSRminstret         = 12'hb02,
-    CSRmcycleh          = 12'hf80,
+    CSRmcycleh          = 12'hb80,
     CSRmtimeh           = 12'hf81,
     CSRminstreth        = 12'hb82,
     CSRmucounteren      = 12'h310,
@@ -247,6 +247,7 @@ interface CsrFile;
 
   method Action set_meip(Bool b);
   method Action set_mtip(Bool b);
+  method Action set_msip(Bool b);
 endinterface
 
 module mkCsrFile#(
@@ -427,6 +428,10 @@ module mkCsrFile#(
 
   method Action set_meip(Bool b);
     meip_field <= b ? 1 : 0;
+  endmethod
+
+  method Action set_msip(Bool b);
+    msip_field <= b ? 1 : 0;
   endmethod
 
   method Bit#(32) read_epc;

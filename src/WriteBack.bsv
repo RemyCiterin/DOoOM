@@ -195,6 +195,7 @@ interface WriteBack_IFC;
 
   method Action set_meip(Bool b);
   method Action set_mtip(Bool b);
+  method Action set_msip(Bool b);
 endinterface
 
 //  -- it take an I-type instruction, the value of rs1, and return the value of rd (or Nothing in case of error)
@@ -371,6 +372,7 @@ module mkWriteBack#(EpochManager epoch)(WriteBack_IFC);
 
             if (req.exception) begin
               $display("********************************* exception find: fu *********************************");
+              $display(fshow(req.cause), "  %h", direct.pc);
               fn_exception(direct.pc, req.cause, req.tval);
             end else if (req.next_pc != direct.predicted_pc) begin
               //$display("mispredict pc= %h next= %h pred= %h", direct.pc, req.next_pc, direct.predicted_pc);

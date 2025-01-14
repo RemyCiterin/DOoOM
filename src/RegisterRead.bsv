@@ -19,6 +19,7 @@ import MulDiv :: *;
 import STB :: *;
 
 import Ehr :: *;
+import Fifo :: *;
 
 interface Pipeline;
   interface Put#(RR_to_Pipeline) from_RR;
@@ -27,65 +28,56 @@ endinterface
 
 interface DMEM_IFC;
   interface Pipeline pipeline;
-  interface Riscv_Read_Master mem_read;
-  interface Riscv_Write_Master mem_write;
+  interface RdAXI4_Lite_Master#(32, 4) mem_read;
+  interface WrAXI4_Lite_Master#(32, 4) mem_write;
 
   // this pipeline has a type of effect so it have the commit interface to commit the
   // write operations
   method Action commit(Bool must_commit);
-  endinterface
+endinterface
 
-typedef union tagged {
-  Riscv_WRequest WriteWaitCommit;
-  void WriteWaitResponse;
-  struct {
-    Data_Size size;
-    Bool sign;
-    RR_to_Pipeline request;
-  } ReadWaitResponse;
-  void  ReadWaitCommit;
-  void Idle;
-} DMEM_State deriving(Bits, FShow, Eq);
-
-function Bool waitCommit(DMEM_State state);
-  return case (state) matches
-    ReadWaitCommit : True;
-    tagged WriteWaitCommit .* : True;
-    default: False;
-  endcase;
-endfunction
-
-// DMEM stage mix requests between read and stores, so we have to track the tag of the last
-// requests to output the responses in the correct order
-typedef enum {Rd, Wr} DMEM_Tag deriving(Bits, Eq, FShow);
-
+// DMEM stage mix requests between read, stores, and misaligned requests, so we
+// have to remember the type of the requests to ensures we send them to the
+// write-back stage in order
+typedef enum {Rd, Wr, NotAlign} DMEM_Tag deriving(Bits, Eq, FShow);
 
 (* synthesize *)
 module mkDMEM(DMEM_IFC);
   DMEM_Controller dmem <- mkMiniSTB;
-  FIFOF#(Bool) is_store <- mkSizedPipelineFIFOF(3);
+  Fifo#(3, Bool) must_wcommit <- mkPipelineFifo;
 
-  FIFOF#(Bool) sign_fifo <- mkSizedBypassFIFOF(3);
-  FIFOF#(Data_Size) size_fifo <- mkSizedBypassFIFOF(3);
-  FIFOF#(RR_to_Pipeline) req_fifo <- mkSizedBypassFIFOF(3);
+  Fifo#(3, Bool) sign_fifo <- mkPipelineFifo;
+  Fifo#(3, Data_Size) size_fifo <- mkPipelineFifo;
+  Fifo#(3, Bit#(2)) offset_fifo <- mkPipelineFifo;
+  Fifo#(3, RR_to_Pipeline) req_fifo <- mkPipelineFifo;
 
-  FIFOF#(RR_to_Pipeline) rr_to_dmem <- mkPipelineFIFOF;
+  Fifo#(1, RR_to_Pipeline) rr_to_dmem <- mkPipelineFifo;
 
-  FIFOF#(Pipeline_to_WB) rd_to_wb <- mkSizedBypassFIFOF(3);
-  FIFOF#(Pipeline_to_WB) wr_to_wb <- mkSizedBypassFIFOF(3);
-  FIFOF#(DMEM_Tag) tag_to_wb <- mkSizedBypassFIFOF(3);
+  Fifo#(3, Pipeline_to_WB) rd_to_wb <- mkBypassFifo;
+  Fifo#(3, Pipeline_to_WB) wr_to_wb <- mkBypassFifo;
+  Fifo#(3, DMEM_Tag) tag_to_wb <- mkBypassFifo;
 
+  function Bool isAligned(Bit#(32) addr, Data_Size size);
+    return case (size) matches
+      Word : addr[1:0] == 0;
+      Half : addr[0] == 0;
+      Byte : True;
+    endcase;
+  endfunction
 
   rule deq_rresponse;
     let sign = sign_fifo.first;
     let size = size_fifo.first;
+    let offset = offset_fifo.first;
     sign_fifo.deq;
     size_fifo.deq;
+    offset_fifo.deq;
 
     let req = req_fifo.first;
     req_fifo.deq;
 
-    Bit#(32) bytes <- dmem.rresponse;
+    Bit#(32) response <- dmem.rresponse;
+    Bit#(32) bytes = response >> {offset, 3'b0};
 
     let result = case (size) matches
       Word : bytes;
@@ -98,7 +90,6 @@ module mkDMEM(DMEM_IFC);
       cause: ?,
       tval: ?,
       epoch: req.epoch,
-      //instr: req.instr,
       next_pc: req.pc+4,
       result: result
     });
@@ -119,20 +110,43 @@ module mkDMEM(DMEM_IFC);
           SW : Word;
         endcase;
 
-        tag_to_wb.enq(Wr);
-        dmem.wrequest(addr, bytes, size);
-        is_store.enq(True);
-        wr_to_wb.enq(Pipeline_to_WB{
-          exception: False,
-          cause: ?,
-          tval: ?,
-          epoch: req.epoch,
-          //instr: req.instr,
-          next_pc: req.pc+4,
-          result: ?
-        });
-      end
+        Bit#(4) mask = case (op) matches
+          SB : 4'b0001;
+          SH : 4'b0011;
+          SW : 4'b1111;
+        endcase;
 
+        let aligned = isAligned(addr, size);
+
+        must_wcommit.enq(aligned);
+
+        if (aligned) begin
+          tag_to_wb.enq(Wr);
+
+          bytes = bytes << {addr[1:0], 3'b0};
+          mask = mask << addr[1:0];
+
+          dmem.wrequest(addr, bytes, mask);
+          wr_to_wb.enq(Pipeline_to_WB{
+            exception: False,
+            cause: ?,
+            tval: ?,
+            epoch: req.epoch,
+            next_pc: req.pc+4,
+            result: ?
+          });
+        end else begin
+          tag_to_wb.enq(NotAlign);
+          wr_to_wb.enq(Pipeline_to_WB{
+            epoch: req.epoch,
+            exception: True,
+            cause: STORE_AMO_ADDRESS_MISALIGNED,
+            tval: addr,
+            next_pc: ?,
+            result: ?
+          });
+        end
+      end
 
       tagged Itype {op: tagged Load .op} : begin
         match {.size, .sign} = case (op) matches
@@ -143,12 +157,28 @@ module mkDMEM(DMEM_IFC);
           LHU : Tuple2{fst: Half, snd: False};
         endcase;
 
-        tag_to_wb.enq(Rd);
-        req_fifo.enq(req);
-        sign_fifo.enq(sign);
-        size_fifo.enq(size);
-        is_store.enq(False);
-        dmem.rrequest(addr, size);
+        let aligned = isAligned(addr, size);
+
+        must_wcommit.enq(False);
+        tag_to_wb.enq(aligned ? Rd : NotAlign);
+
+
+        if (aligned) begin
+          req_fifo.enq(req);
+          sign_fifo.enq(sign);
+          size_fifo.enq(size);
+          offset_fifo.enq(addr[1:0]);
+          dmem.rrequest(addr & ~32'b11);
+        end else begin
+          wr_to_wb.enq(Pipeline_to_WB{
+            epoch: req.epoch,
+            exception: True,
+            cause: LOAD_ADDRESS_MISALIGNED,
+            tval: addr,
+            next_pc: ?,
+            result: ?
+          });
+        end
       end
       default: $display("no-dmem instr in the dmem stage");
     endcase
@@ -173,6 +203,11 @@ module mkDMEM(DMEM_IFC);
               wr_to_wb.deq;
               return ret;
             end
+            NotAlign : begin
+              let ret = wr_to_wb.first;
+              wr_to_wb.deq;
+              return ret;
+            end
           endcase
         endactionvalue
       endmethod
@@ -180,13 +215,12 @@ module mkDMEM(DMEM_IFC);
   endinterface
 
   method Action commit(Bool b);
-    let op = is_store.first;
-    is_store.deq;
+    let op = must_wcommit.first;
+    must_wcommit.deq;
 
     if (op)
       dmem.wcommit(b);
   endmethod
-
 
   interface mem_read = dmem.rd_port;
   interface mem_write = dmem.wr_port;
@@ -461,12 +495,6 @@ module mkRegisterRead(RegisterRead_IFC);
     Bool busy_rs1 = scoreboard[rs1];
     Bool busy_rs2 = scoreboard[rs2];
     let busy = busy_rs1 || busy_rs2 || scoreboard[rd];
-
-    //$display(
-    //  fshow(RegName{name: rs1}), " %b  ", busy_rs1,
-    //  fshow(RegName{name: rs2}), " %b  ", busy_rs2,
-    //  fshow(RegName{name: rd}), " %b  ", scoreboard[rd]
-    //);
 
     if (request.exception || !busy) begin
       decode_to_rr.deq;

@@ -248,6 +248,8 @@ pub const mtvec: CSR(usize) = .{ .tag = .mtvec };
 pub const mepc: CSR(usize) = .{ .tag = .mepc };
 pub const minstret: CSR(usize) = .{ .tag = .minstret };
 pub const minstreth: CSR(usize) = .{ .tag = .minstreth };
+pub const mcycle: CSR(usize) = .{ .tag = .mcycle };
+pub const mcycleh: CSR(usize) = .{ .tag = .mcycleh };
 
 pub fn UInt(comptime bits: comptime_int) type {
     return @Type(.{ .Int = .{

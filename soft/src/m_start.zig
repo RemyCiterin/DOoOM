@@ -15,8 +15,8 @@ var frame_slide_index: u32 = 0;
 var slide_index: u32 = 0;
 var slide_number: u32 = 100;
 
-const row_number: u32 = 20; // 480;
-const col_number: u32 = 20; // 640;
+const row_number: u32 = 10; // 480;
+const col_number: u32 = 10; // 640;
 
 var row_index: u32 = 0;
 var col_index: u32 = 0;
@@ -75,6 +75,16 @@ pub const Btn = packed struct {
     }
 };
 
+pub const CLINT = extern struct {
+    msip: u32,
+    _reserved1: [0x4000 - 4]u8,
+    mtimecmp: u64,
+    _reserved2: [0xBFF8 - 0x4008]u8,
+    mtime: u64,
+};
+
+pub const clint: *volatile CLINT = @ptrFromInt(0x30000000);
+
 pub const btn: *volatile Btn = @ptrFromInt(0x20000000);
 pub var prev_btn: Btn = undefined;
 
@@ -88,13 +98,13 @@ pub export fn _start() linksection(".text.init") callconv(.Naked) noreturn {
         \\  add sp, t0, zero
         \\clear_bss:
         \\  bgt t1, t2, call_kernel_start
-        \\  lb zero, 0(t1)
+        \\  sb zero, 0(t1)
         \\  addi t1, t1, 1
         \\  j clear_bss
         \\call_kernel_start:
         \\  call kernel_start
         :
-        : [t0] "{t0}" (&stack0[1023]),
+        : [t0] "{t0}" (&stack0[1024 - 4]),
           [t1] "{t1}" (&bss_start),
           [t2] "{t2}" (&bss_end),
     );
@@ -276,6 +286,14 @@ pub export fn handler(state: *TrapState) callconv(.C) void {
     if (RV.mcause.read().INTERRUPT == 0) {
         print("exception!\n");
         state.mepc += 4;
+    } else if (RV.mip.read().MTIP == 1) {
+        // Timer interrupt
+
+        // Set the next timer interrupt
+        clint.mtimecmp = clint.mtime + 50000;
+
+        // release the current timer interrupt
+        RV.mip.modify(.{ .MTIP = 0 });
     } else {
         print("interrupt!!!\n");
         RV.mip.modify(.{ .MEIP = 0 });
@@ -461,20 +479,28 @@ pub export fn kernel_start() callconv(.C) void {
     var fba = std.heap.FixedBufferAllocator.init(buffer);
     const allocator = fba.allocator();
 
+    print("print point 0\n");
+
     slides = allocator.alloc([]u8, slide_number) catch unreachable;
+
+    print("print point 0\n");
 
     for (0..slide_number) |i| {
         slides[i] = allocator.alloc(u8, row_number * col_number) catch unreachable;
     }
 
-    var stack1: []u8 = allocator.alloc(u8, 1024) catch unreachable;
-    TRAP_STATE.registers.sp = @intFromPtr(&stack1[1023]);
+    print("print point 0\n");
+
+    var stack1: []u64 = allocator.alloc(u64, 512) catch unreachable;
+    TRAP_STATE.registers.sp = @intFromPtr(&stack1[511]);
     TRAP_STATE.mepc = @intFromPtr(&user_main);
 
     TRAP_STATE.mstatus = .{};
     TRAP_STATE.mstatus.MPIE = 1;
-    RV.mie.modify(.{ .MEIE = 1 });
+    RV.mie.modify(.{ .MEIE = 1, .MTIE = 1 });
     trap_init();
+
+    print("print point 0\n");
 
     //const LinkList = union(enum) {
     //    const Self = @This();
@@ -533,6 +559,7 @@ pub export fn kernel_start() callconv(.C) void {
 }
 
 pub export fn user_main() callconv(.C) void {
+    @memset(slides[frame_slide_index], 0);
     var frame_number: u32 = 0;
 
     print("0 0\n");
@@ -553,7 +580,12 @@ pub export fn user_main() callconv(.C) void {
         asm volatile ("ecall");
         try uart.print("display slide: {}\n", .{frame_slide_index});
 
-        if (frame_number == 100)
+        const cycle = RV.mcycle.read();
+        const instret = RV.minstret.read();
+
+        try uart.print("cycle: {} instret: {}\n", .{ cycle, instret });
+
+        if (frame_number == 10)
             putChar(0);
     }
 }

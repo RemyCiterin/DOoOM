@@ -4,6 +4,8 @@ import BypassReg :: *;
 import BRAMCore :: *;
 import Vector :: *;
 
+import Ehr :: *;
+
 
 interface RWBram#(type addrT, type dataT);
   method Action write(addrT addr, dataT data);
@@ -13,8 +15,68 @@ interface RWBram#(type addrT, type dataT);
   method Action deq;
 endinterface
 
-// A module of BRAM that is able to read and write at the same cycle and the response of the read depend of the data of the write at the same cycle
-// response < read
+//    // A module for implenting Block RAM with one read port and one write port,
+//    // the resulting RAM block has three main functions : `read` to add a read request
+//    // (only one at a time), `write` to write into the RAM, and `response` to see the
+//    // result of the read request. This module use bypassing: when we use `response`
+//    // it use all the write to compute the value, including the write from the cycle
+//    // of the read request to the write of the last cycle.
+//    module mkRWBramOfSize#(Integer size) (RWBram#(addrT, dataT))
+//      provisos (Bits#(addrT, addrWidth), Bits#(dataT, dataWidth), Eq#(addrT));
+//      BRAM_DUAL_PORT#(addrT, dataT) bram <- mkBRAMCore2(size, False);
+//      let wrPort = bram.a;
+//      let rdPort = bram.b;
+//
+//      FIFOF#(void) rsp <- mkPipelineFIFOF;
+//
+//      // currentData and currentAddr contain the arguments of the last write
+//      RWire#(dataT) currentWrData <- mkRWire;
+//      RWire#(addrT) currentWrAddr <- mkRWire;
+//      let wrAddr = fromMaybe(?, currentWrAddr.wget);
+//      let wrData = fromMaybe(?, currentWrData.wget);
+//      let wrValid = isJust(currentWrAddr.wget);
+//
+//      // Address of the current read
+//      Ehr#(2, addrT) currentRdAddr <- mkEhr(?);
+//
+//      // Bypassed data
+//      Ehr#(2, Maybe#(dataT)) currentRdData <- mkEhr(Invalid);
+//
+//      (* no_implicit_conditions, fire_when_enabled *)
+//      rule apply_write if (wrValid);
+//        wrPort.put(True, wrAddr, wrData);
+//      endrule
+//
+//      (* fire_when_enabled, no_implicit_conditions *)
+//      rule bypass_read;
+//        currentRdData[1] <=
+//          wrValid && wrAddr == currentRdAddr[1] ? Valid(wrData) : currentRdData[1];
+//      endrule
+//
+//      method Action write(addrT addr, dataT data);
+//        currentWrAddr.wset(addr);
+//        currentWrData.wset(data);
+//      endmethod
+//
+//      method Action read(addrT addr) if (rsp.notFull());
+//        rdPort.put(False, addr, ?);
+//        currentRdData[0] <= Invalid;
+//        currentRdAddr[0] <= addr;
+//        rsp.enq(?);
+//      endmethod
+//
+//      method dataT response if (rsp.notEmpty);
+//        case (currentRdData[0]) matches
+//          tagged Valid .data : return data;
+//          Invalid : return rdPort.read;
+//        endcase
+//      endmethod
+//
+//      method canDeq = rsp.notEmpty;
+//
+//      method deq = rsp.deq;
+//    endmodule
+
 module mkRWBramOfSize#(Integer size) (RWBram#(addrT, dataT))
   provisos (Bits#(addrT, addrWidth), Bits#(dataT, dataWidth), Eq#(addrT));
   BRAM_DUAL_PORT#(addrT, dataT) bram <- mkBRAMCore2(size, False);
@@ -66,6 +128,7 @@ module mkRWBramOfSize#(Integer size) (RWBram#(addrT, dataT))
 
   method deq = rsp.deq;
 endmodule
+
 
 module mkRWBram(RWBram#(addrT, dataT))
   provisos (Bits#(addrT, addrWidth), Bits#(dataT, dataWidth), Eq#(addrT));

@@ -1,5 +1,6 @@
 import Connectable :: *;
 import SpecialFIFOs :: *;
+import RegFile :: *;
 import FIFOF :: *;
 import Vector :: *;
 import GetPut :: *;
@@ -165,7 +166,7 @@ function FifoI#(t) toFifoI(Fifo#(n, t) fifo);
 endfunction
 
 module mkPipelineFifo(Fifo#(n, t)) provisos(Bits#(t, size_t));
-  Vector#(n, Reg#(t)) data <- replicateM(mkReg(?));
+  RegFile#(Bit#(TLog#(n)), t) data <- mkRegFileFull;
 
   Ehr#(2, Bit#(TLog#(n))) nextP <- mkEhr(0);
   Ehr#(2, Bit#(TLog#(n))) firstP <- mkEhr(0);
@@ -177,7 +178,7 @@ module mkPipelineFifo(Fifo#(n, t)) provisos(Bits#(t, size_t));
   method canDeq = !empty[0];
 
   method t first if (!empty[0]);
-    return data[firstP[0]];
+    return data.sub(firstP[0]);
   endmethod
 
   method Action deq if (!empty[0]);
@@ -195,7 +196,7 @@ module mkPipelineFifo(Fifo#(n, t)) provisos(Bits#(t, size_t));
   method Action enq(t val) if (!full[1]);
     let next_nextP = (nextP[0] == max_index ? 0 : nextP[0] + 1);
 
-    data[nextP[0]] <= val;
+    data.upd(nextP[0], val);
     empty[1] <= False;
     nextP[0] <= next_nextP;
 

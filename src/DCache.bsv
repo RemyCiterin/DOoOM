@@ -294,13 +294,19 @@ module mkDCache(DCache);
 
   Reg#(Bit#(32)) cycle <- mkReg(0);
 
+  Reg#(Bit#(32)) stale <- mkReg(0);
+  Reg#(Bit#(32)) nbAcquires <- mkReg(0);
+  Reg#(Bit#(32)) nbReleases <- mkReg(0);
+
   function Action cacheMis(Bit#(32) addr, Bit#(20) prevTag, Bool must_release);
     action
       let tag = getTag(addr);
       let index = getIndex(addr);
       core.setPendingStage2(randomWay);
+      nbAcquires <= nbAcquires + 1;
 
       if (must_release) begin
+        nbReleases <= nbReleases + 1;
 
         //Bit#(32) release_addr = {prevTag, getIndex(addr), 0};
         //$display("release %h", release_addr);
@@ -348,6 +354,13 @@ module mkDCache(DCache);
 
   rule upd_cycle;
     cycle <= cycle + 1;
+
+    if (state != Idle) stale <= stale + 1;
+
+    //if ((cycle & 'h1FFF) == 0) begin
+    //  $display("cycle: %d stale: %d acquires: %d releases %d",
+    //    cycle, stale, nbAcquires, nbReleases);
+    //end
   endrule
 
   rule deq_bram_rd_req if (state != Idle);

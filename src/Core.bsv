@@ -25,7 +25,6 @@ import RegisterFile :: *;
 import FunctionalUnit :: *;
 import LoadStoreUnit :: *;
 
-import TileLink :: *;
 import Mutex :: *;
 import BlockRam :: *;
 import Ehr :: *;
@@ -43,6 +42,7 @@ interface Core_IFC;
 
   method Action set_meip(Bool b);
   method Action set_mtip(Bool b);
+  method Action set_msip(Bool b);
 endinterface
 
 typedef 2 IqSize;
@@ -409,6 +409,7 @@ module mkCoreOOO(Core_IFC);
 
   method set_meip = csr.set_meip;
   method set_mtip = csr.set_mtip;
+  method set_msip = csr.set_msip;
 endmodule
 
 
@@ -424,9 +425,6 @@ module mkCore(Core_IFC);
   Pipeline alu <- mkALUPipeline;
 
   WriteBack_IFC wb <- mkWriteBack(epoch);
-
-  RdAXI4_Lite_Master#(32, 4) master_read <- mkRiscv_RdAXI4_Lite_Master_Adapter(dmem.mem_read);
-  WrAXI4_Lite_Master#(32, 4) master_write <- mkRiscv_WrAXI4_Lite_Master_Adapter(dmem.mem_write);
 
   mkConnection(fetch.to_Decode, decode.from_Fetch);
   mkConnection(decode.to_RR, reg_read.from_Decode);
@@ -479,11 +477,12 @@ module mkCore(Core_IFC);
     interface response = decode.rresponse;
   endinterface
 
-  interface rd_dmem = master_read;
-  interface wr_dmem = master_write;
+  interface rd_dmem = dmem.mem_read;
+  interface wr_dmem = dmem.mem_write;
 
   method set_meip = wb.set_meip;
   method set_mtip = wb.set_mtip;
+  method set_msip = wb.set_msip;
 endmodule
 
 

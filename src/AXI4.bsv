@@ -29,6 +29,12 @@ typedef enum {
   WRAP = 2'b10
 } AXI4_BurstType deriving(Bits, Eq, FShow);
 
+instance DefaultValue#(AXI4_BurstType);
+  function defaultValue;
+    return FIXED;
+  endfunction
+endinstance
+
 function Bit#(addrBits) axi4NextAddr(Integer dataBytes, Bit#(addrBits) addr, AXI4_BurstType burst, Bit#(8) length);
 
   // first: align the address according to the data width
@@ -61,12 +67,6 @@ function Bit#(addrBits) axi4NextAddr(Integer dataBytes, Bit#(addrBits) addr, AXI
     end
   endcase
 endfunction
-
-instance DefaultValue#(AXI4_BurstType);
-  function defaultValue;
-    return FIXED;
-  endfunction
-endinstance
 
 typedef struct {
   Bit#(addrBits) addr; // data address
