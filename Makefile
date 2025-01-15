@@ -42,6 +42,11 @@ test:
 	riscv32-none-elf-objdump soft/zig-out/bin/zig-unix.elf -D \
 		> soft/firmware.asm
 
+test_rust:
+	elf_to_hex/elf_to_hex ./rust/target/riscv32im-unknown-none-elf/release/SuperOS Mem.hex
+	riscv32-none-elf-objdump soft/zig-out/bin/zig-unix.elf -D \
+		> soft/firmware.asm
+
 compile:
 	bsc \
 		$(SYNTH_FLAGS) $(BSC_FLAGS) -cpp +RTS -K128M -RTS \
