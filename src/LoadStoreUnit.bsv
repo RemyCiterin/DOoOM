@@ -228,16 +228,16 @@ typedef struct {
 } StoreConflict deriving(Bits, FShow);
 
 // Store Buffer Size
-typedef 2 StbSize;
+typedef 8 StbSize;
 
 // Store Buffer Index
 typedef Bit#(TLog#(StbSize)) StbIndex;
 
 // Store Queue Size
-typedef 2 SqSize;
+typedef 8 SqSize;
 
 // Load Queue Size
-typedef 2 LqSize;
+typedef 8 LqSize;
 
 // Store Queue Index
 typedef Bit#(TLog#(SqSize)) SqIndex;
@@ -482,9 +482,9 @@ module mkLoadStoreUnit2(LoadStoreUnit);
 
 
         if (isStore && getIssueAddr(entry) == Invalid)
-          $display("address must be kenow at commit");
+          $display("address must be know at commit");
         if (isStore && getIssueData(entry) == Invalid)
-          $display("address must be kenow at commit");
+          $display("address must be know at commit");
 
         if (must_commit) begin
           stbM.enq;
@@ -532,7 +532,7 @@ module mkLoadStoreUnit2(LoadStoreUnit);
 endmodule
 
 // Choose if mkLoadStoreUnit3 use speculation
-Bool loadSpeculation = False;
+Bool loadSpeculation = True;
 
 // A Load Store Unit with load speculation: this unit may have a larger critical
 // path than the others but may be faster in term of IPC because it doesn't wait
@@ -827,9 +827,9 @@ module mkLoadStoreUnit3(LoadStoreUnit);
 
 
         if (isStore && getIssueAddr(entry) == Invalid)
-          $display("address must be kenow at commit");
+          $display("address must be know at commit");
         if (isStore && getIssueData(entry) == Invalid)
-          $display("address must be kenow at commit");
+          $display("address must be know at commit");
 
         if (must_commit) begin
           stbM.enq;
@@ -857,7 +857,7 @@ module mkLoadStoreUnit3(LoadStoreUnit);
             return Exception(loadQ[l_id][0].index);
 
           end else
-          return Success;
+            return Success;
         end else
           return Success;
 

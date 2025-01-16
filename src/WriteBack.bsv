@@ -282,11 +282,13 @@ module mkWriteBack#(EpochManager epoch)(WriteBack_IFC);
     action
       case (direct.instr) matches
         tagged Itype {instr: .*, op: ECALL} : begin
+          csr.increment_instret();
           fn_exception(direct.pc, ECALL_FROM_M, direct.pc);
           fn_commitRR(direct.exec_tag, direct.instr, False, ?);
         end
         tagged Itype {instr: .*, op: tagged Ret MRET} : begin
           let next_pc <- csr.mret;
+          csr.increment_instret();
           fn_commitRR(direct.exec_tag, direct.instr, True, ?);
           fn_mispredict(tagged Valid direct.instr, direct.pc, next_pc);
         end
@@ -368,6 +370,7 @@ module mkWriteBack#(EpochManager epoch)(WriteBack_IFC);
           EXEC_TAG_DIRECT: fn_tag_direct(direct);
 
           default: begin
+            csr.increment_instret();
             fn_commitRR(direct.exec_tag, direct.instr, !req.exception, req.result);
 
             if (req.exception) begin

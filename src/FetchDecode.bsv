@@ -30,9 +30,10 @@ typedef struct {
   Instr instr;
   Bit#(32) pred_pc;
   BranchPredState bpred_state;
+  INum inum;
 } FromDecode deriving(Bits, FShow, Eq);
 
-function FromDecode decodeFn(FetchToDecode req, AXI4_Lite_RResponse#(4) resp);
+function FromDecode decodeFn(FetchToDecode req, AXI4_Lite_RResponse#(4) resp, INum inum);
   if (resp.resp == OKAY) begin
     return case (decodeInstr(resp.bytes)) matches
       tagged Valid .instr :
@@ -42,6 +43,7 @@ function FromDecode decodeFn(FetchToDecode req, AXI4_Lite_RResponse#(4) resp);
           tval: ?,
           epoch: req.epoch,
           pc: req.pc,
+          inum: inum,
           instr: instr,
           pred_pc: req.pred_pc,
           bpred_state: req.bpred_state
@@ -53,6 +55,7 @@ function FromDecode decodeFn(FetchToDecode req, AXI4_Lite_RResponse#(4) resp);
           tval: req.pc,
           epoch: req.epoch,
           pc: req.pc,
+          inum: inum,
           instr: ?,
           pred_pc: ?,
           bpred_state: req.bpred_state
@@ -65,6 +68,7 @@ function FromDecode decodeFn(FetchToDecode req, AXI4_Lite_RResponse#(4) resp);
       tval: req.pc,
       epoch: req.epoch,
       pc: req.pc,
+      inum: inum,
       instr: ?,
       pred_pc: ?,
       bpred_state: req.bpred_state
@@ -91,6 +95,8 @@ module mkFetchDecode(FetchDecode);
 
   Reg#(Epoch) epoch <- mkReg(0);
   Reg#(Bit#(32)) current_pc <- mkReg(32'h80000000);
+
+  Reg#(INum) inum <- mkReg(0);
 
   let branchPred <- mkBranchPred;
 
@@ -119,7 +125,8 @@ module mkFetchDecode(FetchDecode);
     fetch_to_decode.deq;
     read_response.deq;
 
-    outputs.enq(decodeFn(req, resp));
+    outputs.enq(decodeFn(req, resp, inum));
+    inum <= inum + 1;
   endrule
 
   method Action redirect(Bit#(32) next_pc, Epoch next_epoch);

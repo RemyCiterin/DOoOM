@@ -14,6 +14,7 @@ extern "C" {
 #[allow(static_mut_refs)]
 pub fn init() {
     unsafe {
+        println!("kalloc buffer base: {:p}", KALLOC_BUFFER.as_ptr());
         KERNEL_ALLOCATOR
             .init(KALLOC_BUFFER.as_mut_ptr(), KALLOC_SIZE);
     }

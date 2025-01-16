@@ -7,7 +7,7 @@ import Ehr :: *;
 import CSR :: *;
 import BTB :: *;
 
-typedef 6 RobSize;
+typedef 16 RobSize;
 typedef Bit#(TLog#(RobSize)) RobIndex;
 
 // The execution of an instruction return either

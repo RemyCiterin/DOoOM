@@ -47,13 +47,13 @@ pub static PAGE_ALLOCATOR: Mutex<PageAlloc> = Mutex::new(PageAlloc::new());
 // Initialize the kernel page allocator
 pub fn init() {
     extern "C" {
-        fn __kernel_end_phys();
+        fn KALLOC_BUFFER();
     }
 
-    println!("{:x}", __kernel_end_phys as usize);
+    println!("palloc base: 0x{:x}", KALLOC_BUFFER as usize);
 
     PAGE_ALLOCATOR.lock().init(
-        PhysAddr::from(__kernel_end_phys as usize).ppn() + 1,
+        PhysAddr::from(KALLOC_BUFFER as usize + constant::KALLOC_SIZE).ppn() + 1,
         PhysAddr::from(constant::MEMORY_SIZE).ppn() - 1,
     );
 }

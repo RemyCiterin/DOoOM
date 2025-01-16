@@ -60,7 +60,7 @@ mkCPU = module
   --mkConnection dcache.cpu_read core.rd_dmem
   --mkConnection dcache.cpu_write core.wr_dmem
 
-  let alloc_size :: Bit 32 = 32'h1d6f -- 32'h800 -- 32'h660 -- 32'h23000
+  let alloc_size :: Bit 32 = 32'h3d6f -- 32'h800 -- 32'h660 -- 32'h23000
   let offset :: Bit 32 = 32'h80000000
   let is_vga :: Bit 32 -> Bool = \x -> x >= 32'h40000000 && x < 32'h50000000
   let is_btn :: Bit 32 -> Bool = \x -> x == 32'h20000000

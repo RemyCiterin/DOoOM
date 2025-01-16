@@ -45,11 +45,15 @@ interface Core_IFC;
   method Action set_msip(Bool b);
 endinterface
 
-typedef 2 IqSize;
+typedef 4 IqSize;
 
 (* synthesize *)
 module mkCoreOOO(Core_IFC);
   Bool verbose = False;
+
+  // Count the number of mispredicted instructions
+  Reg#(Bit#(64)) mispred_instr <- mkReg(0);
+  Reg#(Bit#(64)) hitpred_instr <- mkReg(0);
 
   Ehr#(2, Epoch) epoch <- mkEhr(0);
 
@@ -65,7 +69,7 @@ module mkCoreOOO(Core_IFC);
   IssueQueue#(IqSize) control_issue_queue <- mkIssueQueue;
   FunctionalUnit control_fu <- mkControlFU;
 
-  LoadStoreUnit lsu <- mkLoadStoreUnit2;
+  LoadStoreUnit lsu <- mkLoadStoreUnit3;
 
   // indicate if a load is killed by the load store unit
   // because it return a bad value
@@ -122,8 +126,7 @@ module mkCoreOOO(Core_IFC);
         killed <= new_killed;
       end
 
-      if (value matches tagged Valid .val &&&
-        destination(entry.instr).name != 0 &&& verbose)
+      if (value matches tagged Valid .val &&& destination(entry.instr).name != 0 &&& verbose)
         $display("       ", fshow(destination(entry.instr)), " := %h", val);
 
       registers.setReady(destination(entry.instr), index, value, next_pc != Invalid);
@@ -215,7 +218,7 @@ module mkCoreOOO(Core_IFC);
       case (result) matches
         tagged Ok {next_pc: .next_pc, rd_val: .rd_val} : begin
           deqRob(
-            tagged Valid rd_val,
+            Valid(rd_val),
             next_pc != entry.pred_pc ? Valid(next_pc) : Invalid
           );
 
@@ -320,6 +323,7 @@ module mkCoreOOO(Core_IFC);
 
   rule discard_instruction
     if (rob.first.epoch != epoch[0] &&& rob.first.result matches tagged Valid .*);
+    mispred_instr <= mispred_instr + 1;
     deqRob(Invalid, Invalid);
   endrule
 
@@ -351,13 +355,14 @@ module mkCoreOOO(Core_IFC);
       rob.first.result matches tagged Valid .result &&&
       rob.first.epoch == epoch[0]);
 
+    hitpred_instr <= hitpred_instr+1;
     let index = rob.first_index;
     let entry = rob.first;
     let pc = entry.pc;
 
     // The instruction return a mispredicted value according to a previous
     // load store unit commit
-    if (killed[0][index] == 1) begin
+    if (killed[index] == 1) begin
       deqRob(Invalid, Valid(pc));
       fetch.trainMis(BranchPredTrain{
         pc: pc,
@@ -394,6 +399,11 @@ module mkCoreOOO(Core_IFC);
     if (decoded.epoch == epoch[1])
       fn_dispatch(decoded);
   endrule
+
+  // Use 1 instead of 0 to ensure we don't display during initialisation
+  // rule print_stats if (hitpred_instr[9:0] == 1);
+  //   $display("hit bpred: %d  mis bpred: %d", hitpred_instr, mispred_instr);
+  // endrule
 
   interface RdAXI4_Lite_Master rd_imem;
     interface request = fetch.rrequest;

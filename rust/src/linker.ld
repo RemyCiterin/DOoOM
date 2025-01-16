@@ -53,7 +53,5 @@ SECTIONS {
 
     PROVIDE(KALLOC_BUFFER = .);
 
-    PROVIDE(__kernel_end_phys = .);
-
     /DISCARD/ : { *(.eh_frame_hdr .eh_frame) }
 }
