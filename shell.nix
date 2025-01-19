@@ -18,6 +18,8 @@ pkgs.mkShell {
     pkgs.trellis
     pkgs.icestorm
 
+    pkgs.graphviz
+
     pkgs.python312
     pkgs.python312Packages.matplotlib
     pkgs.python312Packages.pyserial

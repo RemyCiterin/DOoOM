@@ -15,10 +15,10 @@ import GetPut :: *;
 
 // Generic implementation of data RAM for cache implementation
 interface DataRam
-  #(numeric type buffSize, numeric type addrW, numeric type indexW, numeric type wordW);
+  #(numeric type buffSize, numeric type addrW, numeric type indexW, numeric type wordW, numeric type beatW);
   /* Memory interface */
-  interface RdAXI4_Master#(4, addrW, wordW) read;
-  interface WrAXI4_Master#(4, addrW, wordW) write;
+  interface RdAXI4_Master#(4, addrW, beatW) read;
+  interface WrAXI4_Master#(4, addrW, beatW) write;
 
   /* read or write one word in the data ram */
   method Action readWord(Bit#(indexW) index);
@@ -37,12 +37,13 @@ interface DataRam
   method Action setID(Bit#(4) id);
 endinterface
 
-module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW));
+module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW, beatW))
+  provisos(Mul#(beatW, beatPerWord, wordW));
   Fifo#(1, AXI4_RRequest#(4, addrW)) rrequestQ <- mkBypassFifo;
-  Fifo#(1, AXI4_RResponse#(4, wordW)) rresponseQ <- mkPipelineFifo;
+  Fifo#(1, AXI4_RResponse#(4, beatW)) rresponseQ <- mkPipelineFifo;
 
   Fifo#(1, AXI4_AWRequest#(4, addrW)) awrequestQ <- mkBypassFifo;
-  Fifo#(1, AXI4_WRequest#(wordW)) wrequestQ <- mkBypassFifo;
+  Fifo#(1, AXI4_WRequest#(beatW)) wrequestQ <- mkBypassFifo;
   Fifo#(1, AXI4_WResponse#(4)) wresponseQ <- mkPipelineFifo;
 
   Vector#(wordW, RWBram#(Bit#(indexW), Bit#(8))) bram <- replicateM(mkRWBram);
@@ -51,16 +52,23 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW));
   Fifo#(buffSize, Tuple2#(Bit#(indexW), Bit#(8))) acquireQ <- mkPipelineFifo;
 
   Ehr#(2, Bit#(indexW)) acquireIndex <- mkEhr(?);
+  Ehr#(2, Bit#(TLog#(wordW))) acquireOffset <- mkEhr(?);
   Ehr#(2, Maybe#(Bit#(8))) acquireLength <- mkEhr(Invalid);
   Fifo#(1, void) acquireDone <- mkBypassFifo;
 
   Ehr#(2, Bit#(indexW)) releaseIndex <- mkEhr(0);
+  Ehr#(2, Bit#(TLog#(wordW))) releaseOffset <- mkEhr(0);
   Ehr#(2, Maybe#(Bit#(8))) releaseLength <- mkEhr(Invalid);
 
   Reg#(Bit#(4)) id <- mkReg(?);
   Reg#(Bool) started <- mkReg(False);
 
-  function Action bramRead(Bit#(indexW) index);
+  function Bit#(TLog#(wordW)) newOffset(Bit#(TLog#(wordW)) offset);
+    if (offset == fromInteger(valueOf(wordW) - valueOf(beatW))) return 0;
+    else return offset + fromInteger(valueOf(beatW) % valueOf(wordW));
+  endfunction
+
+  function Action bramReadWord(Bit#(indexW) index);
     action
       for (Integer i=0; i < valueOf(wordW); i = i + 1) begin
         bram[i].read(index);
@@ -68,7 +76,7 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW));
     endaction
   endfunction
 
-  function Byte#(wordW) bramOut;
+  function Byte#(wordW) bramOutWord;
     Bit#(8) result[valueOf(wordW)];
 
     for (Integer i=0; i < valueOf(wordW); i = i + 1) begin
@@ -78,7 +86,7 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW));
     return packArray(result);
   endfunction
 
-  function Action bramDeq;
+  function Action bramDeqWord;
     action
       for (Integer i=0; i < valueOf(wordW); i = i + 1) begin
         bram[i].deq;
@@ -86,10 +94,45 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW));
     endaction
   endfunction
 
-  function Action bramWrite(Bit#(indexW) index, Byte#(wordW) data, Bit#(wordW) mask);
+  function Action bramWriteWord(Bit#(indexW) index, Byte#(wordW) data, Bit#(wordW) mask);
     action
       for (Integer i=0; i < valueOf(wordW); i = i + 1) begin
         if (mask[i] == 1) bram[i].write(index, data[8*i+7:8*i]);
+      end
+    endaction
+  endfunction
+
+  function Action bramReadBeat(Bit#(indexW) index, Bit#(TLog#(wordW)) offset);
+    action
+      for (Integer i=0; i < valueOf(beatW); i = i + 1) begin
+        bram[offset + fromInteger(i)].read(index);
+      end
+    endaction
+  endfunction
+
+  function Byte#(beatW) bramOutBeat(Bit#(TLog#(wordW)) offset);
+    Bit#(8) result[valueOf(beatW)];
+
+    for (Integer i=0; i < valueOf(beatW); i = i + 1) begin
+      result[i] = bram[offset+fromInteger(i)].response;
+    end
+
+    return packArray(result);
+  endfunction
+
+  function Action bramDeqBeat(Bit#(TLog#(wordW)) offset);
+    action
+      for (Integer i=0; i < valueOf(beatW); i = i + 1) begin
+        bram[offset+fromInteger(i)].deq;
+      end
+    endaction
+  endfunction
+
+  function Action
+    bramWriteBeat(Bit#(indexW) index, Bit#(TLog#(wordW)) offset, Byte#(beatW) data, Bit#(beatW) mask);
+    action
+      for (Integer i=0; i < valueOf(beatW); i = i + 1) begin
+        if (mask[i] == 1) bram[offset+fromInteger(i)].write(index, data[8*i+7:8*i]);
       end
     endaction
   endfunction
@@ -98,6 +141,7 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW));
     match {.index, .length} = acquireQ.first;
     acquireLength[0] <= Valid(length);
     acquireIndex[0] <= index;
+    acquireOffset[0] <= 0;
     acquireQ.deq;
   endrule
 
@@ -105,68 +149,66 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW));
     let resp = rresponseQ.first;
     rresponseQ.deq;
 
-    $display("receive index: %h bytes: %h", acquireIndex[1], resp.bytes);
-    bramWrite(acquireIndex[1], resp.bytes, ~0);
+    bramWriteBeat(acquireIndex[1], acquireOffset[0], resp.bytes, ~0);
 
     if (length == 0) begin
       acquireDone.enq(?);
       acquireLength[1] <= Invalid;
     end else begin
-      acquireIndex[1] <= acquireIndex[1]+1;
+      let new_offset = newOffset(acquireOffset[1]);
+      if (new_offset == 0) acquireIndex[1] <= acquireIndex[1]+1;
       acquireLength[1] <= Valid(length - 1);
+      acquireOffset[1] <= new_offset;
     end
   endrule
 
   rule releaseReqRl
     if (releaseLength[1] matches tagged Valid .length);
+    bramReadBeat(releaseIndex[1], releaseOffset[1]);
     isReadWord.enq(False);
-    bramRead(releaseIndex[1]);
-    $display("read data req");
   endrule
 
   rule releaseRespRl
     if (releaseLength[0] matches tagged Valid .length &&& !isReadWord.first);
     isReadWord.deq;
-    bramDeq;
-
-    $display("read data resp");
+    bramDeqBeat(releaseOffset[0]);
 
     wrequestQ.enq(AXI4_WRequest{
       last: length == 0,
-      bytes: bramOut,
+      bytes: bramOutBeat(releaseOffset[0]),
       strb: ~0
     });
 
     if (length == 0) begin
       releaseLength[0] <= Invalid;
     end else begin
-      releaseIndex[0] <= releaseIndex[0] + 1;
+      let new_offset = newOffset(releaseOffset[0]);
+      if (new_offset == 0) releaseIndex[0] <= releaseIndex[0] + 1;
       releaseLength[0] <= Valid(length-1);
+      releaseOffset[0] <= new_offset;
     end
   endrule
-
 
   method Action readWord(Bit#(indexW) index);
     action
       isReadWord.enq(True);
-      bramRead(index);
+      bramReadWord(index);
     endaction
   endmethod
 
   method ActionValue#(Byte#(wordW)) readWordAck if (isReadWord.first);
     actionvalue
-      bramDeq;
+      bramDeqWord;
       isReadWord.deq;
-      return bramOut;
+      return bramOutWord;
     endactionvalue
   endmethod
 
-  method writeWord = bramWrite;
+  method writeWord = bramWriteWord;
 
   method Action acquireLine(Bit#(addrW) address, Bit#(indexW) index, Bit#(8) length)
     if (started);
     action
-      $display("acquire address: %h index: %h length: %h", address, index, {1'b0,length}+1);
       acquireQ.enq(tuple2(index, length));
 
       rrequestQ.enq(AXI4_RRequest{
@@ -180,7 +222,6 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW));
 
   method Action acquireLineAck;
     action
-      $display("acquire ack");
       acquireDone.deq;
     endaction
   endmethod
@@ -188,9 +229,9 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW));
   method Action releaseLine(Bit#(addrW) address, Bit#(indexW) index, Bit#(8) length)
     if (started && releaseLength[0] == Invalid);
     action
+      releaseOffset[0] <= 0;
       releaseIndex[0] <= index;
       releaseLength[0] <= Valid(length);
-      $display("release address: %h index: %h length: %h", address, index, {1'b0,length}+1);
 
       awrequestQ.enq(AXI4_AWRequest{
         length: length,
@@ -206,7 +247,6 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW));
       wresponseQ.deq;
     endaction
   endmethod
-
 
   method Action setID(Bit#(4) x) if (!started);
     action
@@ -227,10 +267,15 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW));
   endinterface
 endmodule
 
+(* synthesize *)
+module mkClassicDataRam(DataRam#(4, 32, 10, 16, 4));
+  let out <- mkDataRam;
+  return out;
+endmodule
 
 (* synthesize *)
 module mkTestDataRam(Empty);
-  DataRam#(4, 32, 10, 4) cache <- mkDataRam;
+  DataRam#(4, 32, 10, 16, 4) cache <- mkClassicDataRam;
   AXI4_Slave#(4, 32, 4) rom <-
     mkRom(RomConfig{name: "Mem.hex", start: 'h80000000, size: 'h10000});
 
@@ -246,44 +291,28 @@ module mkTestDataRam(Empty);
   Stmt stmt = seq
     par
       cache.setID(0);
-      par
-        cache.acquireLine('h80000000, 0, 255);
-        cache.acquireLineAck();
-        cache.acquireLine('h80000000, 0, 255);
-        cache.acquireLineAck();
-        cache.acquireLine('h80000000, 0, 255);
-        cache.acquireLineAck();
-        cache.acquireLine('h80000000, 0, 255);
-        cache.acquireLineAck();
-        cache.acquireLine('h80000000, 0, 255);
-        cache.acquireLineAck();
-      endpar
+      cache.acquireLine('h80000000, 0, 16);
+      cache.acquireLineAck();
+    endpar
+
+    cache.writeWord(0, 0, -1);
+
+    par
+      cache.releaseLine('h80000000, 0, 16);
+      cache.releaseLineAck();
     endpar
 
     par
-      cache.readWord(25);
+      cache.acquireLine('h80000000, 4, 16);
+      cache.acquireLineAck();
+    endpar
+
+    par
+      cache.readWord(4);
       action
         let x <- cache.readWordAck();
         $display("read value x: %h ", x, cycle);
       endaction
-      cache.readWord(25);
-      action
-        let x <- cache.readWordAck();
-        $display("read value x: %h ", x, cycle);
-      endaction
-
-      $display(cycle);
-      cache.releaseLine('h80000000, 0, 15);
-      action
-        cache.releaseLineAck;
-        $display(cycle);
-      endaction
-      cache.releaseLine('h80000000, 0, 15);
-      action
-        cache.releaseLineAck;
-        $display(cycle);
-      endaction
-
     endpar
   endseq;
 
@@ -294,7 +323,3 @@ module mkTestDataRam(Empty);
   endrule
 
 endmodule
-
-
-
-

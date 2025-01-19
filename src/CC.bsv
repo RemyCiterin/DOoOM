@@ -24,208 +24,110 @@ import Connectable :: *;
 import DataRam :: *;
 
 import TestBench :: *;
+import LinkList :: *;
 
-typedef 8 LengthW;
-typedef 4 SourceW;
-typedef 4 SinkW;
+// size is the maximum number of parallel cache miss on different cache blocks
+interface MSHR#(numeric type nMSHR, numeric type nEntry, type addrT, type entryT);
+  // allocate a new request, and return the new allocated mshr, or Invalid if the address was
+  // already being acquire by an mshr
+  method ActionValue#(Maybe#(Bit#(TLog#(nMSHR)))) allocate(addrT address, entryT entry);
 
-typedef enum {M, S, I} Perms deriving(Bits, FShow, Eq);
+  // free one element of the linked-list of entries associated to an mshr
+  method ActionValue#(entryT) freeEntry(Bit#(TLog#(nMSHR)) mshr);
 
-/* Acquire request */
-typedef struct {
-  Perms perms;          // requested permissions
-  Bit#(a) address;      // aligned address to the begining of the cache line
-  Bit#(LengthW) length; // from 1 to 256
-  Bit#(SourceW) source; // Up to 16 sources to translate it to 16 possible AXI4 ids
-} Acquire#(numeric type a) deriving(Bits, FShow, Eq);
-
-typedef struct {
-  Perms perms;           // restrict the premission to a given value
-  Bit#(SourceW) source; // source identifier
-  Bit#(LengthW) length; // length of the invalidated burst
-  Bit#(a) address;      // address of the first invalidated beat
-} Invalidate#(numeric type a)
-deriving(Bits, FShow, Eq);
-
-typedef struct {
-  Bit#(SourceW) source;
-} InvalidateAck
-deriving(Bits, FShow, Eq);
-
-typedef struct {
-  Bit#(SourceW) source;
-  Bit#(SinkW) sink;
-} Grant
-deriving(Bits, FShow, Eq);
-
-typedef struct {
-  Bit#(SinkW) sink;
-  Bit#(SourceW) source;
-} GrantAck
-deriving(Bits, FShow, Eq);
-
-interface Master#(numeric type a);
-  interface Get#(Acquire#(a)) acquire;
-  interface Put#(Invalidate#(a)) invalidate;
-  interface Get#(InvalidateAck) invalidateAck;
-  interface Put#(Grant) grant;
-  interface Get#(GrantAck) grantAck;
+  // free an mshr
+  method Action free(Bit#(TLog#(nMSHR)) mshr);
 endinterface
 
-interface Slave#(numeric type a);
-  interface Put#(Acquire#(a)) acquire;
-  interface Get#(Invalidate#(a)) invalidate;
-  interface Put#(InvalidateAck) invalidateAck;
-  interface Get#(Grant) grant;
-  interface Put#(GrantAck) grantAck;
-endinterface
+module mkMSHR(MSHR#(nMSHR, nEntry, Bit#(addrW), entryT))
+  provisos( Bits#(entryT, entryW) );
 
-typedef Bit#(4) AcquireIndex;
+  Reg#(Bit#(nMSHR)) valids <- mkReg(0);
+  Vector#(nMSHR, Reg#(Bit#(addrW))) addresses <- replicateM(mkReg(?));
+  Vector#(nMSHR, Reg#(Maybe#(Bit#(TLog#(nEntry))))) heads <- replicateM(mkReg(?));
+  Vector#(nMSHR, Reg#(Maybe#(Bit#(TLog#(nEntry))))) tails <- replicateM(mkReg(?));
 
-typedef struct {
-  Acquire#(a) request;                   // initial request
-  Bit#(TAdd#(SourceW, 1)) invalidations; // number of received invalidations
-} SnoopState#(numeric type a)
-deriving(Bits, FShow, Eq);
+  RegFile#(Bit#(TLog#(nEntry)), entryT) entries <- mkRegFileFull;
+  LinkList#(TLog#(nEntry)) lists <- mkLinkList;
 
-typedef struct {
-  Bit#(SourceW) source; // index in the source list
-  Bit#(LengthW) length;
-  Bit#(addrW) address;
-  Perms perms;
-} InvalidateState#(numeric type addrW)
-deriving(Bits, FShow, Eq);
+  function Maybe#(Bit#(TLog#(nMSHR))) getMSHR(Bit#(addrW) addr);
+    Bit#(nMSHR) found = ?;
 
-module mkSlave
-    #(Integer lineSize, Bit#(SinkW) sinkId, Array#(Bit#(SourceW)) sources)
-    (Slave#(addrW));
-
-  RegFile#(AcquireIndex, Maybe#(SnoopState#(addrW))) states
-    <- mkRegFileFullInit(Invalid);
-
-  Fifo#(4, AcquireIndex) waitGrantAckQ[arrayLength(sources)];
-  Fifo#(4, AcquireIndex) waitInvalidateAckQ[arrayLength(sources)];
-
-  for (Integer i=0; i < arrayLength(sources); i = i + 1) begin
-    waitInvalidateAckQ[i] <- mkPipelineFifo;
-    waitGrantAckQ[i] <- mkPipelineFifo;
-  end
-
-  function AcquireIndex getAcquireIndex(Bit#(addrW) addr);
-    return addr[3 + log(lineSize):log(lineSize)];
-  endfunction
-
-  function Integer getSourceIndex(Bit#(SourceW) source);
-    Integer result = 0;
-
-    for (Integer i=0; i < arrayLength(sources); i = i + 1) begin
-      if (sources[i] == source) result = i;
+    for (Integer i=0; i < valueOf(nMSHR); i = i + 1) begin
+      found[i] = addr == addresses[i] && valids[i] == 1 ? 1 : 0;
     end
 
-    return result;
+    return case (firstOneFrom(found, 0)) matches
+      Invalid : firstOneFrom(valids, 0);
+      tagged Valid .x : Valid(x);
+    endcase;
   endfunction
 
-  Fifo#(1, Acquire#(addrW)) acquireQ <- mkPipelineFifo;
-  Fifo#(1, InvalidateAck) invalidateAckQ <- mkPipelineFifo;
-  Fifo#(1, Grant) grantQ <- mkBypassFifo;
+  method ActionValue#(Maybe#(Bit#(TLog#(nMSHR)))) allocate(Bit#(addrW) addr, entryT entry);
+    actionvalue
+      case (getMSHR(addr)) matches
+        Invalid : begin
+          when(False, noAction);
+          return ?;
+        end
+        tagged Valid .mshr : begin
+          valids[mshr] <= 1;
+          addresses[mshr] <= addr;
 
-  Reg#(Maybe#(InvalidateState#(addrW))) invalidateState <- mkReg(Invalid);
+          case (tails[mshr]) matches
+            Invalid : begin
+              let index <- lists.init();
+              heads[mshr] <= Valid(index);
+              tails[mshr] <= Valid(index);
+              entries.upd(index, entry);
+            end
+            tagged Valid .tail : begin
+              let new_tail <- lists.pushTail(tail);
+              tails[mshr] <= Valid(new_tail);
+              entries.upd(new_tail, entry);
+            end
+          endcase
 
-  function Action startGrant(AcquireIndex index, Acquire#(addrW) req);
+          return valids[mshr] == 1 ? Valid(mshr) : Invalid;
+        end
+      endcase
+    endactionvalue
+  endmethod
+
+  method Action free(Bit#(TLog#(nMSHR)) mshr);
     action
-      let sourceIndex = getSourceIndex(req.source);
-      waitGrantAckQ[sourceIndex].enq(index);
-
-      grantQ.enq(Grant{
-        source: req.source,
-        sink: sinkId
-      });
+      when(heads[mshr] == Invalid, action valids[mshr] <= 0; endaction);
     endaction
-  endfunction
+  endmethod
 
-  rule acquireRl
-    if (states.sub(getAcquireIndex(acquireQ.first.address)) == Invalid &&&
-    invalidateState matches Invalid);
+  method ActionValue#(entryT) freeEntry(Bit#(TLog#(nMSHR)) mshr);
+    actionvalue
+      case (heads[mshr]) matches
+        Invalid : begin
+          when(False, noAction);
+          return ?;
+        end
+        tagged Valid .head : begin
+          lists.popHead(head);
 
-    states.upd(getAcquireIndex(acquireQ.first.address), Valid(SnoopState{
-      request: acquireQ.first,
-      invalidations: 0
-    }));
+          case (lists.next(head)) matches
+            tagged Valid .hd : heads[mshr] <= Valid(hd);
+            Invalid : begin
+              heads[mshr] <= Invalid;
+              tails[mshr] <= Invalid;
+            end
+          endcase
 
-    invalidateState <= Valid(InvalidateState{
-      address: acquireQ.first.address,
-      length: acquireQ.first.length,
-      perms: acquireQ.first.perms,
-      source: 0 // index 0 in "sources"
-    });
-
-    acquireQ.deq;
-  endrule
-
-  rule invalidateAckRl;
-    let sourceIndex = getSourceIndex(invalidateAckQ.first.source);
-    let acquireIndex = waitInvalidateAckQ[sourceIndex].first;
-    waitInvalidateAckQ[sourceIndex].deq;
-    invalidateAckQ.deq;
-
-    let state = unJust(states.sub(acquireIndex));
-
-    states.upd(acquireIndex, Valid(SnoopState{
-      invalidations: state.invalidations + 1,
-      request: state.request
-    }));
-
-    if (state.invalidations == fromInteger(arrayLength(sources)-1)) begin
-      /* Start grant operation */
-      startGrant(acquireIndex, state.request);
-    end
-  endrule
-
-  interface acquire = toPut(acquireQ);
-  interface invalidateAck = toPut(invalidateAckQ);
-  interface grant = toGet(grantQ);
-
-  interface Get invalidate;
-    method ActionValue#(Invalidate#(addrW)) get
-      if (invalidateState matches tagged Valid .st);
-      actionvalue
-        if (st.source == fromInteger(arrayLength(sources)-1))
-          invalidateState <= Invalid;
-        else
-          invalidateState <= Valid(InvalidateState{
-            address: st.address,
-            source: st.source+1,
-            length: st.length,
-            perms: st.perms
-          });
-
-        waitInvalidateAckQ[sources[st.source]].enq(getAcquireIndex(st.address));
-
-        return Invalidate{
-          perms: st.perms == M ? I : S,
-          address: st.address,
-          length: st.length,
-          source: sources[st.source]
-        };
-      endactionvalue
-    endmethod
-  endinterface
-
-  interface Put grantAck;
-    method Action put(GrantAck ack);
-      action
-        let sourceIndex = getSourceIndex(ack.source);
-        let acquireIndex = waitGrantAckQ[sourceIndex].first;
-        states.upd(acquireIndex, Invalid);
-        waitGrantAckQ[sourceIndex].deq;
-      endaction
-    endmethod
-  endinterface
+          return entries.sub(head);
+        end
+      endcase
+    endactionvalue
+  endmethod
 endmodule
 
 
 // For the moment this cache doesn't have any data, on permissions
-interface Cache#(type tagT, type indexT, type offsetT);
+interface CacheCore#(type wayT, type tagT, type indexT, type offsetT);
   // Start a memory operation
   method Action start(indexT index, offsetT offset);
 
@@ -240,13 +142,17 @@ interface Cache#(type tagT, type indexT, type offsetT);
   method Action setID(Bit#(4) id);
 endinterface
 
-module mkCache(Cache#(Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
+module mkCacheCore(CacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
   provisos(Add#(tagW, __a, 32), Add#(indexW, __b, __a));
-  RWBram#(Bit#(indexW), Bit#(tagW)) tagRam <- mkRWBram;
-  RWBram#(Bit#(indexW), Bool) validRam <- mkRWBram;
-  RWBram#(Bit#(indexW), Bool) dirtyRam <- mkRWBram;
+  Vector#(TExp#(wayW), RWBram#(Bit#(indexW), Bit#(tagW))) tagRam <- replicateM(mkRWBram);
+  Vector#(TExp#(wayW), RWBram#(Bit#(indexW), Bool)) validRam <- replicateM(mkRWBram);
+  Vector#(TExp#(wayW), RWBram#(Bit#(indexW), Bool)) dirtyRam <- replicateM(mkRWBram);
 
-  DataRam#(1, 32, TAdd#(indexW, offsetW), 4) dataRam <- mkDataRam;
+  // One waiting acquire request
+  // 32 bits of address
+  // AXI4 bus is 4 bytes wide
+  // CPU bus is 4 bytes wide
+  DataRam#(1, 32, TAdd#(TAdd#(wayW, indexW), offsetW), 4, 4) dataRam <- mkDataRam;
 
   Fifo#(1, Bit#(offsetW)) offsetQ <- mkPipelineFifo;
   Fifo#(1, Bit#(indexW))  indexQ <- mkPipelineFifo;
@@ -254,26 +160,37 @@ module mkCache(Cache#(Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
   Fifo#(1, Bit#(32))      dataQ <- mkPipelineFifo;
   Fifo#(1, Bit#(4))       maskQ <- mkPipelineFifo;
   Fifo#(1, Bit#(tagW))    tagQ <- mkPipelineFifo;
+  Fifo#(1, Bit#(wayW))    wayQ <- mkPipelineFifo;
 
   // Length of a cache line
   Bit#(8) length = fromInteger(valueOf(TExp#(offsetW))-1);
+  Integer ways = valueOf(TExp#(wayW));
 
-  function Action doMiss(Bit#(tagW) tag, Bool read, Bit#(32) data, Bit#(4) mask);
+  Reg#(Bit#(wayW)) randomWay <- mkReg(0);
+
+  function Action doMiss(Bit#(wayW) way, Bit#(tagW) tag, Bool read, Bit#(32) data, Bit#(4) mask);
     action
       let index = indexQ.first;
       readQ.enq(read);
       dataQ.enq(data);
       maskQ.enq(mask);
       tagQ.enq(tag);
+      wayQ.enq(way);
     endaction
   endfunction
 
   Reg#(Bit#(indexW)) initIndex <- mkReg(0);
   Reg#(Bool) started <- mkReg(False);
 
+  rule randomStep;
+    randomWay <= randomWay + 1;
+  endrule
+
   /* Initialize all the permissions in the cache */
   rule startRl if (!started);
-    validRam.write(initIndex, False);
+    for (Integer i=0; i < ways; i = i + 1) begin
+      validRam[i].write(initIndex, False);
+    end
 
     if (initIndex+1 == 0) started <= True;
     initIndex <= initIndex + 1;
@@ -281,8 +198,9 @@ module mkCache(Cache#(Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
 
   rule releaseLineAck;
     let tag = tagQ.first;
+    let way = wayQ.first;
     let index = indexQ.first;
-    dataRam.acquireLine({tag, index, 0}, {index, 0}, length);
+    dataRam.acquireLine({tag, index, 0}, {way, index, 0}, length);
     dataRam.releaseLineAck;
   endrule
 
@@ -290,30 +208,33 @@ module mkCache(Cache#(Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
     dataRam.acquireLineAck;
 
     let tag <- toGet(tagQ).get;
+    let way <- toGet(wayQ).get;
     let read <- toGet(readQ).get;
     let data <- toGet(dataQ).get;
     let mask <- toGet(maskQ).get;
     let index <- toGet(indexQ).get;
     let offset <- toGet(offsetQ).get;
-    validRam.write(index, True);
-    tagRam.write(index, tag);
+    validRam[way].write(index, True);
+    tagRam[way].write(index, tag);
 
     if (read) begin
-      dirtyRam.write(index, False);
-      dataRam.readWord({index, offset});
+      dirtyRam[way].write(index, False);
+      dataRam.readWord({way, index, offset});
     end else begin
-      dirtyRam.write(index, True);
-      dataRam.writeWord({index, offset}, data, mask);
+      dirtyRam[way].write(index, True);
+      dataRam.writeWord({way, index, offset}, data, mask);
     end
   endrule
 
   method Action start(Bit#(indexW) index, Bit#(offsetW) offset) if (started);
     action
-      tagRam.read(index);
-      validRam.read(index);
-      dirtyRam.read(index);
-      offsetQ.enq(offset);
       indexQ.enq(index);
+      offsetQ.enq(offset);
+      for (Integer w=0; w < ways; w = w + 1) begin
+        tagRam[w].read(index);
+        validRam[w].read(index);
+        dirtyRam[w].read(index);
+      end
     endaction
   endmethod
 
@@ -322,12 +243,24 @@ module mkCache(Cache#(Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
     action
       let index = indexQ.first;
       let offset = offsetQ.first;
-      let tag = tagRam.response;
-      let valid = validRam.response;
-      let dirty = dirtyRam.response;
-      dirtyRam.deq;
-      validRam.deq;
-      tagRam.deq;
+
+      Bool dirty = ?;
+      Bit#(tagW) tag = ?;
+      Bool valid = False;
+      Bit#(wayW) way = 0;
+      for (Integer i=0; i < ways; i = i + 1) begin
+        let found = tagRam[i].response == t && validRam[i].response;
+
+        if (found || (fromInteger(i) == randomWay && !valid)) begin
+          valid = validRam[i].response;
+          dirty = dirtyRam[i].response;
+          tag = tagRam[i].response;
+          way = fromInteger(i);
+        end
+        dirtyRam[i].deq;
+        validRam[i].deq;
+        tagRam[i].deq;
+      end
 
       if (t == tag && valid) begin
         // Cache hit
@@ -335,21 +268,21 @@ module mkCache(Cache#(Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
         indexQ.deq;
 
         if (read) begin
-          dataRam.readWord({index, offset});
+          dataRam.readWord({way, index, offset});
         end else begin
-          dirtyRam.write(index, True);
-          dataRam.writeWord({index, offset}, data, mask);
+          dirtyRam[way].write(index, True);
+          dataRam.writeWord({way, index, offset}, data, mask);
         end
 
       end else if (dirty && valid) begin
         // Release then acquire
-        doMiss(t, read, data, mask);
-        dataRam.releaseLine({tag, index, 0}, {index, 0}, length);
+        doMiss(way, t, read, data, mask);
+        dataRam.releaseLine({tag, index, 0}, {way, index, 0}, length);
         $display("start release");
       end else begin
         // Acquire
-        doMiss(t, read, data, mask);
-        dataRam.acquireLine({t, index, 0}, {index, 0}, length);
+        doMiss(way, t, read, data, mask);
+        dataRam.acquireLine({t, index, 0}, {way, index, 0}, length);
       end
     endaction
   endmethod
@@ -361,8 +294,14 @@ module mkCache(Cache#(Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
 endmodule
 
 (* synthesize *)
+module mkClassicCacheCore(CacheCore#(Bit#(2), Bit#(20), Bit#(6), Bit#(4)));
+  let out <- mkCacheCore();
+  return out;
+endmodule
+
+(* synthesize *)
 module mkTestCache(Empty);
-  Cache#(Bit#(20), Bit#(6), Bit#(4)) cache <- mkCache;
+  CacheCore#(Bit#(2), Bit#(20), Bit#(6), Bit#(4)) cache <- mkClassicCacheCore;
   AXI4_Slave#(4, 32, 4) rom <-
     mkRom(RomConfig{name: "Mem.hex", start: 'h80000000, size: 'h10000});
 
@@ -407,8 +346,33 @@ module mkTestCache(Empty);
       readAck();
       write(base, 0, 0, 'h55555555);
     endpar
-    read(base+1, 0, 0);
-    readAck();
+
+    par
+      read(base, 0, 1);
+      read(base, 0, 2);
+      read(base, 0, 3);
+      read(base, 0, 4);
+      read(base, 0, 5);
+      read(base, 0, 6);
+      read(base, 0, 7);
+      read(base, 0, 8);
+      read(base, 0, 9);
+      read(base, 0, 10);
+      read(base, 0, 11);
+      read(base, 0, 12);
+      readAck();
+      readAck();
+      readAck();
+      readAck();
+      readAck();
+      readAck();
+      readAck();
+      readAck();
+      readAck();
+      readAck();
+      readAck();
+      readAck();
+    endpar
 
   endseq;
 

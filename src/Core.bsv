@@ -156,7 +156,7 @@ module mkCoreOOO(Core_IFC);
   function Action fn_dispatch(FromDecode decoded);
     action
       let rob_result = (decoded.exception ?
-        tagged Valid (tagged Error {cause: decoded.cause, tval: decoded.tval}) :
+        Valid(tagged Error {cause: decoded.cause, tval: decoded.tval}) :
         Invalid
       );
 
@@ -212,7 +212,7 @@ module mkCoreOOO(Core_IFC);
       if (verbose)
         $display("  wb %h ", entry.pc, displayInstr(entry.instr));
 
-      if (entry.tag != EXEC_TAG_DIRECT)
+      if (result matches tagged Ok .* &&& entry.tag != EXEC_TAG_DIRECT)
         csr.increment_instret;
 
       case (result) matches
@@ -225,14 +225,14 @@ module mkCoreOOO(Core_IFC);
           if (next_pc != entry.pred_pc) begin
             fetch.trainMis(BranchPredTrain{
               pc: entry.pc,
-              instr: tagged Valid entry.instr,
+              instr: Valid(entry.instr),
               next_pc: next_pc,
               state: entry.bpred_state
             });
           end else begin
             fetch.trainHit(BranchPredTrain{
               pc: entry.pc,
-              instr: tagged Valid entry.instr,
+              instr: Valid(entry.instr),
               next_pc: next_pc,
               state: entry.bpred_state
             });
@@ -401,9 +401,9 @@ module mkCoreOOO(Core_IFC);
   endrule
 
   // Use 1 instead of 0 to ensure we don't display during initialisation
-  // rule print_stats if (hitpred_instr[9:0] == 1);
-  //   $display("hit bpred: %d  mis bpred: %d", hitpred_instr, mispred_instr);
-  // endrule
+  rule print_stats if (hitpred_instr[15:0] == 1);
+    $display("hit bpred: %d  mis bpred: %d", hitpred_instr, mispred_instr);
+  endrule
 
   interface RdAXI4_Lite_Master rd_imem;
     interface request = fetch.rrequest;

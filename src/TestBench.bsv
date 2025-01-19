@@ -1,6 +1,5 @@
 package TestBench;
 
-import Core :: *;
 import AXI4 :: *;
 import AXI4_Lite :: *;
 import Utils :: *;

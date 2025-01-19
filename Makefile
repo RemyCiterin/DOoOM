@@ -5,7 +5,9 @@ PACKAGES = ./src/:+
 SIM_FILE = ./build/mkTop_sim
 TOP = src/Top.bs
 
-SIM_MODULE = mkCPU_SIM
+BSIM_MODULE = mkCPU_SIM
+
+BUILD_MODULE = mkCPU
 
 
 LIB = \
@@ -29,13 +31,21 @@ VGA_LIB = \
 			src/vga2dvid.v
 
 BSC_FLAGS = -show-schedule -show-range-conflict -keep-fires -aggressive-conditions \
-						-check-assert -no-warn-action-shadowing
+						-check-assert -no-warn-action-shadowing -sched-dot
 
 SYNTH_FLAGS = -bdir $(BUILD) -vdir $(RTL) -simdir $(BUILD) \
 							-info-dir $(BUILD) -fdir $(BUILD) -D BSIM
 
 BSIM_FLAGS = -bdir $(BSIM) -vdir $(BSIM) -simdir $(BSIM) \
 							-info-dir $(BSIM) -fdir $(BSIM) -D BSIM -l pthread
+
+DOT_FILES = $(shell ls ./build/*.dot)
+
+svg:
+	$(foreach f, $(DOT_FILES), sed -i '/_ehr_canon/d' $(f);)
+	$(foreach f, $(DOT_FILES), sed -i '/_block_ram_apply_read/d' $(f);)
+	$(foreach f, $(DOT_FILES), sed -i '/_block_ram_apply_write/d' $(f);)
+	$(foreach f, $(DOT_FILES), dot -Tsvg $(f) > $(f:.dot=.svg);)
 
 test:
 	elf_to_hex/elf_to_hex soft/zig-out/bin/zig-unix.elf Mem.hex
@@ -50,16 +60,15 @@ test_rust:
 compile:
 	bsc \
 		$(SYNTH_FLAGS) $(BSC_FLAGS) -cpp +RTS -K128M -RTS \
-		-p $(PACKAGES) -verilog -u -g mkCPU $(TOP)
-
+		-p $(PACKAGES) -verilog -u -g $(BUILD_MODULE) $(TOP)
 
 link:
 	bsc -e mkCPU -verilog -o $(SIM_FILE) -vdir $(RTL) -bdir $(BUILD) \
-		-info-dir $(BUILD) -vsim iverilog $(RTL)/mkCPU.v
+		-info-dir $(BUILD) -vsim iverilog $(RTL)/$(BUILD_MODULE).v
 
 sim:
-	bsc $(BSC_FLAGS) $(BSIM_FLAGS) -p $(PACKAGES) -sim -u -g $(SIM_MODULE) $(TOP)
-	bsc $(BSC_FLAGS) $(BSIM_FLAGS) -sim -e $(SIM_MODULE) -o \
+	bsc $(BSC_FLAGS) $(BSIM_FLAGS) -p $(PACKAGES) -sim -u -g $(BSIM_MODULE) $(TOP)
+	bsc $(BSC_FLAGS) $(BSIM_FLAGS) -sim -e $(BSIM_MODULE) -o \
 		$(BSIM)/bsim $(BSIM)/*.ba
 	./bsim/bsim -m 10000000
 

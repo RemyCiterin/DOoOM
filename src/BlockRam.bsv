@@ -97,12 +97,12 @@ module mkRWBramOfSize#(Integer size) (RWBram#(addrT, dataT))
   let rdValid = isJust(currentRdAddr.wget);
 
   (* no_implicit_conditions, fire_when_enabled *)
-  rule apply_write if (wrValid);
+  rule block_ram_apply_write if (wrValid);
     wrPort.put(True, wrAddr, wrData);
   endrule
 
   (* fire_when_enabled *)
-  rule apply_read if (rdValid && rsp.notFull());
+  rule block_ram_apply_read if (rdValid && rsp.notFull());
     let data = (wrValid && wrAddr == rdAddr ? Valid(wrData) : Invalid);
     rdPort.put(False, rdAddr, ?);
     rsp.enq(data);
