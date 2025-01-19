@@ -531,6 +531,66 @@ module mkLoadStoreUnit2(LoadStoreUnit);
   endinterface
 endmodule
 
+interface LoadQueue;
+  // Stage 1
+  method Vector#(LqSize, RobIndex) index;
+  method Vector#(LqSize, Maybe#(Bit#(32))) addr;
+  method Vector#(LqSize, Data_Size) size;
+  method Vector#(LqSize, Bit#(32)) pc;
+  method Vector#(LqSize, Bool) sign;
+
+  // Stage 2
+  method Action wakeup(RobIndex idx, Bit#(32) value);
+
+  // Stage 3
+  method Action enq(LqIndex idx, IssueQueueEntry entry);
+endinterface
+
+(* synthesize *)
+module mkLoadQueue(LoadQueue);
+  Vector#(LqSize, Ehr#(2, IssueQueueEntry)) entryV <- replicateM(mkEhr(?));
+
+  function IssueQueueEntry getEntry(Ehr#(2, IssueQueueEntry) entry);
+    return entry[0];
+  endfunction
+
+  function RobIndex getIndex(IssueQueueEntry entry);
+    return entry.index;
+  endfunction
+
+  function Bit#(32) getPC(IssueQueueEntry entry);
+    return entry.pc;
+  endfunction
+
+  method index = map(compose(getIndex, getEntry), entryV);
+  method addr = map(compose(getIssueAddr, getEntry), entryV);
+  method size = map(compose(getIssueSize, getEntry), entryV);
+  method sign = map(compose(isSigned, getEntry), entryV);
+  method pc = map(compose(getPC, getEntry), entryV);
+
+  method Action wakeup(RobIndex idx, Bit#(32) value);
+    action
+      for (Integer i=0; i < valueOf(LqSize); i = i + 1) begin
+        IssueQueueEntry entry = entryV[i][0];
+
+        if (entry.rs1_val matches tagged Wait .x &&& x == idx)
+          entry.rs1_val = tagged Value value;
+
+        if (entry.rs2_val matches tagged Wait .x &&& x == idx)
+          entry.rs2_val = tagged Value value;
+
+        entryV[i][0] <= entry;
+      end
+    endaction
+  endmethod
+
+  method Action enq(LqIndex idx, IssueQueueEntry entry);
+    action
+      entryV[idx][1] <= entry;
+    endaction
+  endmethod
+endmodule
+
 // Choose if mkLoadStoreUnit3 use speculation
 Bool loadSpeculation = True;
 
@@ -559,7 +619,7 @@ module mkLoadStoreUnit3(LoadStoreUnit);
   QueueManager#(SqSize) storeM <- mkQueueManager(1, 0);
 
   // This queue contain all the loads to perform
-  Vector#(LqSize, Ehr#(2, IssueQueueEntry)) loadQ <- replicateM(mkEhr(?));
+  LoadQueue loadQ <- mkLoadQueue;
   // manage the load queue head, tail, valid bits...
   QueueManager#(LqSize) loadM <- mkQueueManager(1, 0);
 
@@ -585,7 +645,7 @@ module mkLoadStoreUnit3(LoadStoreUnit);
     Bit#(LqSize) subset = loadM.valid[0] & ~loadCommit[0];
 
     for (Integer i=0; i < valueOf(LqSize); i = i + 1) begin
-      if (getIssueAddr(loadQ[i][0]) matches Invalid)
+      if (loadQ.addr[i] matches Invalid)
         subset[i] = 0;
     end
 
@@ -606,7 +666,7 @@ module mkLoadStoreUnit3(LoadStoreUnit);
     //   We search only the oldest load
     for (Integer i=0; i < valueOf(LqSize); i = i + 1) begin
       if (loadM.valid[0][i] == 1 && loadCommit[0][i] == 1) begin
-        if (getIssueAddr(loadQ[i][0]) matches tagged Valid .a) begin
+        if (loadQ.addr[i] matches tagged Valid .a) begin
           if (!compatible(addr, a))
             subset[i] = 1;
         end
@@ -702,7 +762,7 @@ module mkLoadStoreUnit3(LoadStoreUnit);
   rule chooseLoadIndex if (
       chooseLoad matches tagged Valid .index
     );
-    let addr = unJust(getIssueAddr(loadQ[index][0]));
+    let addr = unJust(loadQ.addr[index]);
     Bit#(SqSize) mask = read_from[index][0];
 
     let conflict = searchConflictStore(addr, mask);
@@ -717,11 +777,11 @@ module mkLoadStoreUnit3(LoadStoreUnit);
       nextLoad.wget matches tagged Valid .index
     );
 
-    let addr = unJust(getIssueAddr(loadQ[index][0]));
+    let addr = unJust(loadQ.addr[index]);
 
     loadCommit[0][index] <= 1;
     rd_request_fifo.enq(Riscv_RRequest{
-      size: getIssueSize(loadQ[index][0]),
+      size: loadQ.size[index],
       addr: addr
     });
 
@@ -733,41 +793,30 @@ module mkLoadStoreUnit3(LoadStoreUnit);
   (* execution_order = "chooseLoadIndex, commit, deqLoadResponse, enqLoadRequest" *)
   rule deqLoadResponse;
     let index = loadF.first;
-    let entry = loadQ[index][0];
     let resp = rd_response_fifo.first;
     rd_response_fifo.deq;
     loadF.deq;
 
-    let data = case (getIssueSize(entry)) matches
-      Half: isSigned(entry) ?
+    let data = case (loadQ.size[index]) matches
+      Half: loadQ.sign[index] ?
         signExtend(resp.bytes[15:0]) : zeroExtend(resp.bytes[15:0]);
-      Byte: isSigned(entry) ?
+      Byte: loadQ.sign[index] ?
         signExtend(resp.bytes[7:0]) : zeroExtend(resp.bytes[7:0]);
       Word: resp.bytes;
     endcase;
 
     loadOutputs.enq(Tuple2{
-      fst: entry.index,
+      fst: loadQ.index[index],
       snd: tagged Ok {
         rd_val: data,
-        next_pc: entry.pc + 4
+        next_pc: loadQ.pc[index] + 4
       }
     });
   endrule
 
   method Action wakeup(RobIndex index, Bit#(32) value);
     action
-      for(Integer i=0; i < valueOf(LqSize); i = i + 1) begin
-        IssueQueueEntry entry = loadQ[i][0];
-
-        if (entry.rs1_val matches tagged Wait .idx &&& idx == index)
-          entry.rs1_val = tagged Value value;
-
-        if (entry.rs2_val matches tagged Wait .idx &&& idx == index)
-          entry.rs2_val = tagged Value value;
-
-        loadQ[i][0] <= entry;
-      end
+      loadQ.wakeup(index, value);
 
       for(Integer i=0; i < valueOf(SqSize); i = i + 1) begin
         IssueQueueEntry entry = storeQ[i][0];
@@ -783,13 +832,12 @@ module mkLoadStoreUnit3(LoadStoreUnit);
     endaction
   endmethod
 
-
   method Action enq(IssueQueueEntry entry);
     action
       if (isIssueLoad(entry)) begin
         read_from[loadM.tail[1]][1] <= storeM.valid[1];
         loadCommit[1][loadM.tail[1]] <= 0;
-        loadQ[loadM.tail[1]][1] <= entry;
+        loadQ.enq(loadM.tail[1], entry);
         isLoadF.enq(True);
         loadM.enq;
       end else begin
@@ -854,7 +902,7 @@ module mkLoadStoreUnit3(LoadStoreUnit);
           ) begin
 
             $display("load dependency misprediction");
-            return Exception(loadQ[l_id][0].index);
+            return Exception(loadQ.index[l_id]);
 
           end else
             return Success;

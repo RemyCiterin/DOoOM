@@ -28,6 +28,7 @@ runner = [
 rustflags = [
     "-C", "link-arg=-Tsrc/linker.ld",
     "-C", "opt-level=2",
+    "-C", "target-feature=+zicbom",
 ]
 
 [build]

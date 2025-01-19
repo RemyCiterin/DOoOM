@@ -42,21 +42,21 @@ typedef enum {
 
 function Maybe#(Optype) opcodeType(Opcode opcode);
   return case (opcode)
-    7'b0000011 : tagged Valid Itype; // LOAD
+    7'b0000011 : Valid(Itype); // LOAD
     7'b0000111 : Invalid;     // LOAD-FP
     7'b0001011 : Invalid;     // custom-0
-    7'b0001111 : tagged Valid Itype; // MISC-MEM (FENCE and FENCE_I)
-    7'b0010011 : tagged Valid Itype; // OP-IMM
-    7'b0010111 : tagged Valid Utype; // AUIPC
+    7'b0001111 : Valid(Itype); // MISC-MEM (FENCE and FENCE_I)
+    7'b0010011 : Valid(Itype); // OP-IMM
+    7'b0010111 : Valid(Utype); // AUIPC
     7'b0011011 : Invalid;     // OP-IMM-32
     7'b0011111 : Invalid;     // 48b
 
-    7'b0100011 : tagged Valid Stype; // STORE
+    7'b0100011 : Valid(Stype); // STORE
     7'b0100111 : Invalid;     // STORE-FP
     7'b0101011 : Invalid;     // custom-1
     7'b0101111 : Invalid;     // AMO
-    7'b0110011 : tagged Valid Rtype; // OP
-    7'b0110111 : tagged Valid Utype; // LUI
+    7'b0110011 : Valid(Rtype); // OP
+    7'b0110111 : Valid(Utype); // LUI
     7'b0111011 : Invalid;     // OP-32
     7'b0111111 : Invalid;     // 64b
 
@@ -69,11 +69,11 @@ function Maybe#(Optype) opcodeType(Opcode opcode);
     7'b1011011 : Invalid;    // custom2/rv128
     7'b1011111 : Invalid;    // 48b
 
-    7'b1100011 : tagged Valid Btype; // BRANCH
-    7'b1100111 : tagged Valid Itype; // JALR
+    7'b1100011 : Valid(Btype); // BRANCH
+    7'b1100111 : Valid(Itype); // JALR
     7'b1101011 : Invalid;     // reserved
-    7'b1101111 : tagged Valid Jtype; // JAL
-    7'b1110011 : tagged Valid Itype; // SYSTEM
+    7'b1101111 : Valid(Jtype); // JAL
+    7'b1110011 : Valid(Itype); // SYSTEM
     7'b1110111 : Invalid;     // reserved
     7'b1111011 : Invalid;     // custom3/rv128
     7'b1111111 : Invalid;     // 64b
@@ -347,12 +347,12 @@ endinstance
 
 function Maybe#(BOp) decodeBtype(Btype instr);
   return case (function3(instr))
-    3'b000 : tagged Valid BEQ;
-    3'b001 : tagged Valid BNE;
-    3'b100 : tagged Valid BLT;
-    3'b101 : tagged Valid BGE;
-    3'b110 : tagged Valid BLTU;
-    3'b111 : tagged Valid BGEU;
+    3'b000 : Valid(BEQ);
+    3'b001 : Valid(BNE);
+    3'b100 : Valid(BLT);
+    3'b101 : Valid(BGE);
+    3'b110 : Valid(BLTU);
+    3'b111 : Valid(BGEU);
     default : Invalid;
   endcase;
 endfunction
@@ -385,25 +385,25 @@ endinstance
 
 function Maybe#(ROp) decodeRtype(Rtype instr);
   return case (Tuple2{fst:function7(instr), snd:function3(instr)}) matches
-    Tuple2{fst: 7'b0000000, snd: 3'b000} : tagged Valid ADD;  // add
-    Tuple2{fst: 7'b0100000, snd: 3'b000} : tagged Valid SUB;  // sub
-    Tuple2{fst: 7'b0000000, snd: 3'b001} : tagged Valid SLL;  // shift left logic
-    Tuple2{fst: 7'b0000000, snd: 3'b010} : tagged Valid SLT;  // less than
-    Tuple2{fst: 7'b0000000, snd: 3'b011} : tagged Valid SLTU; // less than unsigned
-    Tuple2{fst: 7'b0000000, snd: 3'b100} : tagged Valid XOR;  // xor
-    Tuple2{fst: 7'b0000000, snd: 3'b101} : tagged Valid SRL;  // shift right logic
-    Tuple2{fst: 7'b0100000, snd: 3'b101} : tagged Valid SRA;  // shift right arithmetic
-    Tuple2{fst: 7'b0000000, snd: 3'b110} : tagged Valid OR;   // or
-    Tuple2{fst: 7'b0000000, snd: 3'b111} : tagged Valid AND;  // and
+    Tuple2{fst: 7'b0000000, snd: 3'b000} : Valid(ADD);  // add
+    Tuple2{fst: 7'b0100000, snd: 3'b000} : Valid(SUB);  // sub
+    Tuple2{fst: 7'b0000000, snd: 3'b001} : Valid(SLL);  // shift left logic
+    Tuple2{fst: 7'b0000000, snd: 3'b010} : Valid(SLT);  // less than
+    Tuple2{fst: 7'b0000000, snd: 3'b011} : Valid(SLTU); // less than unsigned
+    Tuple2{fst: 7'b0000000, snd: 3'b100} : Valid(XOR);  // xor
+    Tuple2{fst: 7'b0000000, snd: 3'b101} : Valid(SRL);  // shift right logic
+    Tuple2{fst: 7'b0100000, snd: 3'b101} : Valid(SRA);  // shift right arithmetic
+    Tuple2{fst: 7'b0000000, snd: 3'b110} : Valid(OR);   // or
+    Tuple2{fst: 7'b0000000, snd: 3'b111} : Valid(AND);  // and
 
-    Tuple2{fst: 7'b0000001, snd: 3'b000} : tagged Valid MUL;
-    Tuple2{fst: 7'b0000001, snd: 3'b001} : tagged Valid MULH;
-    Tuple2{fst: 7'b0000001, snd: 3'b010} : tagged Valid MULHSU;
-    Tuple2{fst: 7'b0000001, snd: 3'b011} : tagged Valid MULHU;
-    Tuple2{fst: 7'b0000001, snd: 3'b100} : tagged Valid DIV;
-    Tuple2{fst: 7'b0000001, snd: 3'b101} : tagged Valid DIVU;
-    Tuple2{fst: 7'b0000001, snd: 3'b110} : tagged Valid REM;
-    Tuple2{fst: 7'b0000001, snd: 3'b111} : tagged Valid REMU;
+    Tuple2{fst: 7'b0000001, snd: 3'b000} : Valid(MUL);
+    Tuple2{fst: 7'b0000001, snd: 3'b001} : Valid(MULH);
+    Tuple2{fst: 7'b0000001, snd: 3'b010} : Valid(MULHSU);
+    Tuple2{fst: 7'b0000001, snd: 3'b011} : Valid(MULHU);
+    Tuple2{fst: 7'b0000001, snd: 3'b100} : Valid(DIV);
+    Tuple2{fst: 7'b0000001, snd: 3'b101} : Valid(DIVU);
+    Tuple2{fst: 7'b0000001, snd: 3'b110} : Valid(REM);
+    Tuple2{fst: 7'b0000001, snd: 3'b111} : Valid(REMU);
     default : Invalid;
   endcase;
 endfunction
@@ -443,9 +443,9 @@ endinstance
 
 function Maybe#(SOp) decodeStype(Stype instr);
   return case (function3(instr))
-    3'b000 : tagged Valid SB;
-    3'b001 : tagged Valid SH;
-    3'b010 : tagged Valid SW;
+    3'b000 : Valid(SB);
+    3'b001 : Valid(SH);
+    3'b010 : Valid(SW);
     default : Invalid;
   endcase;
 endfunction
@@ -495,6 +495,9 @@ typedef union tagged {
   void SRAI;
   void FENCE;
   void FENCE_I;
+  void CBO_CLEAN;
+  void CBO_FLUSH;
+  void CBO_INVAL;
   void ECALL;
   void EBREAK;
   void CSRRW;
@@ -524,6 +527,9 @@ instance FShow#(IOp);
       SRAI : fshow("srai");
       FENCE : fshow("fence");
       FENCE_I : fshow("fence.i");
+      CBO_CLEAN : fshow("cbo.clean");
+      CBO_FLUSH : fshow("cbo.flush");
+      CBO_INVAL : fshow("cbo.inval");
       ECALL : fshow("ecall");
       EBREAK : fshow("ebreak");
       CSRRW : fshow("csrrw");
@@ -541,31 +547,31 @@ endinstance
 
 function Maybe#(IOp) decodeItype(Itype instr);
   case (opcode(instr))
-    7'b1100111 : return ((function3(instr) == 0) ? tagged Valid JALR : Invalid);
+    7'b1100111 : return ((function3(instr) == 0) ? Valid(JALR) : Invalid);
 
     7'b0000011 :
       return case (function3(instr))
-        3'b000 : tagged Valid (tagged Load LB);
-        3'b001 : tagged Valid (tagged Load LH);
-        3'b010 : tagged Valid (tagged Load LW);
-        3'b100 : tagged Valid (tagged Load LBU);
-        3'b101 : tagged Valid (tagged Load LHU);
+        3'b000 : Valid(tagged Load LB);
+        3'b001 : Valid(tagged Load LH);
+        3'b010 : Valid(tagged Load LW);
+        3'b100 : Valid(tagged Load LBU);
+        3'b101 : Valid(tagged Load LHU);
         default : Invalid;
       endcase;
 
     7'b0010011 :
       return case (function3(instr))
-        3'b000 : tagged Valid ADDI;
-        3'b010 : tagged Valid SLTI;
-        3'b011 : tagged Valid SLTIU;
-        3'b100 : tagged Valid XORI;
-        3'b110 : tagged Valid ORI;
-        3'b111 : tagged Valid ANDI;
-        3'b001 : ((immediateBits(instr)[11:5] == 0) ? tagged Valid SLLI : Invalid);
+        3'b000 : Valid(ADDI);
+        3'b010 : Valid(SLTI);
+        3'b011 : Valid(SLTIU);
+        3'b100 : Valid(XORI);
+        3'b110 : Valid(ORI);
+        3'b111 : Valid(ANDI);
+        3'b001 : ((immediateBits(instr)[11:5] == 0) ? Valid(SLLI) : Invalid);
         3'b101 : begin
           case (immediateBits(instr)[11:5])
-            0 : tagged Valid SRLI;
-            'b0100000 : tagged Valid SRAI;
+            0 : Valid(SRLI);
+            'b0100000 : Valid(SRAI);
             default : Invalid;
           endcase
         end
@@ -578,8 +584,15 @@ function Maybe#(IOp) decodeItype(Itype instr);
           destination(instr).name == 0)
         return
           case (function3(instr))
-            0 : tagged Valid FENCE;
-            1 : tagged Valid FENCE_I;
+            0 : Valid(FENCE);
+            1 : Valid(FENCE_I);
+            2 : begin
+              case (immediateBits(instr)[7:0]) matches
+                1 : Valid(CBO_CLEAN);
+                2 : Valid(CBO_FLUSH);
+                0 : Valid(CBO_INVAL);
+              endcase
+            end
             default : Invalid;
           endcase;
       else return Invalid;
@@ -590,20 +603,20 @@ function Maybe#(IOp) decodeItype(Itype instr);
           if (register1(instr).name != 0 || destination(instr).name != 0)
             return Invalid;
           else return case (immediateBits(instr))
-            //32'b000000000010 : tagged Valid (tagged Ret URET);
-            //32'b000100000010 : tagged Valid (tagged Ret SRET);
-            32'b001100000010 : tagged Valid (tagged Ret MRET);
-            32'b000100000101 : tagged Valid WFI;
-            0 : tagged Valid ECALL;
-            1 : tagged Valid EBREAK;
+            //32'b000000000010 : Valid(tagged Ret URET);
+            //32'b000100000010 : Valid(tagged Ret SRET);
+            32'b001100000010 : Valid(tagged Ret MRET);
+            32'b000100000101 : Valid(WFI);
+            0 : Valid(ECALL);
+            1 : Valid(EBREAK);
             default: Invalid;
           endcase;
-        3'b001 : return tagged Valid CSRRW;
-        3'b010 : return tagged Valid CSRRS;
-        3'b011 : return tagged Valid CSRRC;
-        3'b101 : return tagged Valid CSRRWI;
-        3'b110 : return tagged Valid CSRRSI;
-        3'b111 : return tagged Valid CSRRCI;
+        3'b001 : return Valid(CSRRW);
+        3'b010 : return Valid(CSRRS);
+        3'b011 : return Valid(CSRRC);
+        3'b101 : return Valid(CSRRWI);
+        3'b110 : return Valid(CSRRSI);
+        3'b111 : return Valid(CSRRCI);
         default : return Invalid;
       endcase
 
@@ -639,37 +652,37 @@ function Maybe#(Instr) decodeInstr(Bit#(32) instr);
   case (opcodeType(getOpcode(instr))) matches
     tagged Valid Rtype :
       return case (decodeRtype(unpack(instr))) matches
-        tagged Valid .op : tagged Valid (tagged Rtype{instr: unpack(instr), op:op});
+        tagged Valid .op : Valid(tagged Rtype{instr: unpack(instr), op:op});
         default: Invalid;
       endcase;
     tagged Valid Itype :
       return case (decodeItype(unpack(instr))) matches
-        tagged Valid .op : tagged Valid (tagged Itype{instr: unpack(instr), op:op});
+        tagged Valid .op : Valid(tagged Itype{instr: unpack(instr), op:op});
         default: Invalid;
       endcase;
     tagged Valid Btype :
       return case (decodeBtype(unpack(instr))) matches
-        tagged Valid .op : tagged Valid (tagged Btype{instr: unpack(instr), op:op});
+        tagged Valid .op : Valid(tagged Btype{instr: unpack(instr), op:op});
         default: Invalid;
       endcase;
     tagged Valid Stype :
       return case (decodeStype(unpack(instr))) matches
-        tagged Valid .op : tagged Valid (tagged Stype{instr: unpack(instr), op:op});
+        tagged Valid .op : Valid(tagged Stype{instr: unpack(instr), op:op});
         default: Invalid;
       endcase;
     tagged Valid Utype :
-    return tagged Valid (tagged Utype {instr: unpack(instr), op: decodeUtype(unpack(instr))});
+      return Valid(tagged Utype {instr: unpack(instr), op: decodeUtype(unpack(instr))});
     tagged Valid Jtype :
-      return tagged Valid (tagged Jtype (unpack(instr)));
+      return Valid(tagged Jtype (unpack(instr)));
     default : return Invalid;
   endcase
 endfunction
 
 function Maybe#(RegName) hasRegister1(Instr instr);
   return case (instr) matches
-    tagged Rtype {instr: .instr} : tagged Valid (register1(instr));
-    tagged Btype {instr: .instr} : tagged Valid (register1(instr));
-    tagged Stype {instr: .instr} : tagged Valid (register1(instr));
+    tagged Rtype {instr: .instr} : Valid(register1(instr));
+    tagged Btype {instr: .instr} : Valid(register1(instr));
+    tagged Stype {instr: .instr} : Valid(register1(instr));
 
     tagged Itype {op: FENCE} : Invalid;
     tagged Itype {op: FENCE_I} : Invalid;
@@ -680,7 +693,7 @@ function Maybe#(RegName) hasRegister1(Instr instr);
     tagged Itype {op: CSRRCI} : Invalid;
     tagged Itype {op: tagged Ret .v} : Invalid;
     tagged Itype {op: WFI} : Invalid;
-    tagged Itype {instr: .instr} : tagged Valid (register1(instr));
+    tagged Itype {instr: .instr} : Valid(register1(instr));
     default : Invalid;
   endcase;
 endfunction
@@ -696,9 +709,9 @@ endinstance
 
 function Maybe#(RegName) hasRegister2(Instr instr);
   return case (instr) matches
-    tagged Rtype {instr: .instr} : tagged Valid (register2(instr));
-    tagged Btype {instr: .instr} : tagged Valid (register2(instr));
-    tagged Stype {instr: .instr} : tagged Valid (register2(instr));
+    tagged Rtype {instr: .instr} : Valid(register2(instr));
+    tagged Btype {instr: .instr} : Valid(register2(instr));
+    tagged Stype {instr: .instr} : Valid(register2(instr));
     default : Invalid;
   endcase;
 endfunction
@@ -714,9 +727,9 @@ endinstance
 
 function Maybe#(RegName) hasDestination(Instr instr);
   return case (instr) matches
-      tagged Rtype {instr: .instr} : tagged Valid (destination(instr));
-      tagged Utype {instr: .instr} : tagged Valid (destination(instr));
-      tagged Jtype .instr : tagged Valid (destination(instr));
+      tagged Rtype {instr: .instr} : Valid(destination(instr));
+      tagged Utype {instr: .instr} : Valid(destination(instr));
+      tagged Jtype .instr : Valid(destination(instr));
 
       tagged Itype {op: FENCE} : Invalid;
       tagged Itype {op: FENCE_I} : Invalid;
@@ -724,7 +737,7 @@ function Maybe#(RegName) hasDestination(Instr instr);
       tagged Itype {op: EBREAK} : Invalid;
       tagged Itype {op: tagged Ret .val} : Invalid;
       tagged Itype {op: WFI} : Invalid;
-      tagged Itype {instr: .instr} : tagged Valid (destination(instr));
+      tagged Itype {instr: .instr} : Valid(destination(instr));
 
       default : Invalid;
   endcase;

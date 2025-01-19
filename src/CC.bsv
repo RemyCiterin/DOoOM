@@ -26,44 +26,54 @@ import DataRam :: *;
 import TestBench :: *;
 import LinkList :: *;
 
+// Return the index of the first one of a bit vector
+function Maybe#(Integer) searchOne(Bit#(a) value);
+  Maybe#(Integer) result = Invalid;
+
+  for (Integer i=0; i < valueOf(a); i = i + 1) begin
+    result = result == Invalid && value[i] == 1 ? Valid(i) : result;
+  end
+
+  return result;
+endfunction
+
 // size is the maximum number of parallel cache miss on different cache blocks
-interface MSHR#(numeric type nMSHR, numeric type nEntry, type addrT, type entryT);
-  // allocate a new request, and return the new allocated mshr, or Invalid if the address was
-  // already being acquire by an mshr
-  method ActionValue#(Maybe#(Bit#(TLog#(nMSHR)))) allocate(addrT address, entryT entry);
+interface MSHR#(numeric type numMSHR, numeric type numEntry, type addrT, type entryT);
+  // allocate a new request, and return the new allocated mshr, or Invalid if the address was already allocated
+  method ActionValue#(Maybe#(Bit#(TLog#(numMSHR)))) allocate(addrT address, entryT entry);
 
   // free one element of the linked-list of entries associated to an mshr
-  method ActionValue#(entryT) freeEntry(Bit#(TLog#(nMSHR)) mshr);
+  method ActionValue#(entryT) freeEntry(Bit#(TLog#(numMSHR)) mshr);
 
-  // free an mshr
-  method Action free(Bit#(TLog#(nMSHR)) mshr);
+  // free an mshr, only available if all it's sub-entries are already free
+  method Action free(Bit#(TLog#(numMSHR)) mshr);
 endinterface
 
-module mkMSHR(MSHR#(nMSHR, nEntry, Bit#(addrW), entryT))
+module mkMSHR(MSHR#(numMSHR, numEntry, Bit#(addrW), entryT))
   provisos( Bits#(entryT, entryW) );
 
-  Reg#(Bit#(nMSHR)) valids <- mkReg(0);
-  Vector#(nMSHR, Reg#(Bit#(addrW))) addresses <- replicateM(mkReg(?));
-  Vector#(nMSHR, Reg#(Maybe#(Bit#(TLog#(nEntry))))) heads <- replicateM(mkReg(?));
-  Vector#(nMSHR, Reg#(Maybe#(Bit#(TLog#(nEntry))))) tails <- replicateM(mkReg(?));
+  Reg#(Bit#(numMSHR)) valids <- mkReg(0);
+  Vector#(numMSHR, Reg#(Bit#(addrW))) addresses <- replicateM(mkReg(?));
+  Vector#(numMSHR, Reg#(Maybe#(Bit#(TLog#(numEntry))))) heads <- replicateM(mkReg(?));
+  Vector#(numMSHR, Reg#(Maybe#(Bit#(TLog#(numEntry))))) tails <- replicateM(mkReg(?));
 
-  RegFile#(Bit#(TLog#(nEntry)), entryT) entries <- mkRegFileFull;
-  LinkList#(TLog#(nEntry)) lists <- mkLinkList;
+  RegFile#(Bit#(TLog#(numEntry)), entryT) entries <- mkRegFileFull;
+  LinkList#(TLog#(numEntry)) lists <- mkLinkList;
 
-  function Maybe#(Bit#(TLog#(nMSHR))) getMSHR(Bit#(addrW) addr);
-    Bit#(nMSHR) found = ?;
+  function getMSHR(Bit#(addrW) addr);
+    Bit#(numMSHR) found = ?;
 
-    for (Integer i=0; i < valueOf(nMSHR); i = i + 1) begin
+    for (Integer i=0; i < valueOf(numMSHR); i = i + 1) begin
       found[i] = addr == addresses[i] && valids[i] == 1 ? 1 : 0;
     end
 
-    return case (firstOneFrom(found, 0)) matches
-      Invalid : firstOneFrom(valids, 0);
+    return case (searchOne(found)) matches
+      Invalid : searchOne(valids);
       tagged Valid .x : Valid(x);
     endcase;
   endfunction
 
-  method ActionValue#(Maybe#(Bit#(TLog#(nMSHR)))) allocate(Bit#(addrW) addr, entryT entry);
+  method ActionValue#(Maybe#(Bit#(TLog#(numMSHR)))) allocate(Bit#(addrW) addr, entryT entry);
     actionvalue
       case (getMSHR(addr)) matches
         Invalid : begin
@@ -88,19 +98,19 @@ module mkMSHR(MSHR#(nMSHR, nEntry, Bit#(addrW), entryT))
             end
           endcase
 
-          return valids[mshr] == 1 ? Valid(mshr) : Invalid;
+          return valids[mshr] == 1 ? Valid(fromInteger(mshr)) : Invalid;
         end
       endcase
     endactionvalue
   endmethod
 
-  method Action free(Bit#(TLog#(nMSHR)) mshr);
+  method Action free(Bit#(TLog#(numMSHR)) mshr);
     action
       when(heads[mshr] == Invalid, action valids[mshr] <= 0; endaction);
     endaction
   endmethod
 
-  method ActionValue#(entryT) freeEntry(Bit#(TLog#(nMSHR)) mshr);
+  method ActionValue#(entryT) freeEntry(Bit#(TLog#(numMSHR)) mshr);
     actionvalue
       case (heads[mshr]) matches
         Invalid : begin
@@ -125,6 +135,39 @@ module mkMSHR(MSHR#(nMSHR, nEntry, Bit#(addrW), entryT))
   endmethod
 endmodule
 
+typedef enum {
+  ADD, MIN, MAX, MINU, MAXU, XOR, OR, AND, SWAP
+} AtomicOP deriving(Bits, FShow, Eq);
+
+typedef enum {
+  Half, Word, Byte
+} SizeOP deriving(Bits, FShow, Eq);
+
+typedef enum {
+  Clean, Inval, Flush
+} CBO deriving(Bits, FShow, Eq);
+
+typedef union tagged {
+  CBO Invalidate; // Invalidate the cache block
+  struct {
+    Bit#(32) data;
+    Bit#(2) offset;
+    SizeOP size;
+  } Write;
+  struct {
+    SizeOP size;
+    AtomicOP op;
+    Bit#(2) offset;
+    Bit#(32) data;
+  } Atomic;
+  void Load;
+} MemOP deriving(Bits, FShow, Eq);
+
+//function Tuple2#(Bit#(32), Bit#(32)) doAtomic(SizeOP size, AtomicOP op, Bit#(32) data, Bit#(32) memval);
+//  case (op) matches
+//    Word : begin
+//    end
+//endfunction
 
 // For the moment this cache doesn't have any data, on permissions
 interface CacheCore#(type wayT, type tagT, type indexT, type offsetT);
@@ -304,6 +347,9 @@ module mkTestCache(Empty);
   CacheCore#(Bit#(2), Bit#(20), Bit#(6), Bit#(4)) cache <- mkClassicCacheCore;
   AXI4_Slave#(4, 32, 4) rom <-
     mkRom(RomConfig{name: "Mem.hex", start: 'h80000000, size: 'h10000});
+
+  // MSHR manager
+  //MSHR#(4, 16, Bit#(32), Bit#(32)) mshrM <- mkMSHR;
 
   Bit#(20) base = truncateLSB(32'h80000000);
 

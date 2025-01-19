@@ -181,5 +181,11 @@ extern "C" fn user_main() -> () {
         println!("time: {} instret: {}", time, instret);
 
         unsafe { asm!("ecall") };
+
+
+        let x: usize = 0;
+        unsafe {
+            asm!("cbo.clean 0(a0)", in("a0") x);
+        }
     }
 }
