@@ -45,7 +45,7 @@ interface Core_IFC;
   method Action set_msip(Bool b);
 endinterface
 
-typedef 4 IqSize;
+typedef 2 IqSize;
 
 (* synthesize *)
 module mkCoreOOO(Core_IFC);
@@ -188,7 +188,8 @@ module mkCoreOOO(Core_IFC);
         pc: decoded.pc,
         instr: decoded.instr,
         rs1_val: rs1_val,
-        rs2_val: rs2_val
+        rs2_val: rs2_val,
+        epoch: decoded.epoch
       };
 
       case (tag) matches

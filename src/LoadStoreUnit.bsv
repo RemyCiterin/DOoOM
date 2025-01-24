@@ -228,16 +228,16 @@ typedef struct {
 } StoreConflict deriving(Bits, FShow);
 
 // Store Buffer Size
-typedef 8 StbSize;
+typedef 4 StbSize;
 
 // Store Buffer Index
 typedef Bit#(TLog#(StbSize)) StbIndex;
 
 // Store Queue Size
-typedef 8 SqSize;
+typedef 4 SqSize;
 
 // Load Queue Size
-typedef 8 LqSize;
+typedef 4 LqSize;
 
 // Store Queue Index
 typedef Bit#(TLog#(SqSize)) SqIndex;
@@ -538,6 +538,9 @@ interface LoadQueue;
   method Vector#(LqSize, Data_Size) size;
   method Vector#(LqSize, Bit#(32)) pc;
   method Vector#(LqSize, Bool) sign;
+
+  //method Action commit(LqIndex idx);
+  //method Action deq();
 
   // Stage 2
   method Action wakeup(RobIndex idx, Bit#(32) value);

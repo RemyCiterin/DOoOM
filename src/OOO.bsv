@@ -7,7 +7,7 @@ import Ehr :: *;
 import CSR :: *;
 import BTB :: *;
 
-typedef 16 RobSize;
+typedef 8 RobSize;
 typedef Bit#(TLog#(RobSize)) RobIndex;
 
 // The execution of an instruction return either
@@ -94,6 +94,9 @@ typedef struct {
   Instr instr;
   RegVal rs1_val;
   RegVal rs2_val;
+
+  // Store queue forward the stores values only if the epochs matches
+  Epoch epoch;
 } IssueQueueEntry deriving(Bits, FShow, Eq);
 
 

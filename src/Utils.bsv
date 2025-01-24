@@ -33,7 +33,25 @@ endinstance
 // "uniq" tag of an instruction for debugging
 typedef Bit#(32) INum;
 
+// Epoch must be at least the size of the reorder buffer
+// of the pipeline
 typedef Bit#(8) Epoch;
+
+// type of age used to track dependencies in the store queue
+// Age must be at least two times bigger than
+// the maximum number of element in the pipeline
+// or the reorder buffer
+typedef Bit#(8) Age;
+
+function Bool isBefore(Age a, Age b);
+  Integer msb = valueOf(SizeOf#(Age)) - 1;
+  return (b-a)[msb] == 0;
+endfunction
+
+function Bool isAfter(Epoch a, Epoch b);
+  return !isBefore(a, b);
+endfunction
+
 
 interface EpochManager;
   method Epoch read;
