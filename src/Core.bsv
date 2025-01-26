@@ -45,7 +45,7 @@ interface Core_IFC;
   method Action set_msip(Bool b);
 endinterface
 
-typedef 2 IqSize;
+typedef 4 IqSize;
 
 (* synthesize *)
 module mkCoreOOO(Core_IFC);
@@ -56,6 +56,7 @@ module mkCoreOOO(Core_IFC);
   Reg#(Bit#(64)) hitpred_instr <- mkReg(0);
 
   Ehr#(2, Epoch) epoch <- mkEhr(0);
+  Reg#(Age) current_age <- mkReg(0);
 
   let fetch <- mkFetchDecode;
   //let decode <- mkDecodeOOO;
@@ -161,6 +162,7 @@ module mkCoreOOO(Core_IFC);
       );
 
       let tag = (decoded.exception ? EXEC_TAG_DIRECT : tagOfInstr(decoded.instr));
+      current_age <= current_age+1;
 
       RobEntry rob_entry = RobEntry{
         pc: decoded.pc,
@@ -169,7 +171,8 @@ module mkCoreOOO(Core_IFC);
         epoch: decoded.epoch,
         pred_pc: decoded.pred_pc,
         result: rob_result,
-        bpred_state: decoded.bpred_state
+        bpred_state: decoded.bpred_state,
+        age: current_age
       };
 
       let index <- rob.enq(rob_entry);
@@ -189,7 +192,8 @@ module mkCoreOOO(Core_IFC);
         instr: decoded.instr,
         rs1_val: rs1_val,
         rs2_val: rs2_val,
-        epoch: decoded.epoch
+        epoch: decoded.epoch,
+        age: current_age
       };
 
       case (tag) matches
@@ -308,9 +312,7 @@ module mkCoreOOO(Core_IFC);
     control_fu.enq(request);
   endrule
 
-  (* descending_urgency =
-    "commit_interrupt, execute_csr, writeback_mispredicted_csr, write_back"
-  *)
+  (* descending_urgency = "commit_interrupt, execute_csr, writeback_mispredicted_csr, write_back" *)
   rule write_back;
     let response <- toWB.get;
     wakeupFn(response.fst, response.snd);

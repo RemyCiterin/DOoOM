@@ -511,6 +511,25 @@ typedef union tagged {
   // SFENCE_VM
 } IOp deriving(Bits, Eq);
 
+typedef struct {
+  Bool w;
+  Bool r;
+  Bool o;
+  Bool i;
+} MemEvent deriving(Bits, FShow, Eq);
+
+typedef struct {
+  MemEvent pred;
+  MemEvent succ;
+} FenceType deriving(Bits, FShow, Eq);
+
+function FenceType getFenceType(Itype fence);
+  return FenceType {
+    pred: unpack(immediateBits(fence)[3:0]),
+    succ: unpack(immediateBits(fence)[7:4])
+  };
+endfunction
+
 instance FShow#(IOp);
   function Fmt fshow(IOp op);
     return case (op) matches
@@ -543,7 +562,6 @@ instance FShow#(IOp);
     endcase;
   endfunction
 endinstance
-
 
 function Maybe#(IOp) decodeItype(Itype instr);
   case (opcode(instr))

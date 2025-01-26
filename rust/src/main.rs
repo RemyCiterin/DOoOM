@@ -68,7 +68,7 @@ fn linked_list_bench() {
 fn vector_bench() {
     let mut list: Vec<u32> = Vec::new();
 
-    let size: u32 = 1000;
+    let size: u32 = 500;
 
     for i in 0..size {
         list.push(i);
@@ -173,7 +173,7 @@ extern "C" fn user_main() -> () {
         let mut time = 0-mcycle::read();
         let mut instret = 0-minstret::read();
 
-        btree_bench();
+        vector_bench();
 
         time += mcycle::read();
         instret += minstret::read();

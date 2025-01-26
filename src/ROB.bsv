@@ -7,9 +7,21 @@ import OOO :: *;
 
 // first < deq < writeBack < read < enq
 interface ROB;
+  /* Stage 1: enqueue */
+  // read an entry from the rob
+  method RobEntry read1(RobIndex index);
+
+  // read an entry from the rob
+  method RobEntry read2(RobIndex index);
+
   // enqueue a new entry in the reorder buffer
   method ActionValue#(RobIndex) enq(RobEntry entry);
 
+  /* Stage 2: write back */
+  // write back the result of the execution of an instruction to the rob
+  method Action writeBack(RobIndex index, ExecOutput result);
+
+  /* Stage 3: dequeue */
   // return the first element of the rob before deq
   method RobEntry first;
 
@@ -18,15 +30,6 @@ interface ROB;
 
   // dequeue an element of the rob
   method Action deq;
-
-  // read an entry from the rob
-  method RobEntry read1(RobIndex index);
-
-  // read an entry from the rob
-  method RobEntry read2(RobIndex index);
-
-  // write back the result of the execution of an instruction to the rob
-  method Action writeBack(RobIndex index, ExecOutput result);
 endinterface
 
 (* synthesize *)

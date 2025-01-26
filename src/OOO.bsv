@@ -1,5 +1,3 @@
-package OOO;
-
 import Utils :: *;
 import Decode :: *;
 import Vector :: *;
@@ -7,7 +5,7 @@ import Ehr :: *;
 import CSR :: *;
 import BTB :: *;
 
-typedef 8 RobSize;
+typedef 16 RobSize;
 typedef Bit#(TLog#(RobSize)) RobIndex;
 
 // The execution of an instruction return either
@@ -63,6 +61,9 @@ typedef struct {
   // the value of the epoch register at the instruction fetching
   Epoch epoch;
 
+  // age of the operation, mostly used by the LSU
+  Age age;
+
   // PC predicted by the branch predictor
   Bit#(32) pred_pc;
 
@@ -94,10 +95,8 @@ typedef struct {
   Instr instr;
   RegVal rs1_val;
   RegVal rs2_val;
+  Age age;
 
   // Store queue forward the stores values only if the epochs matches
   Epoch epoch;
 } IssueQueueEntry deriving(Bits, FShow, Eq);
-
-
-endpackage

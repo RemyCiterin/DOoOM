@@ -228,16 +228,16 @@ typedef struct {
 } StoreConflict deriving(Bits, FShow);
 
 // Store Buffer Size
-typedef 4 StbSize;
+typedef 8 StbSize;
 
 // Store Buffer Index
 typedef Bit#(TLog#(StbSize)) StbIndex;
 
 // Store Queue Size
-typedef 4 SqSize;
+typedef 8 SqSize;
 
 // Load Queue Size
-typedef 4 LqSize;
+typedef 8 LqSize;
 
 // Store Queue Index
 typedef Bit#(TLog#(SqSize)) SqIndex;
