@@ -1,3 +1,6 @@
+import IssueQueue :: *;
+import AXI4_Lite :: *;
+import GetPut :: *;
 import Decode :: *;
 import Utils :: *;
 import Fifo :: *;
@@ -20,6 +23,9 @@ typedef enum {
 } Size deriving(Bits, FShow, Eq);
 
 typedef struct {
+  // Index in the reorder buffer
+  RobIndex index;
+
   // If false, then the store-queue must return
   // a STORE_AMO_ADDRESS_MISALIGNED exception
   Bool aligned;
@@ -240,10 +246,6 @@ module mkSTB(STB);
   endmethod
 endmodule
 
-interface IssueQueue;
-
-endinterface
-
 interface LoadQ;
   method Action enq(Epoch age, IssueQueueEntry entry);
 
@@ -273,7 +275,7 @@ interface StoreQ;
 
   // issue and return the result of the execution of the store
   // to the CPU: check address alignment
-  method ActionValue#(ExecOutput) issue;
+    method ActionValue#(Tuple2#(RobIndex, ExecOutput)) issue;
 endinterface
 
 function t readEhr(Integer k, Ehr#(n,t) ehr);
@@ -291,6 +293,7 @@ endfunction
 
 (* synthesize *)
 module mkStoreQ(StoreQ);
+  Vector#(SqSize, Reg#(RobIndex)) indexV <- replicateM(mkReg(?));
   Vector#(SqSize, Reg#(Bit#(32))) addrV <- replicateM(mkReg(?));
   Vector#(SqSize, Reg#(Bit#(32))) dataV <- replicateM(mkReg(?));
   Vector#(SqSize, Reg#(Bit#(4))) maskV <- replicateM(mkReg(?));
@@ -330,6 +333,7 @@ module mkStoreQ(StoreQ);
   method Action enq(StoreQueueEntry entry) if (valid[1][tail] == 0);
     action
       alignedV[tail] <= entry.aligned;
+      indexV[tail] <= entry.index;
       epochV[tail] <= entry.epoch;
       addrV[tail] <= entry.addr;
       dataV[tail] <= entry.data;
@@ -342,21 +346,21 @@ module mkStoreQ(StoreQ);
     endaction
   endmethod
 
-  method ActionValue#(ExecOutput) issue()
+  method ActionValue#(Tuple2#(RobIndex, ExecOutput)) issue()
     if (firstOneFrom(toIssue[0] & valid[0], 0) matches tagged Valid .idx);
     actionvalue
       toIssue[0][idx] <= 0;
 
       if (alignedV[idx])
-        return tagged Ok {
+        return tuple2(indexV[idx], tagged Ok {
           next_pc: pcV[idx]+4,
           rd_val: ?
-        };
+        });
       else
-        return tagged Error {
+        return tuple2(indexV[idx], tagged Error {
           cause: STORE_AMO_ADDRESS_MISALIGNED,
           tval: addrV[idx]
-        };
+        });
     endactionvalue
   endmethod
 
@@ -376,4 +380,71 @@ module mkStoreQ(StoreQ);
         return Invalid;
     endactionvalue
   endmethod
+endmodule
+
+
+interface LSU;
+  // Add a new entry in the issue queue
+  method Action enq(IssueQueueEntry entry);
+
+  // signal that we found the value of a register
+  method Action wakeup(RobIndex index, Bit#(32) value);
+
+  // method ActionValue#(Tuple2#(RobIndex, ExecOutput)) deq;
+
+  // method Bool canDeq;
+
+  // // Say if we must commit the instruction with a given roerder buffer index
+  // method ActionValue#(CommitOutput)
+  //   commit(RobIndex index, Bool must_commit);
+
+  // read interface with memory
+  interface RdAXI4_Lite_Master#(32, 4) rd_mem;
+
+  // write interface with memory
+  interface WrAXI4_Lite_Master#(32, 4) wr_mem;
+endinterface
+
+(* synthesize *)
+module mkLSU(LSU);
+  IssueQueue#(4) storeIQ <- mkIssueQueue;
+  IssueQueue#(4) loadIQ <- mkIssueQueue;
+  StoreQ storeQ <- mkStoreQ;
+  STB stb <- mkSTB;
+
+  Fifo#(1, AXI4_Lite_RRequest#(32)) rrequestQ <- mkBypassFifo;
+  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) wrequestQ <- mkBypassFifo;
+  Fifo#(1, AXI4_Lite_RResponse#(4)) rresponseQ <- mkPipelineFifo;
+  Fifo#(1, AXI4_Lite_WResponse) wresponseQ <- mkPipelineFifo;
+
+  rule deqSTB;
+    wresponseQ.deq;
+    stb.deq;
+  endrule
+
+  method Action enq(IssueQueueEntry entry);
+    action
+      if (isIssueLoad(entry))
+        loadIQ.enq(entry);
+      else
+        storeIQ.enq(entry);
+    endaction
+  endmethod
+
+  method Action wakeup(RobIndex index, Bit#(32) value);
+    action
+      loadIQ.wakeup(index, value);
+      storeIQ.wakeup(index, value);
+    endaction
+  endmethod
+
+  interface RdAXI4_Lite_Master rd_mem;
+    method response = toPut(rresponseQ);
+    method request = toGet(rrequestQ);
+  endinterface
+
+  interface WrAXI4_Lite_Master wr_mem;
+    method response = toPut(wresponseQ);
+    method request = toGet(wrequestQ);
+  endinterface
 endmodule
