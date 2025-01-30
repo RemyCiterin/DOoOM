@@ -299,6 +299,8 @@ module mkStoreQ(StoreQ);
   Ehr#(2, Bit#(SqSize)) addrValid <- mkEhr(0);
   Ehr#(2, Bit#(SqSize)) dataValid <- mkEhr(0);
 
+  Bit#(SqSize) rdy = toIssue[0] & addrValid[0] & valid[0] & dataValid[0];
+
   function SqIndex next(SqIndex index);
     return index == fromInteger(valueOf(SqSize)-1) ? 0 : index+1;
   endfunction
@@ -367,7 +369,7 @@ module mkStoreQ(StoreQ);
   endmethod
 
   method ActionValue#(Tuple2#(RobIndex, ExecOutput)) issue()
-    if (firstOneFrom(toIssue[0], 0) matches tagged Valid .idx);
+    if (firstOneFrom(rdy, 0) matches tagged Valid .idx);
     let addr = addresses[idx];
     let entry = entries[idx];
     toIssue[0][idx] <= 0;
@@ -380,7 +382,7 @@ module mkStoreQ(StoreQ);
 
     if (aligned) begin
       return tuple2(entry.index, tagged Ok {
-        next_pc: entry.pc + 1,
+        next_pc: entry.pc + 4,
         rd_val: ?
       });
     end else begin
@@ -462,7 +464,7 @@ module mkLoadQ(LoadQ);
       addrValid[0][index] <= 1;
 
       return tagged Success (AXI4_Lite_RRequest{
-        addr: addr
+          addr: {addr[31:2], 2'b00}
       });
     end else begin
       return tagged Failure {
@@ -507,7 +509,7 @@ module mkLoadQ(LoadQ);
     endcase
 
     return tuple2(entries[index].index, tagged Ok {
-      next_pc: entries[index].pc+4,
+      next_pc: entries[index].pc + 4,
       rd_val: rd
     });
   endmethod
@@ -536,7 +538,7 @@ interface LSU;
 
   method Bool canDeq;
 
-  // Say if we must commit the instruction with a given roerder buffer index
+  // Say if we must commit the instruction with a given reorder buffer index
   method ActionValue#(CommitOutput)
     commit(RobIndex index, Bool must_commit);
 
@@ -571,15 +573,33 @@ module mkLSU(LSU);
 
   // No forwarding for the moment, the loads are just blocked untill they are
   // ready. But they are performed speculatively if they are into storeQ
-  Bool loadReady =
-    !stb.search(loadIQ.issueVal+loadQ.readOffset(loadIQ.issueId)).found;
+  Bit#(32) loadAddr =
+    {(loadIQ.issueVal+loadQ.readOffset(loadIQ.issueId))[31:2],2'b00};
+  Bool loadBlocked =
+    stb.search(loadAddr).found ||
+    storeQ.search(
+      loadAddr, loadQ.readEpoch(loadIQ.issueId),
+      loadQ.readAge(loadIQ.issueId)).found;
+
+  Ehr#(2, Bit#(32)) nb_load <- mkEhr(0);
+  Ehr#(2, Bit#(32)) nb_store <- mkEhr(0);
+
+  Reg#(Bit#(32)) cycle <- mkReg(0);
+
+  rule countCycle;
+    cycle <= cycle + 1;
+
+    //if (cycle[9:0] == 0) begin
+    //  $display("loads: %d stores: %d", nb_load[0], nb_store[0]);
+    //end
+  endrule
 
   rule deqSTB;
     wresponseQ.deq;
     stb.deq;
   endrule
 
-  rule wakeupLoad if (loadReady);
+  rule wakeupLoad if (!loadBlocked);
     loadIQ.issue();
     let result <- loadQ.wakeupAddr(loadIQ.issueId, loadIQ.issueVal);
 
@@ -618,9 +638,11 @@ module mkLSU(LSU);
     tagQ.deq;
 
     if (tagQ.first) begin
+      nb_load[0] <= nb_load[0] - 1;
       loadQ.deq();
       return Success;
     end else begin
+      nb_store[0] <= nb_store[0] - 1;
       let stbEntry <- storeQ.deq();
 
       if (must_commit) begin
@@ -631,11 +653,17 @@ module mkLSU(LSU);
           strb: stbEntry.mask
         });
 
-        if (loadQ.search(stbEntry.addr) matches tagged Valid .idx)
+        //if (stbEntry.addr == 32'h1000_0000) begin
+        //  $display("data: %c", stbEntry.data[7:0]);
+        //end
+
+        if (loadQ.search(stbEntry.addr) matches tagged Valid .idx) begin
+          $display("load dependency misprediction at address %h", stbEntry.addr);
           return Exception(idx);
-        else
+        end else
           return Success;
-      end else return Success;
+      end else
+        return Success;
     end
   endmethod
 
@@ -654,6 +682,7 @@ module mkLSU(LSU);
           });
           loadIQ.enq(index, entry.rs1_val);
           tagQ.enq(True);
+          nb_load[1] <= nb_load[1] + 1;
         end
         tagged Stype {op: .stype} : begin
           let index <- storeQ.enq(StoreQueueEntry{
@@ -667,6 +696,7 @@ module mkLSU(LSU);
           storeAddrIQ.enq(index, entry.rs1_val);
           storeDataIQ.enq(index, entry.rs2_val);
           tagQ.enq(False);
+          nb_store[1] <= nb_store[1] + 1;
         end
       endcase
     endaction

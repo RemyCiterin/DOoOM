@@ -22,12 +22,13 @@ import CSR :: *;
 import IssueQueue :: *;
 import RegisterFile :: *;
 import FunctionalUnit :: *;
-import LoadStoreUnit :: *;
 
 import Mutex :: *;
 import BlockRam :: *;
 import Ehr :: *;
 import BTB :: *;
+
+import LSU :: *;
 
 import FetchDecode :: *;
 
@@ -69,7 +70,7 @@ module mkCoreOOO(Core_IFC);
   IssueQueue#(IqSize) control_issue_queue <- mkIssueQueue;
   FunctionalUnit control_fu <- mkControlFU;
 
-  LoadStoreUnit lsu <- mkLoadStoreUnit2;
+  LSU lsu <- mkLSU;
 
   // indicate if a load is killed by the load store unit
   // because it return a bad value
@@ -86,10 +87,8 @@ module mkCoreOOO(Core_IFC);
 
   let csr <- mkCsrFile(0);
 
-  RdAXI4_Lite_Master#(32, 4) master_read <-
-    mkRiscv_RdAXI4_Lite_Master_Adapter(lsu.mem_read);
-  WrAXI4_Lite_Master#(32, 4) master_write <-
-    mkRiscv_WrAXI4_Lite_Master_Adapter(lsu.mem_write);
+  let master_read = lsu.rd_mem;
+  let master_write = lsu.wr_mem;
 
   Reg#(Bit#(64)) timer <- mkReg(0);
   Reg#(Bit#(64)) commitN <- mkReg(0);
