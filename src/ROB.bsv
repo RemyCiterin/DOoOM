@@ -1,6 +1,9 @@
+import ForwardRegFile :: *;
+import RegFile :: *;
 import Utils :: *;
 import Decode :: *;
 import Vector :: *;
+import Fifo :: *;
 import Ehr :: *;
 import CSR :: *;
 import OOO :: *;
@@ -9,10 +12,10 @@ import OOO :: *;
 interface ROB;
   /* Stage 1: enqueue */
   // read an entry from the rob
-  method RobEntry read1(RobIndex index);
+  method Maybe#(ExecOutput) read1(RobIndex index);
 
   // read an entry from the rob
-  method RobEntry read2(RobIndex index);
+  method Maybe#(ExecOutput) read2(RobIndex index);
 
   // enqueue a new entry in the reorder buffer
   method ActionValue#(RobIndex) enq(RobEntry entry);
@@ -28,15 +31,18 @@ interface ROB;
   // return the first index of the rob before deq
   method RobIndex first_index;
 
+  // return the result of the execution of the first item
+  method Maybe#(ExecOutput) first_result;
+
   // dequeue an element of the rob
   method Action deq;
 endinterface
 
 (* synthesize *)
 module mkROB(ROB);
-  // we cannot writeBack and enqueue at the same addresse in the
-  // same cycle, so only a register is needed
-  Vector#(RobSize, Ehr#(2, RobEntry)) data <- replicateM(mkEhr(?));
+  RegFile#(RobIndex, RobEntry) data <- mkRegFileFull;
+  ForwardRegFile#(RobIndex, ExecOutput) results <- mkForwardRegFileFull;
+  Ehr#(2, Bit#(RobSize)) resultValid <- mkEhr(0);
 
   Ehr#(2, RobIndex) firstP <- mkEhr(0);
   Reg#(RobIndex) nextP <- mkReg(0);
@@ -46,31 +52,36 @@ module mkROB(ROB);
   Ehr#(2, Bool) empty <- mkEhr(True);
   Ehr#(2, Bool) full <- mkEhr(False);
 
-  (* execution_order = "deq, writeBack, enq" *)
-  rule emptyRl;
-  endrule
-
   // use port 1 of data, empty and full
-  method ActionValue#(RobIndex) enq(RobEntry entry) if (!full[1]);
-    let next_nextP = (nextP == max_index ? 0 : nextP + 1);
-    let index = nextP;
+  method ActionValue#(RobIndex) enq(RobEntry entry)
+    if (!full[1]);
+    actionvalue
+      resultValid[1][nextP] <= 0;
+      let next_nextP = (nextP == max_index ? 0 : nextP + 1);
+      let index = nextP;
 
-    data[nextP][1] <= entry;
-    empty[1] <= False;
-    nextP <= next_nextP;
+      data.upd(nextP, entry);
+      empty[1] <= False;
+      nextP <= next_nextP;
 
-    if (next_nextP == firstP[1])
-      full[1] <= True;
+      if (next_nextP == firstP[1])
+        full[1] <= True;
 
-    return index;
+      return index;
+    endactionvalue
   endmethod
 
   method RobEntry first if (!empty[0]);
-    return data[firstP[0]][0];
+    return data.sub(firstP[0]);
   endmethod
 
   method RobIndex first_index if (!empty[0]);
     return firstP[0];
+  endmethod
+
+  method first_result if (!empty[0]);
+    return resultValid[0][firstP[0]] == 1 ?
+      Valid(results.sub(firstP[0])) : Invalid;
   endmethod
 
   method Action deq if (!empty[0]);
@@ -82,20 +93,20 @@ module mkROB(ROB);
       empty[0] <= True;
   endmethod
 
-  method RobEntry read1(RobIndex index);
-    return data[index][1];
+  method Maybe#(ExecOutput) read1(RobIndex index);
+    return resultValid[1][index] == 1 ?
+      Valid(results.forward(index)) : Invalid;
   endmethod
 
-  method RobEntry read2(RobIndex index);
-    return data[index][1];
+  method Maybe#(ExecOutput) read2(RobIndex index);
+    return resultValid[1][index] == 1 ?
+      Valid(results.forward(index)) : Invalid;
   endmethod
 
   method Action writeBack(RobIndex index, ExecOutput result);
     action
-      //$display("set entry %h to ", index, fshow(result));
-      RobEntry x = data[index][0];
-      x.result = tagged Valid result;
-      data[index][0] <= x;
+      results.upd(index, result);
+      resultValid[0][index] <= 1;
     endaction
   endmethod
 endmodule

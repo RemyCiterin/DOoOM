@@ -1,5 +1,5 @@
-package RegisterFile;
-
+import ForwardRegFile :: *;
+import RegFile :: *;
 import Utils :: *;
 import Decode :: *;
 import Vector :: *;
@@ -37,46 +37,49 @@ endinterface
 
 (* synthesize *)
 module mkRegisterFile(RegisterFile);
-  Vector#(32, Ehr#(2, Bit#(32))) registers <- replicateM(mkEhr(0));
-  Vector#(32, Ehr#(2, Maybe#(RobIndex))) scoreboard <- replicateM(mkEhr(Invalid));
+  // Register file with commited writes and forwarding logic
+  ForwardRegFile#(Bit#(5), Bit#(32)) registers <- mkForwardRegFileFullInit(0);
+  RWire#(Bit#(32)) forwardVal <- mkRWire;
+  RWire#(Bit#(5)) forwardIdx <- mkRWire;
+
+  // Index of the physical registers in the Reodrer Buffer
+  RegFile#(Bit#(5), RobIndex) physicalRegs <- mkRegFileFull;
+  // Return is an entry of the physical register remaping is valid
+  Ehr#(2, Bit#(32)) scoreboard <- mkEhr(0);
 
   method Action setReady(RegName r, RobIndex index, Maybe#(Bit#(32)) value, Bool clear);
     action
       if (value matches tagged Valid .v &&& r.name != 0) begin
-        //$display("    ", fshow(r), " <= %h", v);
-        registers[r.name][0] <= v;
+        registers.upd(r.name, v);
       end
 
-      if (clear) begin
-        for (Integer i=0; i < 32; i = i + 1) scoreboard[i][0] <= Invalid;
-      end else if (scoreboard[r.name][0] matches tagged Valid .idx &&& idx == index) begin
-        scoreboard[r.name][0] <= Invalid;
-      end
-
+      if (clear)
+        scoreboard[0] <= 0;
+      else if (scoreboard[0][r.name] == 1 && physicalRegs.sub(r.name) == index)
+        scoreboard[0][r.name] <= 0;
     endaction
   endmethod
 
   method RegVal rs1(RegName r);
-    return case (scoreboard[r.name][1]) matches
-      tagged Valid .index : tagged Wait index;
-      Invalid : tagged Value registers[r.name][1];
-    endcase;
+    return scoreboard[1][r.name] == 1 ?
+      tagged Wait physicalRegs.sub(r.name) :
+      tagged Value registers.forward(r.name);
   endmethod
 
   method RegVal rs2(RegName r);
-    return case (scoreboard[r.name][1]) matches
-      tagged Valid .index : tagged Wait index;
-      Invalid : tagged Value registers[r.name][1];
-    endcase;
+    return scoreboard[1][r.name] == 1 ?
+      tagged Wait physicalRegs.sub(r.name) :
+      tagged Value registers.forward(r.name);
   endmethod
 
   method Bit#(32) read_commited(RegName r);
-    return registers[r.name][1];
+    return registers.forward(r.name);
   endmethod
 
   method Action setBusy(RegName r, RobIndex index);
-    if (r.name != 0) scoreboard[r.name][1] <= tagged Valid index;
+    if (r.name != 0) begin
+      scoreboard[1][r.name] <= 1;
+      physicalRegs.upd(r.name, index);
+    end
   endmethod
 endmodule
-
-endpackage

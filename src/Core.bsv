@@ -1,5 +1,3 @@
-package Core;
-
 import Array :: *;
 import AXI4_Lite_Adapter :: *;
 import Connectable :: *;
@@ -15,6 +13,7 @@ import Types :: *;
 
 import WriteBack :: *;
 import RegisterRead :: *;
+import BuildVector :: *;
 import Vector :: *;
 
 import OOO :: *;
@@ -45,7 +44,7 @@ interface Core_IFC;
   method Action set_msip(Bool b);
 endinterface
 
-typedef 4 IqSize;
+typedef 8 IqSize;
 
 (* synthesize *)
 module mkCoreOOO(Core_IFC);
@@ -70,15 +69,17 @@ module mkCoreOOO(Core_IFC);
   IssueQueue#(IqSize) control_issue_queue <- mkIssueQueue;
   FunctionalUnit control_fu <- mkControlFU;
 
-  LoadStoreUnit lsu <- mkLoadStoreUnit3;
+  LoadStoreUnit lsu <- mkLoadStoreUnit2;
 
   // indicate if a load is killed by the load store unit
   // because it return a bad value
   Reg#(Bit#(RobSize)) killed <- mkReg(0);
 
+  FIFOF#(Tuple2#(RobIndex, ExecOutput)) decodeFail <- mkPipelineFIFOF;
+
   let toWB <- mkGetScheduler(
-    cons(alu_fu.canDeq, cons(control_fu.canDeq, cons(lsu.canDeq, nil))),
-    cons(alu_fu.deq, cons(control_fu.deq, cons(lsu.deq, nil)))
+    vec(decodeFail.notEmpty, alu_fu.canDeq, control_fu.canDeq, lsu.canDeq),
+    vec(toGet(decodeFail).get, alu_fu.deq, control_fu.deq, lsu.deq)
   );
 
   RegisterFile registers <- mkRegisterFile;
@@ -156,11 +157,6 @@ module mkCoreOOO(Core_IFC);
   // issue queues, use the bypassed value for the register evaluation
   function Action fn_dispatch(FromDecode decoded);
     action
-      let rob_result = (decoded.exception ?
-        Valid(tagged Error {cause: decoded.cause, tval: decoded.tval}) :
-        Invalid
-      );
-
       let tag = (decoded.exception ? EXEC_TAG_DIRECT : tagOfInstr(decoded.instr));
       current_age <= current_age+1;
 
@@ -170,19 +166,21 @@ module mkCoreOOO(Core_IFC);
         instr: decoded.instr,
         epoch: decoded.epoch,
         pred_pc: decoded.pred_pc,
-        result: rob_result,
         bpred_state: decoded.bpred_state,
         age: current_age
       };
 
-      let index <- rob.enq(rob_entry);
+      let index <- rob.enq(rob_entry); // rob_result);
       let rs1_val = registers.rs1(register1(decoded.instr));
       let rs2_val = registers.rs2(register2(decoded.instr));
 
-      if (rs1_val matches tagged Wait .idx &&& rob.read1(idx).result matches tagged Valid .res)
+      if (rs1_val matches tagged Wait .idx &&& rob.read1(idx) matches tagged Valid .res)
         rs1_val = tagged Value getRdVal(res);
-      if (rs2_val matches tagged Wait .idx &&& rob.read2(idx).result matches tagged Valid .res)
+      if (rs2_val matches tagged Wait .idx &&& rob.read2(idx) matches tagged Valid .res)
         rs2_val = tagged Value getRdVal(res);
+
+      if (decoded.exception)
+        decodeFail.enq(tuple2(index, tagged Error{cause: decoded.cause, tval: decoded.tval}));
 
       registers.setBusy(destination(decoded.instr), index);
 
@@ -325,7 +323,7 @@ module mkCoreOOO(Core_IFC);
   endrule
 
   rule discard_instruction
-    if (rob.first.epoch != epoch[0] &&& rob.first.result matches tagged Valid .*);
+    if (rob.first.epoch != epoch[0] &&& rob.first_result matches tagged Valid .*);
     mispred_instr <= mispred_instr + 1;
     deqRob(Invalid, Invalid);
   endrule
@@ -334,7 +332,7 @@ module mkCoreOOO(Core_IFC);
   (* preempts = "commit_interrupt, execute_csr" *)
   rule commit_interrupt if (
       csr.readyInterrupt matches tagged Valid .cause &&&
-      rob.first.result matches Invalid &&&
+      rob.first_result matches Invalid &&&
       rob.first.epoch == epoch[0]
     );
     let index = rob.first_index;
@@ -355,7 +353,7 @@ module mkCoreOOO(Core_IFC);
   endrule
 
   rule commit_instruction if (
-      rob.first.result matches tagged Valid .result &&&
+      rob.first_result matches tagged Valid .result &&&
       rob.first.epoch == epoch[0]);
 
     hitpred_instr <= hitpred_instr+1;
@@ -381,7 +379,7 @@ module mkCoreOOO(Core_IFC);
   rule writeback_mispredicted_csr if (
     rob.first.tag == EXEC_TAG_DIRECT &&
     rob.first.epoch != epoch[0] &&&
-    rob.first.result matches Invalid);
+    rob.first_result matches Invalid);
 
     rob.writeBack(rob.first_index, ?);
     wakeupFn(rob.first_index, ?);
@@ -391,7 +389,7 @@ module mkCoreOOO(Core_IFC);
   rule execute_csr if (
     rob.first.tag == EXEC_TAG_DIRECT &&
     rob.first.epoch == epoch[0] &&&
-    rob.first.result matches Invalid);
+    rob.first_result matches Invalid);
 
     execCSR(rob.first_index, rob.first);
   endrule
@@ -497,6 +495,3 @@ module mkCore(Core_IFC);
   method set_mtip = wb.set_mtip;
   method set_msip = wb.set_msip;
 endmodule
-
-
-endpackage

@@ -39,7 +39,7 @@ SYNTH_FLAGS = -bdir $(BUILD) -vdir $(RTL) -simdir $(BUILD) \
 BSIM_FLAGS = -bdir $(BSIM) -vdir $(BSIM) -simdir $(BSIM) \
 							-info-dir $(BSIM) -fdir $(BSIM) -D BSIM -l pthread
 
-DOT_FILES = $(shell ls ./build/*.dot)
+DOT_FILES = $(shell ls ./build/*_combined_full.dot)
 
 svg:
 	$(foreach f, $(DOT_FILES), sed -i '/_ehr_canon/d' $(f);)

@@ -21,25 +21,14 @@ endinterface
 // generate an issue queue of a given size
 module mkIssueQueue(IssueQueue#(size));
   Vector#(size, Ehr#(2, IssueQueueEntry)) queue <- replicateM(mkEhr(?));
-  Vector#(size, Ehr#(2, Bool)) valid <- replicateM(mkEhr(False));
-
-  Ehr#(2, Maybe#(Bit#(TLog#(size)))) free_head <- mkEhr(Valid(0));
-  Vector#(size, Ehr#(2, Maybe#(Bit#(TLog#(size))))) free_list = newVector;
-
-  for (Integer i=0; i < valueOf(size); i = i + 1) begin
-    if (i+1 == valueOf(size)) free_list[i] <- mkEhr(Invalid);
-    else free_list[i] <- mkEhr(Valid(fromInteger(i+1)));
-  end
-
-  function Maybe#(Bit#(TLog#(size))) getFreeIndex;
-    return free_head[1];
-  endfunction
+  Reg#(Bit#(TLog#(size))) lastIssue <- mkReg(0);
+  Ehr#(2, Bit#(size)) valid <- mkEhr(0);
 
   function Maybe#(Bit#(TLog#(size))) getReadyIndex;
     Bit#(size) mask = 0;
 
     for (Integer i=0; i < valueOf(size); i = i + 1) begin
-      if (valid[i][0]) begin
+      if (valid[0][i] == 1) begin
         let rs1_val = queue[i][0].rs1_val;
         let rs2_val = queue[i][0].rs2_val;
         if (rs1_val matches tagged Value .* &&& rs2_val matches tagged Value .*) begin
@@ -48,15 +37,14 @@ module mkIssueQueue(IssueQueue#(size));
       end
     end
 
-    return firstOneFrom(mask, 0);
+    return firstOneFrom(mask, lastIssue);
   endfunction
 
   method ActionValue#(ExecInput) issue
     if (getReadyIndex matches tagged Valid .idx);
     actionvalue
-      free_list[idx][0] <= free_head[0];
-      free_head[0] <= Valid(idx);
-      valid[idx][0] <= False;
+      valid[0][idx] <= 0;
+      lastIssue <= idx+1;
 
       IssueQueueEntry entry = queue[idx][0];
       return ExecInput {
@@ -70,7 +58,7 @@ module mkIssueQueue(IssueQueue#(size));
   endmethod
 
   method Action wakeup(RobIndex index, Bit#(32) value);
-    for (Integer i=0; i < valueOf(size); i = i + 1) if (valid[i][1]) begin
+    for (Integer i=0; i < valueOf(size); i = i + 1) if (valid[1][i] == 1) begin
       IssueQueueEntry entry = queue[i][0];
 
       if (entry.rs1_val matches tagged Wait .idx &&& idx == index)
@@ -83,10 +71,9 @@ module mkIssueQueue(IssueQueue#(size));
     end
   endmethod
 
-  method Action enq(IssueQueueEntry entry) if (getFreeIndex matches tagged Valid .idx);
-    free_head[1] <= free_list[idx][1];
-    free_list[idx][1] <= Invalid;
+  method Action enq(IssueQueueEntry entry)
+    if (firstOneFrom(~valid[1],0) matches tagged Valid .idx);
     queue[idx][1] <= entry;
-    valid[idx][1] <= True;
+    valid[1][idx] <= 1;
   endmethod
 endmodule

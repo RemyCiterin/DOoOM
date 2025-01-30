@@ -5,7 +5,7 @@ import Ehr :: *;
 import CSR :: *;
 import BTB :: *;
 
-typedef 16 RobSize;
+typedef 32 RobSize;
 typedef Bit#(TLog#(RobSize)) RobIndex;
 
 // The execution of an instruction return either
@@ -69,9 +69,6 @@ typedef struct {
 
   // all the informations used by the branch predictor to backtrack in case of misprediction
   BranchPredState bpred_state;
-
-  // Result of the execution of the instruction if finish, otherwise invalid
-  Maybe#(ExecOutput) result;
 } RobEntry deriving(Bits, FShow, Eq);
 
 typedef union tagged {

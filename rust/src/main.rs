@@ -68,7 +68,7 @@ fn linked_list_bench() {
 fn vector_bench() {
     let mut list: Vec<u32> = Vec::new();
 
-    let size: u32 = 500;
+    let size: u32 = 1000;
 
     for i in 0..size {
         list.push(i);

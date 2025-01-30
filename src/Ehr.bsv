@@ -42,4 +42,10 @@ module mkEhr#(t init) (Ehr#(n, t)) provisos(Bits#(t, tWidth));
 
 endmodule
 
+// like a register but without the dependency read < write
+module mkEhr0#(t init) (Reg#(t)) provisos(Bits#(t, tWidth));
+  Ehr#(1, t) ehr <- mkEhr(init);
+  return ehr[0];
+endmodule
+
 endpackage

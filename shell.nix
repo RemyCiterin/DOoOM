@@ -10,22 +10,15 @@ pkgs.mkShell {
     pkgs.gtkwave
     pkgs.openfpgaloader
     pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
-    pkgs.sail-riscv-rv64
+    #pkgs.sail-riscv-rv64
     pkgs.qemu
 
     pkgs.yosys
-    pkgs.nextpnrWithGui
+    pkgs.nextpnr
     pkgs.trellis
-    pkgs.icestorm
+    #pkgs.icestorm
 
     pkgs.graphviz
-
-    pkgs.python312
-    pkgs.python312Packages.matplotlib
-    pkgs.python312Packages.pyserial
-    pkgs.python312Packages.numpy
-
-    pkgs.libelf
 
     pkgs.fujprog
   ];

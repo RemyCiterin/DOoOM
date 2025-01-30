@@ -1,0 +1,92 @@
+import RegFile :: *;
+
+interface ForwardRegFile#(type k, type v);
+  method Action upd(k key, v value);
+  method v forward(k key);
+  method v sub(k key);
+endinterface
+
+module mkForwardRegFileFull(ForwardRegFile#(k,v))
+  provisos(Bits#(k,sk),Bounded#(k),Bits#(v,sv),Eq#(k));
+  RegFile#(k,v) regFile <- mkRegFileFull;
+  RWire#(k) forwardKey <- mkRWire;
+  RWire#(v) forwardVal <- mkRWire;
+
+  (* no_implicit_conditions, fire_when_enabled *)
+  rule update if (forwardKey.wget matches tagged Valid .key);
+    regFile.upd(key, unJust(forwardVal.wget));
+  endrule
+
+  method Action upd(k key, v val);
+    action
+      forwardKey.wset(key);
+      forwardVal.wset(val);
+    endaction
+  endmethod
+
+  method v forward(k key);
+    if (forwardKey.wget matches tagged Valid .x &&& x == key)
+      return unJust(forwardVal.wget);
+    else return regFile.sub(key);
+  endmethod
+
+  method sub = regFile.sub;
+endmodule
+
+
+module mkForwardRegFileFullInit#(a init) (ForwardRegFile#(Bit#(n), a)) provisos(Bits#(a, sa));
+  Reg#(Bool) is_init <- mkReg(False);
+  Reg#(Bit#(n)) idx <- mkReg(0);
+
+  ForwardRegFile#(Bit#(n), a) rf <- mkForwardRegFileFull;
+
+  rule init_rf if (!is_init);
+    rf.upd(idx, init);
+
+    if (~idx == 0)
+      is_init <= True;
+    else
+      idx <= idx + 1;
+  endrule
+
+  method a sub(Bit#(n) index) if (is_init);
+    return rf.sub(index);
+  endmethod
+
+  method a forward(Bit#(n) index) if (is_init);
+    return rf.forward(index);
+  endmethod
+
+  method Action upd(Bit#(n) index, a val) if (is_init);
+    rf.upd(index, val);
+  endmethod
+endmodule
+
+module mkForwardRegFileFullGen#(function a init(Bit#(n) arg))
+  (ForwardRegFile#(Bit#(n), a)) provisos(Bits#(a, sa));
+  Reg#(Bool) is_init <- mkReg(False);
+  Reg#(Bit#(n)) idx <- mkReg(0);
+
+  ForwardRegFile#(Bit#(n), a) rf <- mkForwardRegFileFull;
+
+  rule init_rf if (!is_init);
+    rf.upd(idx, init(idx));
+
+    if (~idx == 0)
+      is_init <= True;
+    else
+      idx <= idx + 1;
+  endrule
+
+  method a sub(Bit#(n) index) if (is_init);
+    return rf.sub(index);
+  endmethod
+
+  method a forward(Bit#(n) index) if (is_init);
+    return rf.forward(index);
+  endmethod
+
+  method Action upd(Bit#(n) index, a val) if (is_init);
+    rf.upd(index, val);
+  endmethod
+endmodule
