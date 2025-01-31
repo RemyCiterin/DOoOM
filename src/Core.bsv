@@ -45,7 +45,7 @@ interface Core_IFC;
   method Action set_msip(Bool b);
 endinterface
 
-typedef 8 IqSize;
+typedef 2 IqSize;
 
 (* synthesize *)
 module mkCoreOOO(Core_IFC);
@@ -401,7 +401,7 @@ module mkCoreOOO(Core_IFC);
   endrule
 
   // Use 1 instead of 0 to ensure we don't display during initialisation
-  rule print_stats if (hitpred_instr[15:0] == 1);
+  rule print_stats if (timer[18:0] == 0);
     $display("hit bpred: %d  mis bpred: %d", hitpred_instr, mispred_instr);
   endrule
 

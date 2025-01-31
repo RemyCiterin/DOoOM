@@ -11,22 +11,22 @@ import CSR :: *;
 import Vector :: *;
 
 // Store Buffer Size
-typedef 8 StbSize;
+typedef 4 StbSize;
 
 // Store Buffer Index
 typedef Bit#(TLog#(StbSize)) StbIndex;
 
 // Store Queue Size
-typedef 8 SqSize;
+typedef 4 SqSize;
 
 // Load Queue Size
-typedef 8 LqSize;
+typedef 4 LqSize;
 
 // Store issue queue size
-typedef 4 SiqSize;
+typedef 2 SiqSize;
 
 // Load issue queue size
-typedef 4 LiqSize;
+typedef 2 LiqSize;
 
 // Store Queue Index
 typedef Bit#(TLog#(SqSize)) SqIndex;
@@ -36,7 +36,7 @@ typedef Bit#(TLog#(LqSize)) LqIndex;
 
 // An interface of issue queue specialized for the memory operations
 interface MemIssueQueue#(numeric type size, type reqId);
-  method Action enq(reqId index, RegVal val);
+  method Action enq(reqId index, RegVal val, Bit#(32) offset, Epoch epoch, Age age);
 
   method Action wakeup(RobIndex index, Bit#(32) value);
 
@@ -44,12 +44,17 @@ interface MemIssueQueue#(numeric type size, type reqId);
   // and the LSU call the issue method to select it
   method reqId issueId;
   method Bit#(32) issueVal;
+  method Epoch issueEpoch;
+  method Age issueAge;
   method Action issue();
 endinterface
 
 module mkMemIssueQueue(MemIssueQueue#(size, reqId)) provisos(Bits#(reqId, reqIdW));
   Vector#(size, Ehr#(2, RegVal)) values <- replicateM(mkEhr(?));
+  Vector#(size, Reg#(Bit#(32))) offsets <- replicateM(mkReg(?));
   Vector#(size, Reg#(reqId)) requests <- replicateM(mkReg(?));
+  Vector#(size, Reg#(Epoch)) epochs <- replicateM(mkReg(?));
+  Vector#(size, Reg#(Age)) ages <- replicateM(mkReg(?));
   Ehr#(2, Bit#(size)) valid <- mkEhr(0);
 
   Bit#(size) rdy = 0;
@@ -64,12 +69,15 @@ module mkMemIssueQueue(MemIssueQueue#(size, reqId)) provisos(Bits#(reqId, reqIdW
     issueIdx[0] <= issueIdx[0] + 1;
   endrule
 
-  method Action enq(reqId index, RegVal val)
+  method Action enq(reqId index, RegVal val, Bit#(32) offset, Epoch epoch, Age age)
     if (firstOneFrom(~valid[1],0) matches tagged Valid .idx);
     action
       valid[1][idx] <= 1;
       requests[idx] <= index;
+      offsets[idx] <= offset;
       values[idx][1] <= val;
+      epochs[idx] <= epoch;
+      ages[idx] <= age;
     endaction
   endmethod
 
@@ -87,9 +95,19 @@ module mkMemIssueQueue(MemIssueQueue#(size, reqId)) provisos(Bits#(reqId, reqIdW
     return requests[idx];
   endmethod
 
+  method Epoch issueEpoch()
+    if (firstOneFrom(rdy,issueIdx[1]) matches tagged Valid .idx);
+    return epochs[idx];
+  endmethod
+
+  method Age issueAge()
+    if (firstOneFrom(rdy,issueIdx[1]) matches tagged Valid .idx);
+    return ages[idx];
+  endmethod
+
   method Bit#(32) issueVal()
     if (firstOneFrom(rdy,issueIdx[1]) matches tagged Valid .idx);
-    return getRegValue(values[idx][0]);
+    return getRegValue(values[idx][0]) + offsets[idx];
   endmethod
 
   method Action issue()
@@ -162,9 +180,6 @@ typedef struct {
 
   // Size of the memory access
   Size size;
-
-  // Offset of the memory access
-  Bit#(32) offset;
 } StoreQueueEntry deriving(Bits, FShow, Eq);
 
 typedef struct {
@@ -184,9 +199,6 @@ typedef struct {
 
   // Size of the memory access
   Size size;
-
-  // Offset of the memory access
-  Bit#(32) offset;
 
   // Return if the input operation is signed
   Signedness signedness;
@@ -336,7 +348,7 @@ module mkStoreQ(StoreQ);
   method Action wakeupAddr(SqIndex index, Bit#(32) addr);
     action
       addrValid[0][index] <= 1;
-      addresses[index] <= addr + entries[index].offset;
+      addresses[index] <= addr;
     endaction
   endmethod
 
@@ -413,15 +425,6 @@ interface LoadQ;
 
   method Tuple2#(RobIndex, ExecOutput)
     issue(LqIndex index, AXI4_Lite_RResponse#(4) resp);
-
-  // Read the age at a given index: used to lookup into the store buffers
-  method Age readAge(LqIndex index);
-
-  // Read the epoch at a given index: used to lookup into the store buffers
-  method Epoch readEpoch(LqIndex index);
-
-  // Read the offset at a given index: used to lookup into the store buffers
-  method Bit#(32) readOffset(LqIndex index);
 endinterface
 
 (* synthesize *)
@@ -449,9 +452,8 @@ module mkLoadQ(LoadQ);
     return tail;
   endmethod
 
-  method ActionValue#(LoadWakeup) wakeupAddr(LqIndex index, Bit#(32) rs1);
+  method ActionValue#(LoadWakeup) wakeupAddr(LqIndex index, Bit#(32) addr);
     let entry = entries[index];
-    let addr = rs1 + entry.offset;
     addresses[index] <= addr;
 
     Bool aligned = case (entry.size) matches
@@ -513,18 +515,6 @@ module mkLoadQ(LoadQ);
       rd_val: rd
     });
   endmethod
-
-  method Epoch readEpoch(LqIndex index);
-    return entries[index].epoch;
-  endmethod
-
-  method Age readAge(LqIndex index);
-    return entries[index].age;
-  endmethod
-
-  method Bit#(32) readOffset(LqIndex index);
-    return entries[index].offset;
-  endmethod
 endmodule
 
 
@@ -573,13 +563,10 @@ module mkLSU(LSU);
 
   // No forwarding for the moment, the loads are just blocked untill they are
   // ready. But they are performed speculatively if they are into storeQ
-  Bit#(32) loadAddr =
-    {(loadIQ.issueVal+loadQ.readOffset(loadIQ.issueId))[31:2],2'b00};
+  Bit#(32) loadAddr = {loadIQ.issueVal[31:2],2'b00};
   Bool loadBlocked =
     stb.search(loadAddr).found ||
-    storeQ.search(
-      loadAddr, loadQ.readEpoch(loadIQ.issueId),
-      loadQ.readAge(loadIQ.issueId)).found;
+    storeQ.search(loadAddr, loadIQ.issueEpoch, loadIQ.issueAge).found;
 
   Ehr#(2, Bit#(32)) nb_load <- mkEhr(0);
   Ehr#(2, Bit#(32)) nb_store <- mkEhr(0);
@@ -657,10 +644,9 @@ module mkLSU(LSU);
         //  $display("data: %c", stbEntry.data[7:0]);
         //end
 
-        if (loadQ.search(stbEntry.addr) matches tagged Valid .idx) begin
-          $display("load dependency misprediction at address %h", stbEntry.addr);
+        if (loadQ.search(stbEntry.addr) matches tagged Valid .idx)
           return Exception(idx);
-        end else
+        else
           return Success;
       end else
         return Success;
@@ -672,7 +658,6 @@ module mkLSU(LSU);
       case (entry.instr) matches
         tagged Itype {op: tagged Load .ltype} : begin
           let index <- loadQ.enq(LoadQueueEntry{
-            offset: immediateBits(entry.instr),
             signedness: loadSignedness(ltype),
             size: loadSize(ltype),
             index: entry.index,
@@ -680,21 +665,20 @@ module mkLSU(LSU);
             age: entry.age,
             pc: entry.pc
           });
-          loadIQ.enq(index, entry.rs1_val);
+          loadIQ.enq(index, entry.rs1_val, immediateBits(entry.instr), entry.epoch, entry.age);
           tagQ.enq(True);
           nb_load[1] <= nb_load[1] + 1;
         end
         tagged Stype {op: .stype} : begin
           let index <- storeQ.enq(StoreQueueEntry{
-            offset: immediateBits(entry.instr),
             size: storeSize(stype),
             index: entry.index,
             epoch: entry.epoch,
             age: entry.age,
             pc: entry.pc
           });
-          storeAddrIQ.enq(index, entry.rs1_val);
-          storeDataIQ.enq(index, entry.rs2_val);
+          storeAddrIQ.enq(index, entry.rs1_val, immediateBits(entry.instr), 0, 0);
+          storeDataIQ.enq(index, entry.rs2_val, 0 ,0, 0);
           tagQ.enq(False);
           nb_store[1] <= nb_store[1] + 1;
         end

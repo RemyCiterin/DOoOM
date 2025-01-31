@@ -53,7 +53,7 @@ mkCPU = module
   --mkConnection dcache.mem_read rd_port.server
   --mkConnection dcache.mem_write wr_port.server
 
-  core <- mkCore
+  core <- mkCoreOOO
   --core_d_wr <- mkAXI4_Lite_WrAXI4_Master_Adapter core.wr_dmem 4'b0
   --core_d_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_dmem 4'b0
   core_i_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_imem 4'b1
