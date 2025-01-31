@@ -1,7 +1,7 @@
 RTL = rtl
 BUILD = build
 BSIM = bsim
-PACKAGES = ./src/:+
+PACKAGES = ./src/:./src/lsu/:+
 SIM_FILE = ./build/mkTop_sim
 TOP = src/Top.bs
 
