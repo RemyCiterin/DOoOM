@@ -464,8 +464,8 @@ function Exec_Tag tagOfInstr(Instr instr);
         SLLI : EXEC_TAG_EXEC;
         SRLI : EXEC_TAG_EXEC;
         SRAI : EXEC_TAG_EXEC;
-        FENCE : EXEC_TAG_DMEM;
-        FENCE_I : EXEC_TAG_DMEM;
+        FENCE : EXEC_TAG_DIRECT;
+        FENCE_I : EXEC_TAG_DIRECT;
         default : EXEC_TAG_DIRECT;
       endcase;
   endcase

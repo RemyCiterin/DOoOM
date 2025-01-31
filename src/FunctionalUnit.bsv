@@ -35,6 +35,7 @@ function ExecOutput execALU(ExecInput request);
 
   return tagged Ok {
     next_pc: request.pc + 4,
+    flush: False,
     rd_val: result
   };
 endfunction
@@ -124,6 +125,7 @@ module mkALU_FU(FunctionalUnit);
         return Tuple2{fst: req.index,
           snd: tagged Ok {
             rd_val: res,
+            flush: False,
             next_pc: req.pc + 4
           }
         };
@@ -133,6 +135,7 @@ module mkALU_FU(FunctionalUnit);
         return Tuple2{fst: req.index,
           snd: tagged Ok {
             rd_val: res,
+            flush: False,
             next_pc: req.pc + 4
           }
         };
@@ -175,6 +178,7 @@ function ExecOutput controlFlow(ExecInput request);
       else
         return tagged Ok {
           next_pc: next_pc,
+          flush: False,
           rd_val: 0
         };
     end
@@ -187,6 +191,7 @@ function ExecOutput controlFlow(ExecInput request);
         };
       else
         return tagged Ok {
+          flush: False,
           next_pc: next_pc,
           rd_val: request.pc+4
         };
@@ -200,6 +205,7 @@ function ExecOutput controlFlow(ExecInput request);
         };
       else
         return tagged Ok {
+          flush: False,
           next_pc: next_pc,
           rd_val: request.pc+4
         };

@@ -259,43 +259,53 @@ module mkCoreOOO(Core_IFC);
     endaction
   endfunction
 
-  function Action execCSR(RobIndex index, RobEntry entry);
+  function Action execDirect(RobIndex index, RobEntry entry);
     action
+      ExecOutput result = ?;
+
       case (entry.instr) matches
         tagged Itype {instr: .*, op: ECALL} : begin
           csr.increment_instret;
-          rob.writeBack(index, tagged Error {
+          result = tagged Error {
             cause: ECALL_FROM_M,
             tval: entry.pc
-          });
+          };
+        end
+        tagged Itype {op: FENCE} : begin
+          csr.increment_instret;
+          result = tagged Ok {flush: True, rd_val: 0, next_pc: entry.pc + 4};
+          lsu.emptySTB();
+        end
+        tagged Itype {op: FENCE_I} : begin
+          csr.increment_instret;
+          result = tagged Ok {flush: True, rd_val: 0, next_pc: entry.pc + 4};
         end
         tagged Itype {instr: .instr, op: tagged Ret MRET} : begin
           let pc <- csr.mret;
           csr.increment_instret;
-          rob.writeBack(index, tagged Ok { rd_val: 0, next_pc: pc });
-          wakeupFn(index, tagged Ok { rd_val: 0, next_pc: pc });
+          result = tagged Ok { flush: False, rd_val: 0, next_pc: pc };
         end
         tagged Itype {instr: .instr, op: .op} : begin
           let rs1 = registers.read_commited(register1(instr));
 
-          Maybe#(Bit#(32)) result <- csr.exec_csrxx(instr, op, rs1);
+          Maybe#(Bit#(32)) val <- csr.exec_csrxx(instr, op, rs1);
 
-          case (result) matches
+          case (val) matches
             tagged Valid .v : begin
-              wakeupFn(index, tagged Ok {rd_val: v, next_pc: entry.pc+4});
-              rob.writeBack(index, tagged Ok {rd_val: v, next_pc: entry.pc+4});
+              result = tagged Ok {flush: False, rd_val: v, next_pc: entry.pc+4};
             end
             Invalid: begin
-              wakeupFn(index, tagged Error {cause: ILLEGAL_INSTRUCTION, tval: entry.pc});
-              rob.writeBack(index, tagged Error {cause: ILLEGAL_INSTRUCTION, tval: entry.pc});
+              result = tagged Error {cause: ILLEGAL_INSTRUCTION, tval: entry.pc};
             end
           endcase
         end
         default: begin
-          wakeupFn(index, tagged Error {cause: ILLEGAL_INSTRUCTION, tval: entry.pc});
-          rob.writeBack(index, tagged Error {cause: ILLEGAL_INSTRUCTION, tval: entry.pc});
+          result = tagged Error {cause: ILLEGAL_INSTRUCTION, tval: entry.pc};
         end
       endcase
+
+      rob.writeBack(index, result);
+      wakeupFn(index, result);
     endaction
   endfunction
 
@@ -390,7 +400,7 @@ module mkCoreOOO(Core_IFC);
     rob.first.epoch == epoch[0] &&&
     rob.first_result matches Invalid);
 
-    execCSR(rob.first_index, rob.first);
+    execDirect(rob.first_index, rob.first);
   endrule
 
   rule dispatch;

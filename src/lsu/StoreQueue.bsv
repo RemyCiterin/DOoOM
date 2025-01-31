@@ -129,6 +129,7 @@ module mkStoreQ(StoreQ);
     if (aligned) begin
       return tuple2(entry.index, tagged Ok {
         next_pc: entry.pc + 4,
+        flush: False,
         rd_val: ?
       });
     end else begin

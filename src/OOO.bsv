@@ -18,6 +18,8 @@ typedef union tagged {
   } Error;
 
   struct {
+    // Force to flush the pipeline (e.g. FENCE.I)
+    Bool flush;
     Bit#(32) rd_val;
     Bit#(32) next_pc;
   } Ok;

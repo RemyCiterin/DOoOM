@@ -17,15 +17,20 @@ interface LSU;
   // Add a new entry in the issue queue
   method Action enq(IssueQueueEntry entry);
 
+  // wakeup all the issue queues
   method Action wakeup(RobIndex index, Bit#(32) value);
 
+  // dequeue the result of the execution of an instruction
   method ActionValue#(Tuple2#(RobIndex, ExecOutput)) deq;
 
+  // return if we can dequeue the result of an instruction
   method Bool canDeq;
 
   // Say if we must commit the instruction with a given reorder buffer index
-  method ActionValue#(CommitOutput)
-    commit(RobIndex index, Bool must_commit);
+  method ActionValue#(CommitOutput) commit(RobIndex index, Bool must_commit);
+
+  // An action that fire only if the store buffer is empty
+  method Action emptySTB();
 
   // read interface with memory
   interface RdAXI4_Lite_Master#(32, 4) rd_mem;
@@ -56,25 +61,11 @@ module mkLSU(LSU);
 
   Fifo#(TAdd#(LqSize, SqSize), Bool) tagQ <- mkPipelineFifo;
 
-  // No forwarding for the moment, the loads are just blocked untill they are
-  // ready. But they are performed speculatively if they are into storeQ
+  // No forwarding for the moment, the loads are just blocked
   Bit#(32) loadAddr = {loadIQ.issueVal[31:2],2'b00};
   Bool loadBlocked =
     stb.search(loadAddr).found ||
     storeQ.search(loadAddr, loadIQ.issueEpoch, loadIQ.issueAge).found;
-
-  Ehr#(2, Bit#(32)) nb_load <- mkEhr(0);
-  Ehr#(2, Bit#(32)) nb_store <- mkEhr(0);
-
-  Reg#(Bit#(32)) cycle <- mkReg(0);
-
-  rule countCycle;
-    cycle <= cycle + 1;
-
-    //if (cycle[9:0] == 0) begin
-    //  $display("loads: %d stores: %d", nb_load[0], nb_store[0]);
-    //end
-  endrule
 
   rule deqSTB;
     wresponseQ.deq;
@@ -120,11 +111,9 @@ module mkLSU(LSU);
     tagQ.deq;
 
     if (tagQ.first) begin
-      nb_load[0] <= nb_load[0] - 1;
       loadQ.deq();
       return Success;
     end else begin
-      nb_store[0] <= nb_store[0] - 1;
       let stbEntry <- storeQ.deq();
 
       if (must_commit) begin
@@ -134,10 +123,6 @@ module mkLSU(LSU);
           addr: stbEntry.addr,
           strb: stbEntry.mask
         });
-
-        //if (stbEntry.addr == 32'h1000_0000) begin
-        //  $display("data: %c", stbEntry.data[7:0]);
-        //end
 
         if (loadQ.search(stbEntry.addr) matches tagged Valid .idx)
           return Exception(idx);
@@ -162,7 +147,6 @@ module mkLSU(LSU);
           });
           loadIQ.enq(index, entry.rs1_val, immediateBits(entry.instr), entry.epoch, entry.age);
           tagQ.enq(True);
-          nb_load[1] <= nb_load[1] + 1;
         end
         tagged Stype {op: .stype} : begin
           let index <- storeQ.enq(StoreQueueEntry{
@@ -175,7 +159,6 @@ module mkLSU(LSU);
           storeAddrIQ.enq(index, entry.rs1_val, immediateBits(entry.instr), 0, 0);
           storeDataIQ.enq(index, entry.rs2_val, 0 ,0, 0);
           tagQ.enq(False);
-          nb_store[1] <= nb_store[1] + 1;
         end
       endcase
     endaction
@@ -204,6 +187,10 @@ module mkLSU(LSU);
       storeSuccessQ.deq;
       return storeSuccessQ.first;
     end
+  endmethod
+
+  method Action emptySTB() if (stb.empty());
+    noAction;
   endmethod
 
   interface RdAXI4_Lite_Master rd_mem;
