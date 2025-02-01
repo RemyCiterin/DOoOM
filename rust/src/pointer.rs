@@ -59,6 +59,24 @@ impl PhysAddr {
     pub fn offset(&self) -> usize {
         self.0 % constant::PAGE_SIZE
     }
+
+    pub fn as_slice<T>(&self, size: usize) -> &'static [T] {
+        unsafe {
+            slice::from_raw_parts(
+                self.0 as *const T,
+                size
+            )
+        }
+    }
+
+    pub fn as_slice_mut<T>(&self, size: usize) -> &'static mut [T] {
+        unsafe {
+            slice::from_raw_parts_mut(
+                self.0 as *mut T,
+                size
+            )
+        }
+    }
 }
 
 impl VirtAddr {

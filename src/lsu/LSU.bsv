@@ -39,6 +39,10 @@ interface LSU;
   interface WrAXI4_Lite_Master#(32, 4) wr_mem;
 endinterface
 
+typedef enum {
+  Load, Store
+} LsuTag deriving(Bits, FShow, Eq);
+
 (* synthesize *)
 module mkLSU(LSU);
   MemIssueQueue#(SiqSize, SqIndex) storeAddrIQ <- mkStoreIssueQueue;
@@ -59,7 +63,7 @@ module mkLSU(LSU);
 
   Fifo#(LqSize, LqIndex) pendingLoadsQ <- mkPipelineFifo;
 
-  Fifo#(TAdd#(LqSize, SqSize), Bool) tagQ <- mkPipelineFifo;
+  Fifo#(TAdd#(LqSize, SqSize), LsuTag) tagQ <- mkPipelineFifo;
 
   // No forwarding for the moment, the loads are just blocked
   Bit#(32) loadAddr = {loadIQ.issueVal[31:2],2'b00};
@@ -110,7 +114,7 @@ module mkLSU(LSU);
   method ActionValue#(CommitOutput) commit(RobIndex index, Bool must_commit);
     tagQ.deq;
 
-    if (tagQ.first) begin
+    if (tagQ.first matches Load) begin
       loadQ.deq();
       return Success;
     end else begin
@@ -146,7 +150,7 @@ module mkLSU(LSU);
             pc: entry.pc
           });
           loadIQ.enq(index, entry.rs1_val, immediateBits(entry.instr), entry.epoch, entry.age);
-          tagQ.enq(True);
+          tagQ.enq(Load);
         end
         tagged Stype {op: .stype} : begin
           let index <- storeQ.enq(StoreQueueEntry{
@@ -158,7 +162,7 @@ module mkLSU(LSU);
           });
           storeAddrIQ.enq(index, entry.rs1_val, immediateBits(entry.instr), 0, 0);
           storeDataIQ.enq(index, entry.rs2_val, 0 ,0, 0);
-          tagQ.enq(False);
+          tagQ.enq(Store);
         end
       endcase
     endaction

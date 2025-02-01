@@ -21,11 +21,15 @@ mod palloc;
 mod pointer;
 mod process;
 mod trap;
+mod fixed;
+mod screen;
 mod vm;
 use core::{
     arch::{asm, global_asm},
     panic::PanicInfo,
 };
+
+use screen::Pixel;
 
 use crate::trap::*;
 
@@ -38,6 +42,8 @@ use alloc::vec::Vec;
 use alloc::collections::LinkedList;
 use alloc::collections::BTreeSet;
 use alloc::boxed::Box;
+
+use crate::pointer::PhysAddr;
 
 fn linked_list_bench() {
     let mut list: LinkedList<u32> = LinkedList::new();
@@ -172,6 +178,15 @@ extern "C" fn user_main() -> () {
 
         let mut time = 0-mcycle::read();
         let mut instret = 0-minstret::read();
+
+        println!("start clear screen");
+        for i in 0..640 {
+            for j in 0..480 {
+                let pixel = Pixel::new(127, (i & 255) as u8, j as u8);
+                pixel.write_frame_buffer(i, j);
+            }
+        }
+        println!("stop clear screen");
 
         btree_bench();
 

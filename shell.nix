@@ -21,6 +21,9 @@ pkgs.mkShell {
     pkgs.graphviz
 
     pkgs.fujprog
+
+    pkgs.python312Packages.matplotlib
+    pkgs.python312Packages.numpy
   ];
 
   shellHook = ''

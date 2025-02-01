@@ -100,6 +100,8 @@ module mkVGA(VGA);
   Reg#(Bit#(10)) hpos <- mkReg(0);
   Reg#(Bit#(10)) vpos <- mkReg(0);
 
+  Reg#(File) file <- mkReg(InvalidFile);
+
   function Bit#(32) getFabricAddr;
     Bit#(20) h = zeroExtend(hpos);
     Bit#(20) v = zeroExtend(vpos);
@@ -123,6 +125,11 @@ module mkVGA(VGA);
     bram.deq;
   endrule
 
+  rule openFile if (file == InvalidFile);
+    File f <- $fopen("screen.txt", "w");
+    file <= f;
+  endrule
+
   rule enqBramRead;
     let addr = getFabricAddr;
     bram.read(zeroExtend(addr[31:2]));
@@ -141,6 +148,8 @@ module mkVGA(VGA);
   endrule
 
   method Action write(Bit#(32) addr, Bit#(32) data, Bit#(4) mask);
+    if (file != InvalidFile)
+      $fdisplay(file, "%d %d %d", addr, data, mask);
     bram.write(addr, data, mask);
   endmethod
 
