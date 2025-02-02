@@ -465,7 +465,7 @@ module mkCsrFile#(
       let is_vectored = mtvec_csr[1:0] == 2'b01;
       let trap_pc =
         (is_vectored && is_interrupt ? base + (zeroExtend(cause) << 2) : base);
-      $display("trap pc= %h", trap_pc);
+      //$display("trap pc= %h", trap_pc);
       //$display("with: %b %b %b", mie_csr, mip_csr, mstatus_csr);
       return trap_pc;
     endactionvalue

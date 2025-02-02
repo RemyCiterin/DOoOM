@@ -179,16 +179,17 @@ extern "C" fn user_main() -> () {
         let mut time = 0-mcycle::read();
         let mut instret = 0-minstret::read();
 
-        println!("start clear screen");
+        //println!("start clear screen");
         for i in 0..640 {
             for j in 0..480 {
                 let pixel = Pixel::new(127, (i & 255) as u8, j as u8);
                 pixel.write_frame_buffer(i, j);
             }
         }
-        println!("stop clear screen");
 
-        btree_bench();
+        //println!("stop clear screen");
+
+        //btree_bench();
 
         time += mcycle::read();
         instret += minstret::read();

@@ -203,10 +203,8 @@ mkCPU_SIM = module
     "receive btn": when True ==> do
       btn.fabric 0
 
-    --"clint timer interrupt": when True ==> do
-    --  clint.timer_interrupt
-    --  core.set_mtip(True)
+    "clint timer interrupt": when True ==> do
+      core.set_mtip(clint.timer_interrupt)
 
-    --"clint software interrupt": when True ==> do
-    --  clint.software_interrupt
-    --  core.set_msip(True)
+    "clint software interrupt": when True ==> do
+      core.set_msip(clint.software_interrupt)

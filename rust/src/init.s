@@ -8,8 +8,8 @@ _start:
     la t1, __bss_end
     bgeu t0, t1, .bss_zero_loop_end
 .bss_zero_loop:
-    sw zero, (t0)
-    addi t0, t0, 4
+    sb zero, (t0)
+    addi t0, t0, 1
     bltu t0, t1, .bss_zero_loop
 .bss_zero_loop_end:
 
@@ -19,5 +19,6 @@ _start:
     j .infinite_loop
 
 .section .bss
+.align 4
     .skip 0x1000
 stack_top:

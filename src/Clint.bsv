@@ -19,8 +19,8 @@ interface CLINT_AXI4_Lite;
   interface RdAXI4_Lite_Slave#(32, 4) read;
   interface WrAXI4_Lite_Slave#(32, 4) write;
 
-  method Action timer_interrupt;
-  method Action software_interrupt;
+  method Bool timer_interrupt;
+  method Bool software_interrupt;
 endinterface
 
 module mkCLINT_AXI4_Lite#(Bit#(32) clint_addr) (CLINT_AXI4_Lite);
@@ -93,11 +93,7 @@ module mkCLINT_AXI4_Lite#(Bit#(32) clint_addr) (CLINT_AXI4_Lite);
     interface response = toGet(wresponse);
   endinterface
 
-  method Action software_interrupt if (msip == 1);
-    noAction;
-  endmethod
+  method Bool software_interrupt = msip == 1;
 
-  method Action timer_interrupt if (mtime >= mtimecmp);
-    noAction;
-  endmethod
+  method Bool timer_interrupt = mtime >= mtimecmp;
 endmodule

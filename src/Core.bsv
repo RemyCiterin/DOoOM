@@ -243,7 +243,7 @@ module mkCoreOOO(Core_IFC);
         end
         tagged Error {cause: .cause, tval: .tval} : begin
           //$display("%d %h  ", index, entry.pc, displayInstr(entry.instr));
-          $display("exception from %h ", entry.pc, fshow(cause));
+          //$display("exception from %h ", entry.pc, fshow(cause));
           Bit#(32) trap_pc <- csr.exec_exception(entry.pc, False, pack(cause), tval);
           deqRob(Invalid, Valid(trap_pc));
 
@@ -348,7 +348,7 @@ module mkCoreOOO(Core_IFC);
     let entry = rob.first;
 
     let trap_pc <- csr.exec_exception(entry.pc, True, pack(cause), 0);
-    $display("interrupt at %h ", entry.pc, fshow(cause));
+    //$display("interrupt at %h ", entry.pc, fshow(cause));
 
     registers.setReady(RegName{name: 0}, 0, Invalid, True);
     fn_mispredict(trap_pc);
