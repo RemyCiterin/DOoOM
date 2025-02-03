@@ -51,7 +51,6 @@ pub extern fn user_trap() callconv(.Naked) void;
 extern fn run_user(*TrapState) callconv(.C) void;
 
 pub const Process = struct {
-    output: *Syscall.Output,
     state: TrapState,
     stack: []usize,
 };
@@ -93,7 +92,6 @@ pub const Manager = struct {
 
         logger.info("start process {}", .{pid});
 
-        const output = try self.allocator.create(Syscall.Output);
         const process = Process{
             .state = .{
                 .registers = .{
@@ -104,7 +102,6 @@ pub const Manager = struct {
                 },
                 .kernel_sp = undefined,
             },
-            .output = output,
             .stack = stack,
         };
 
@@ -119,14 +116,12 @@ pub const Manager = struct {
     }
 
     pub fn setOutput(self: *Self, pid: usize, output: Syscall.Output) void {
-        self.processes.items[pid].output.* = output;
-        self.write(pid, .a0, @intFromPtr(
-            self.processes.items[pid].output,
-        ));
+        const ptr: *volatile Syscall.Output = @ptrFromInt(self.read(pid, .a0));
+        ptr.* = output;
     }
 
     pub fn getInput(self: *Self, pid: usize) Syscall.Input {
-        const input: *Syscall.Input = @ptrFromInt(self.read(pid, .a0));
+        const input: *volatile Syscall.Input = @ptrFromInt(self.read(pid, .a1));
         return input.*;
     }
 
@@ -134,11 +129,13 @@ pub const Manager = struct {
         const new_pid = try self.new(params.pc, params.stack_size, params.args);
         self.setOutput(pid, .exec);
         self.current = new_pid;
+        logger.info("exec done", .{});
     }
 
     pub inline fn yield(self: *Self, pid: usize) void {
         self.setOutput(pid, .yield);
         self.next();
+        logger.info("yield done", .{});
     }
 
     pub inline fn syscall(self: *Self) !void {

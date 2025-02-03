@@ -10,6 +10,7 @@ const getChar = @import("print.zig").getChar;
 const Spinlock = @import("spinlock.zig");
 const Syscall = @import("syscall.zig");
 const Process = @import("process.zig");
+const Screen = @import("screen.zig");
 const Clint = @import("clint.zig");
 const Manager = Process.Manager;
 
@@ -123,15 +124,29 @@ pub fn measure(
 }
 
 pub fn syscall0(index: usize) void {
-    if (index <= 3) return Syscall.yield();
+    if (index <= 4) return Syscall.yield();
     Syscall.exec(@intFromPtr(&user_main), 512, null);
 }
 
-pub export fn user_main(pid: usize) callconv(.C) void {
+pub export fn user_main(pid: usize) callconv(.C) noreturn {
     const logger = std.log.scoped(.user);
+
+    if (pid == 0) {
+        var pixel = Screen.Pixel{ .red = 0b111 };
+
+        pixel.fillRectangle(101, 100, 137, 300);
+
+        pixel = .{ .blue = 0b11, .green = 0b111 };
+
+        pixel.drawRectangle(101, 100, 137, 300);
+        pixel.drawRectangle(102, 101, 136, 299);
+        pixel.drawRectangle(103, 102, 135, 298);
+    }
 
     var index: usize = 0;
     while (true) : (index += 1) {
         measure(logger, pid, syscall0, .{index});
     }
+
+    while (true) {}
 }
