@@ -55,7 +55,7 @@ module mkROB(ROB);
   Ehr#(2, Bool) empty <- mkEhr(True);
   Ehr#(2, Bool) full <- mkEhr(False);
 
-  // true if the LSU has already commited the memop
+  // true if we wait the commit notification from DMEM
   Ehr#(2, Bit#(RobSize)) waitDmemCommit <- mkEhr(0);
 
   // use port 1 of data, empty and full

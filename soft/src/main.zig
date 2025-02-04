@@ -133,14 +133,15 @@ pub export fn user_main(pid: usize) callconv(.C) noreturn {
 
     if (pid == 0) {
         var pixel = Screen.Pixel{ .red = 0b111 };
+        pixel.fill();
 
-        pixel.fillRectangle(101, 100, 137, 300);
+        //pixel.fillRectangle(101, 100, 137, 300);
 
-        pixel = .{ .blue = 0b11, .green = 0b111 };
+        //pixel = .{ .blue = 0b11, .green = 0b111 };
 
-        pixel.drawRectangle(101, 100, 137, 300);
-        pixel.drawRectangle(102, 101, 136, 299);
-        pixel.drawRectangle(103, 102, 135, 298);
+        //pixel.drawRectangle(101, 100, 137, 300);
+        //pixel.drawRectangle(102, 101, 136, 299);
+        //pixel.drawRectangle(103, 102, 135, 298);
     }
 
     var index: usize = 0;

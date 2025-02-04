@@ -332,6 +332,7 @@ module mkCoreOOO(Core_IFC);
   rule commit_interrupt if (
       csr.readyInterrupt matches tagged Valid .cause &&&
       rob.first_result matches Invalid &&&
+      rob.first.tag != EXEC_TAG_DMEM &&
       rob.first.epoch == epoch[0]
     );
     let index = rob.first_index;
