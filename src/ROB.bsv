@@ -8,7 +8,7 @@ import Ehr :: *;
 import CSR :: *;
 import OOO :: *;
 
-// first < deq < writeBack < read < enq
+// first < dmemCommit < deq < writeBack < read < enq
 interface ROB;
   /* Stage 1: enqueue */
   // read an entry from the rob
@@ -34,6 +34,9 @@ interface ROB;
   // return the result of the execution of the first item
   method Maybe#(ExecOutput) first_result;
 
+  // commit the first instruction before deq if necessary
+  method Action dmemCommit();
+
   // dequeue an element of the rob
   method Action deq;
 endinterface
@@ -52,6 +55,9 @@ module mkROB(ROB);
   Ehr#(2, Bool) empty <- mkEhr(True);
   Ehr#(2, Bool) full <- mkEhr(False);
 
+  // true if the LSU has already commited the memop
+  Ehr#(2, Bit#(RobSize)) waitDmemCommit <- mkEhr(0);
+
   // use port 1 of data, empty and full
   method ActionValue#(RobIndex) enq(RobEntry entry)
     if (!full[1]);
@@ -66,6 +72,8 @@ module mkROB(ROB);
 
       if (next_nextP == firstP[1])
         full[1] <= True;
+
+      waitDmemCommit[1][nextP] <= entry.tag == EXEC_TAG_DMEM ? 1 : 0;
 
       return index;
     endactionvalue
@@ -84,7 +92,13 @@ module mkROB(ROB);
       Valid(results.sub(firstP[0])) : Invalid;
   endmethod
 
-  method Action deq if (!empty[0]);
+  method Action dmemCommit() if (waitDmemCommit[0][firstP[0]] == 1);
+    action
+      waitDmemCommit[0][firstP[0]] <= 0;
+    endaction
+  endmethod
+
+  method Action deq if (!empty[0] && waitDmemCommit[1][firstP[0]] == 0);
     let next_firstP = (firstP[0] == max_index ? 0 : firstP[0] + 1);
     full[0] <= False;
 

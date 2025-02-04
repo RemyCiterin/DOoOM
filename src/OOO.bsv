@@ -32,6 +32,13 @@ function Bit#(32) getRdVal(ExecOutput result);
   endcase;
 endfunction
 
+function Bool isOk(ExecOutput result);
+  return case (result) matches
+    tagged Ok .* : True;
+    .* : False;
+  endcase;
+endfunction
+
 //   During a store commit, the load store unit may return that
 // all the instruction from a certain points are mispredicted,
 // in particular a load may return a mispredicted value if the
@@ -58,6 +65,8 @@ typedef struct {
   Instr instr;
 
   // tag of the instruction (or Direct if their is a fetching of decoding error)
+  // If the tag is TAG_DMEM then the reorder buffer mst wait the LSU to enter
+  // into the commit stage
   Exec_Tag tag;
 
   // the value of the epoch register at the instruction fetching

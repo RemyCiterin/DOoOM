@@ -117,16 +117,6 @@ module mkCoreOOO(Core_IFC);
       let entry = rob.first;
       let index = rob.first_index;
 
-      if (entry.tag == EXEC_TAG_DMEM) begin
-        let status <- lsu.commit(index, value != Invalid);
-
-        Bit#(RobSize) new_killed = killed;
-        if (status matches tagged Exception .idx)
-          new_killed[idx] = 1;
-        new_killed[index] = 0;
-        killed <= new_killed;
-      end
-
       if (value matches tagged Valid .val &&& destination(entry.instr).name != 0 &&& verbose)
         $display("       ", fshow(destination(entry.instr)), " := %h", val);
 
@@ -359,6 +349,21 @@ module mkCoreOOO(Core_IFC);
       next_pc: trap_pc,
       state: entry.bpred_state
     });
+  endrule
+
+  rule commit_dmem if (
+    rob.first_result matches tagged Valid .result);
+    let must_commit = rob.first.epoch == epoch[0] && isOk(result);
+    let index = rob.first_index;
+
+    let status <- lsu.commit(index, must_commit);
+    rob.dmemCommit();
+
+    Bit#(RobSize) new_killed = killed;
+    if (status matches tagged Exception .idx)
+      new_killed[idx] = 1;
+    new_killed[index] = 0;
+    killed <= new_killed;
   endrule
 
   rule commit_instruction if (
