@@ -11,6 +11,7 @@ import FIFOF :: *;
 import UART :: *;
 import Ehr :: *;
 import Screen :: *;
+import SdCard :: *;
 
 interface AXI4_Slave#(numeric type idBits, numeric type addrBits, numeric type dataBytes);
   interface RdAXI4_Slave#(idBits, addrBits, dataBytes) read;
@@ -69,6 +70,84 @@ module mkVGA_AXI4_Lite#(Bit#(32) vga_addr) (VGA_AXI4_Lite);
   endinterface
 
   method fabric = vga.fabric;
+endmodule
+
+interface SdCard_AXI4_Lite;
+  (* prefix = "" *)
+  interface SdCardFab fabric;
+
+  interface AXI4_Lite_Slave#(32, 4) axi4;
+endinterface
+
+module mkSdCard#(Bit#(32) sdcard_addr) (SdCard_AXI4_Lite);
+  SPI spi <- mkSPI;
+
+  FIFOF#(AXI4_Lite_RRequest#(32)) rrequest <- mkPipelineFIFOF;
+  FIFOF#(AXI4_Lite_RResponse#(4)) rresponse <- mkBypassFIFOF;
+
+  FIFOF#(AXI4_Lite_WRequest#(32, 4)) wrequest <- mkPipelineFIFOF;
+  FIFOF#(AXI4_Lite_WResponse) wresponse <- mkBypassFIFOF;
+
+  Reg#(Bit#(8)) result <- mkReg(0);
+
+  Reg#(Bool) canAnswer <- mkReg(True);
+
+  rule receive if (!canAnswer);
+    let x <- spi.receive;
+    canAnswer <= True;
+    result <= x;
+  endrule
+
+  rule read if (canAnswer);
+    let req = rrequest.first;
+    rrequest.deq;
+
+    Bit#(32) bytes = 0;
+
+    if (req.addr == sdcard_addr) begin
+      bytes[7:0] = result;
+    end
+
+    rresponse.enq(AXI4_Lite_RResponse{
+      bytes: bytes, resp: OKAY
+    });
+  endrule
+
+  rule write if (canAnswer);
+    let req = wrequest.first;
+    wrequest.deq;
+
+    if (req.addr == sdcard_addr) begin
+      if (req.strb[0] == 1) begin
+        spi.send(req.bytes[7:0]);
+        canAnswer <= False;
+      end
+
+      if (req.strb[1] == 1) begin
+        spi.setCS(req.bytes[15:8] == 0 ? 0 : 1);
+      end
+
+      if (req.strb[2] == 1) begin
+        spi.setClk(zeroExtend(req.bytes[23:16]));
+      end
+    end
+
+    wresponse.enq(AXI4_Lite_WResponse{resp: OKAY});
+  endrule
+
+  interface AXI4_Lite_Slave axi4;
+    interface RdAXI4_Lite_Slave read;
+      interface request = toPut(rrequest);
+      interface response = toGet(rresponse);
+    endinterface
+
+    interface WrAXI4_Lite_Slave write;
+      interface request = toPut(wrequest);
+      interface response = toGet(wresponse);
+    endinterface
+  endinterface
+
+  method fabric = spi.fabric;
 endmodule
 
 interface Btn;

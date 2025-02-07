@@ -11,6 +11,7 @@ const Spinlock = @import("spinlock.zig");
 const Syscall = @import("syscall.zig");
 const Process = @import("process.zig");
 const Screen = @import("screen.zig");
+const SdCard = @import("sdcard.zig");
 const Clint = @import("clint.zig");
 const Manager = Process.Manager;
 
@@ -91,6 +92,8 @@ pub export fn kernel_main() callconv(.C) void {
     RV.mstatus.modify(.{ .MPIE = 1 });
     RV.mie.modify(.{ .MEIE = 1, .MTIE = 1 });
 
+    SdCard.init();
+
     Clint.setNextTimerInterrupt();
 
     while (true) {
@@ -133,16 +136,19 @@ pub export fn user_main(pid: usize) callconv(.C) noreturn {
 
     if (pid == 0) {
         var pixel = Screen.Pixel{ .red = 0b111 };
-        pixel.fill();
+        //measure(logger, pid, Screen.Pixel.fill, .{pixel});
 
-        //pixel.fillRectangle(101, 100, 137, 300);
+        pixel.fillRectangle(101, 100, 137, 300);
 
-        //pixel = .{ .blue = 0b11, .green = 0b111 };
+        pixel = .{ .blue = 0b11, .green = 0b111 };
 
-        //pixel.drawRectangle(101, 100, 137, 300);
-        //pixel.drawRectangle(102, 101, 136, 299);
-        //pixel.drawRectangle(103, 102, 135, 298);
+        pixel.drawRectangle(101, 100, 137, 300);
+        pixel.drawRectangle(102, 101, 136, 299);
+        pixel.drawRectangle(103, 102, 135, 298);
     }
+
+    try uart.print("ready to fence?", .{});
+    asm volatile ("fence" ::: "memory");
 
     var index: usize = 0;
     while (true) : (index += 1) {

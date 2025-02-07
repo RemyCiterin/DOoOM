@@ -196,6 +196,9 @@ interface WriteBack_IFC;
   method Action set_meip(Bool b);
   method Action set_mtip(Bool b);
   method Action set_msip(Bool b);
+
+  (* always_enabled, always_ready *)
+  method Action set_EmptySTB(Bool empty);
 endinterface
 
 //  -- it take an I-type instruction, the value of rs1, and return the value of rd (or Nothing in case of error)
@@ -226,6 +229,8 @@ module mkWriteBack#(EpochManager epoch)(WriteBack_IFC);
   FIFOF#(Pipeline_to_WB) dmem_to_wb <- mkPipelineFIFOF;
 
   FIFOF#(Bool) to_commit <- mkPipelineFIFOF;
+
+  Wire#(Bool) emptySTB <- mkBypassWire;
 
   Log_IFC log <- mkLog;
 
@@ -286,6 +291,17 @@ module mkWriteBack#(EpochManager epoch)(WriteBack_IFC);
           fn_exception(direct.pc, ECALL_FROM_M, direct.pc);
           fn_commitRR(direct.exec_tag, direct.instr, False, ?);
         end
+        tagged Itype {op: FENCE} : begin
+          // Only fire when the store buffer is empty
+          when(emptySTB, csr.increment_instret());
+          fn_commitRR(direct.exec_tag, direct.instr, True, 0);
+          fn_mispredict(Invalid, direct.pc, direct.pc + 4);
+        end
+        tagged Itype {op: FENCE_I} : begin
+          csr.increment_instret();
+          fn_commitRR(direct.exec_tag, direct.instr, True, 0);
+          fn_mispredict(Invalid, direct.pc, direct.pc + 4);
+        end
         tagged Itype {instr: .*, op: tagged Ret MRET} : begin
           let next_pc <- csr.mret;
           csr.increment_instret();
@@ -344,7 +360,7 @@ module mkWriteBack#(EpochManager epoch)(WriteBack_IFC);
     let pc = rr_to_wb.first.pc;
 
     Bit#(32) trap_pc <- csr.exec_exception(pc, True, pack(cause), 0);
-    $display("interrupt at %h with cause ", pc, fshow(cause));
+    //$display("interrupt at %h with cause ", pc, fshow(cause));
     fn_mispredict(Invalid, pc, trap_pc);
   endrule
 
@@ -375,7 +391,8 @@ module mkWriteBack#(EpochManager epoch)(WriteBack_IFC);
 
             if (req.exception) begin
               $display("********************************* exception find: fu *********************************");
-              $display(fshow(req.cause), "  %h", direct.pc);
+              $display(fshow(req.cause), "  %h %h %h",
+                direct.pc, direct.rs1_val, direct.rs2_val);
               fn_exception(direct.pc, req.cause, req.tval);
             end else if (req.next_pc != direct.predicted_pc) begin
               //$display("mispredict pc= %h next= %h pred= %h", direct.pc, req.next_pc, direct.predicted_pc);
@@ -407,6 +424,8 @@ module mkWriteBack#(EpochManager epoch)(WriteBack_IFC);
   interface from_Control = toPut(control_to_wb);
   interface from_Exec = toPut(exec_to_wb);
   interface from_DMEM = toPut(dmem_to_wb);
+
+  method set_EmptySTB = emptySTB._write;
 
   method start = log.start;
 

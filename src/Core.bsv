@@ -494,6 +494,10 @@ module mkCore(Core_IFC);
     dmem.commit(commit);
   endrule
 
+  rule setEmptySTB;
+    wb.set_EmptySTB(dmem.emptySTB);
+  endrule
+
   method Bit#(64) getTime;
     return timer;
   endmethod

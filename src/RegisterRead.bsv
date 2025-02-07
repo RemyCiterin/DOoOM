@@ -1,5 +1,3 @@
-package RegisterRead;
-
 import Utils :: *;
 import Types :: *;
 import FIFOF :: *;
@@ -34,6 +32,9 @@ interface DMEM_IFC;
   // this pipeline has a type of effect so it have the commit interface to commit the
   // write operations
   method Action commit(Bool must_commit);
+
+  (* always_ready, always_enabled *)
+  method Bool emptySTB;
 endinterface
 
 // DMEM stage mix requests between read, stores, and misaligned requests, so we
@@ -224,6 +225,7 @@ module mkDMEM(DMEM_IFC);
 
   interface mem_read = dmem.rd_port;
   interface mem_write = dmem.wr_port;
+  method emptySTB = dmem.emptySTB;
 endmodule
 
 
@@ -564,5 +566,3 @@ module mkRegisterRead(RegisterRead_IFC);
 
   method start = log.start;
 endmodule
-
-endpackage

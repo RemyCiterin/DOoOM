@@ -20,6 +20,10 @@ module mkTop (
 
   input [6:1] btn,
 
+  output sd_clk,
+  inout sd_cmd,
+  inout [3:0] sd_d,
+
   // DVI output
   output [3:0] gpdi_dp
 );
@@ -83,6 +87,20 @@ module mkTop (
   //    .T(~sdram_d_out_en)
   //  );
   //end
+
+  wire sd_cmd_in;
+  wire sd_cmd_out;
+  wire sd_cmd_out_valid;
+  assign sd_cmd_in = sd_cmd;
+  assign sd_cmd = sd_cmd_out_valid ? sd_cmd_out : 'bz;
+  wire [3:0] sd_d_in;
+  wire [3:0] sd_d_out;
+  wire [3:0] sd_d_out_valid;
+  assign sd_d_in = sd_d;
+  assign sd_d[0] = sd_d_out_valid[0] ? sd_d_out[0] : 1'bz;
+  assign sd_d[1] = sd_d_out_valid[1] ? sd_d_out[1] : 1'bz;
+  assign sd_d[2] = sd_d_out_valid[2] ? sd_d_out[2] : 1'bz;
+  assign sd_d[3] = sd_d_out_valid[3] ? sd_d_out[3] : 1'bz;
 
   reg [31:0] cycles = 0;
 
@@ -252,7 +270,13 @@ module mkTop (
     .ftdi_rxd(ftdi_rxd),
     .ftdi_txd(ftdi_txd),
 
-
+    .sd_clk(sd_clk),
+    .sd_cmd_in(sd_cmd_in),
+    .sd_cmd_out(sd_cmd_out),
+    .sd_cmd_out_valid(sd_cmd_out_valid),
+    .sd_data_in(sd_d_in),
+    .sd_data_out(sd_d_out),
+    .sd_data_out_valid(sd_d_out_valid),
 
     .vga_hsync(vga_hsync),
     .vga_vsync(vga_vsync),

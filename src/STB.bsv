@@ -26,6 +26,9 @@ interface DMEM_Controller;
 
   interface WrAXI4_Lite_Master#(32, 4) wr_port;
   interface RdAXI4_Lite_Master#(32, 4) rd_port;
+
+  (* always_enabled, always_ready *)
+  method Bool emptySTB;
 endinterface
 
 typedef struct {
@@ -144,4 +147,6 @@ module mkMiniSTB(DMEM_Controller);
     interface request = toGet(rd_request_fifo);
     interface response = toPut(rd_response_fifo);
   endinterface
+
+  method Bool emptySTB = !stb.notEmpty;
 endmodule

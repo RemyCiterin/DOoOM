@@ -5,46 +5,46 @@ const std = @import("std");
 const logger = std.log.scoped(.process);
 
 pub const Registers = extern struct {
-    ra: usize = 0, // x1
-    sp: usize = 0, // x2
-    gp: usize = 0, // x3
-    tp: usize = 0, // x4
-    t0: usize = 0, // x5
-    t1: usize = 0, // x6
-    t2: usize = 0, // x7
-    s0: usize = 0, // x8
-    s1: usize = 0, // x9
-    a0: usize = 0, // x10
-    a1: usize = 0, // x11
-    a2: usize = 0, // x12
-    a3: usize = 0, // x13
-    a4: usize = 0, // x14
-    a5: usize = 0, // x15
-    a6: usize = 0, // x16
-    a7: usize = 0, // x17
-    s2: usize = 0, // x18
-    s3: usize = 0, // x19
-    s4: usize = 0, // x20
-    s5: usize = 0, // x21
-    s6: usize = 0, // x22
-    s7: usize = 0, // x23
-    s8: usize = 0, // x24
-    s9: usize = 0, // x25
-    s10: usize = 0, // x26
-    s11: usize = 0, // x27
-    t3: usize = 0, // x28
-    t4: usize = 0, // x29
-    t5: usize = 0, // x30
-    t6: usize = 0, // x31
-    pc: usize, // program counter
+    ra: usize align(4) = 0, // x1
+    sp: usize align(4) = 0, // x2
+    gp: usize align(4) = 0, // x3
+    tp: usize align(4) = 0, // x4
+    t0: usize align(4) = 0, // x5
+    t1: usize align(4) = 0, // x6
+    t2: usize align(4) = 0, // x7
+    s0: usize align(4) = 0, // x8
+    s1: usize align(4) = 0, // x9
+    a0: usize align(4) = 0, // x10
+    a1: usize align(4) = 0, // x11
+    a2: usize align(4) = 0, // x12
+    a3: usize align(4) = 0, // x13
+    a4: usize align(4) = 0, // x14
+    a5: usize align(4) = 0, // x15
+    a6: usize align(4) = 0, // x16
+    a7: usize align(4) = 0, // x17
+    s2: usize align(4) = 0, // x18
+    s3: usize align(4) = 0, // x19
+    s4: usize align(4) = 0, // x20
+    s5: usize align(4) = 0, // x21
+    s6: usize align(4) = 0, // x22
+    s7: usize align(4) = 0, // x23
+    s8: usize align(4) = 0, // x24
+    s9: usize align(4) = 0, // x25
+    s10: usize align(4) = 0, // x26
+    s11: usize align(4) = 0, // x27
+    t3: usize align(4) = 0, // x28
+    t4: usize align(4) = 0, // x29
+    t5: usize align(4) = 0, // x30
+    t6: usize align(4) = 0, // x31
+    pc: usize align(4), // program counter
 };
 
 /// state saved at each interrupt, unique per CPU core
 pub const TrapState = extern struct {
     /// register-set of the last interrupted user process of the CPU core
-    registers: Registers,
+    registers: Registers align(4),
     /// the stack pointer of the kernel idle of the CPU core
-    kernel_sp: usize,
+    kernel_sp: usize align(4),
 };
 
 pub extern fn user_trap() callconv(.Naked) void;
@@ -129,16 +129,15 @@ pub const Manager = struct {
         const new_pid = try self.new(params.pc, params.stack_size, params.args);
         self.setOutput(pid, .exec);
         self.current = new_pid;
-        logger.info("exec done", .{});
     }
 
     pub inline fn yield(self: *Self, pid: usize) void {
         self.setOutput(pid, .yield);
         self.next();
-        logger.info("yield done", .{});
     }
 
     pub inline fn syscall(self: *Self) !void {
+        logger.info("syscall", .{});
         const pid = self.current;
 
         switch (self.getInput(pid)) {
