@@ -92,7 +92,7 @@ pub export fn kernel_main() callconv(.C) void {
     RV.mstatus.modify(.{ .MPIE = 1 });
     RV.mie.modify(.{ .MEIE = 1, .MTIE = 1 });
 
-    SdCard.init();
+    //SdCard.init();
 
     Clint.setNextTimerInterrupt();
 

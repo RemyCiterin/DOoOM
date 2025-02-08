@@ -9,7 +9,7 @@ const Clk: *volatile u8 = @ptrFromInt(Config.sdcard_base + 2);
 
 var buffer: [512]u8 linksection(".bss") = undefined;
 
-const boot_time: usize = 100;
+const boot_time: usize = 10000000;
 const timeout: usize = 100;
 
 pub fn send(x: u8) u8 {

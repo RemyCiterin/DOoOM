@@ -24,8 +24,8 @@ interface DMEM_Controller;
   // reveive a read response from the speculative memory controller
   method ActionValue#(Bit#(32)) rresponse;
 
-  interface WrAXI4_Lite_Master#(32, 4) wr_port;
-  interface RdAXI4_Lite_Master#(32, 4) rd_port;
+  interface WrAXI4_Lite_Master#(32, 4) mem_write;
+  interface RdAXI4_Lite_Master#(32, 4) mem_read;
 
   (* always_enabled, always_ready *)
   method Bool emptySTB;
@@ -43,13 +43,12 @@ module mkMiniSTB(DMEM_Controller);
   FIFOF#(AXI4_Lite_RRequest#(32)) loadQ <- mkPipelineFIFOF;
   FIFOF#(AXI4_Lite_WRequest#(32, 4)) stb <- mkBypassFIFOF;
 
-  Fifo#(2, Bool) have_forward <- mkPipelineFifo;
-  Fifo#(2, Bit#(32)) forward <- mkPipelineFifo;
+  Fifo#(2, Maybe#(Bit#(32))) forwardQ <- mkPipelineFifo;
 
-  FIFOF#(AXI4_Lite_WRequest#(32, 4)) wr_request_fifo <- mkBypassFIFOF;
-  FIFOF#(AXI4_Lite_RRequest#(32)) rd_request_fifo <- mkBypassFIFOF;
-  FIFOF#(AXI4_Lite_WResponse) wr_response_fifo <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_RResponse#(4)) rd_response_fifo <- mkPipelineFIFOF;
+  FIFOF#(AXI4_Lite_WRequest#(32, 4)) wrequestQ <- mkBypassFIFOF;
+  FIFOF#(AXI4_Lite_RRequest#(32)) rrequestQ <- mkBypassFIFOF;
+  FIFOF#(AXI4_Lite_WResponse) wresponseQ <- mkPipelineFIFOF;
+  FIFOF#(AXI4_Lite_RResponse#(4)) rresponseQ <- mkPipelineFIFOF;
 
   function STB_SearchResult searchLoad(Bit#(32) addr);
     STB_SearchResult ret = STB_SearchResult{
@@ -75,7 +74,7 @@ module mkMiniSTB(DMEM_Controller);
   endfunction
 
   rule write_response;
-    wr_response_fifo.deq;
+    wresponseQ.deq;
     stb.deq;
   endrule
 
@@ -87,16 +86,15 @@ module mkMiniSTB(DMEM_Controller);
 
       case (result.forward) matches
         tagged Valid .data : begin
-          have_forward.enq(True);
-          forward.enq(data);
+          forwardQ.enq(Valid(data));
           //when(False, noAction);
         end
         Invalid : begin
           if (result.found)
             when(False, noAction);
           else begin
-            have_forward.enq(False);
-            rd_request_fifo.enq(req);
+            forwardQ.enq(Invalid);
+            rrequestQ.enq(req);
           end
         end
       endcase
@@ -104,19 +102,14 @@ module mkMiniSTB(DMEM_Controller);
   endmethod
 
   method ActionValue#(Bit#(32)) rresponse;
-    actionvalue
-      if (have_forward.first) begin
-        let resp = forward.first;
-        have_forward.deq;
-        forward.deq;
-        return resp;
-      end else begin
-        let resp = rd_response_fifo.first;
-        rd_response_fifo.deq;
-        have_forward.deq;
-        return resp.bytes;
-      end
-    endactionvalue
+    forwardQ.deq;
+    if (forwardQ.first matches tagged Valid .resp)
+      return resp;
+    else begin
+      let resp = rresponseQ.first;
+      rresponseQ.deq;
+      return resp.bytes;
+    end
   endmethod
 
   method Action wrequest(Bit#(32) addr, Bit#(32) data, Bit#(4) mask);
@@ -132,20 +125,20 @@ module mkMiniSTB(DMEM_Controller);
       storeQ.deq;
 
       if (commit) begin
-        wr_request_fifo.enq(req);
+        wrequestQ.enq(req);
         stb.enq(req);
       end
     endaction
   endmethod
 
-  interface WrAXI4_Lite_Master wr_port;
-    interface request = toGet(wr_request_fifo);
-    interface response = toPut(wr_response_fifo);
+  interface WrAXI4_Lite_Master mem_write;
+    interface request = toGet(wrequestQ);
+    interface response = toPut(wresponseQ);
   endinterface
 
-  interface RdAXI4_Lite_Master rd_port;
-    interface request = toGet(rd_request_fifo);
-    interface response = toPut(rd_response_fifo);
+  interface RdAXI4_Lite_Master mem_read;
+    interface request = toGet(rrequestQ);
+    interface response = toPut(rresponseQ);
   endinterface
 
   method Bool emptySTB = !stb.notEmpty;

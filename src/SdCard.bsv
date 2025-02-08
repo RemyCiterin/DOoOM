@@ -74,8 +74,13 @@ module mkSPI(SPI);
   method Action send(Bit#(8) msg)
     if (responseValid == 0 && requestValid == 0);
     action
+`ifdef BSIM
+      responseValid <= 8'hFF;
+      responseBuffer <= 8'hFF;
+`else
       requestValid <= 8'b11111111;
       requestBuffer <= msg;
+`endif
     endaction
   endmethod
 

@@ -223,8 +223,8 @@ module mkDMEM(DMEM_IFC);
       dmem.wcommit(b);
   endmethod
 
-  interface mem_read = dmem.rd_port;
-  interface mem_write = dmem.wr_port;
+  interface mem_read = dmem.mem_read;
+  interface mem_write = dmem.mem_write;
   method emptySTB = dmem.emptySTB;
 endmodule
 

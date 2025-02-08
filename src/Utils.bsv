@@ -13,6 +13,12 @@ import Fifo :: *;
 
 import Decode :: *;
 
+// return if a memory access is a MMIO access, by convention the memory from the
+// address 0x8000_0000 is cachable but the rest of memory is not (so is MMIO)
+function Bool isMMIO(Bit#(32) addr);
+  return addr < 32'h80000000;
+endfunction
+
 typedef enum {
   U = 2'b00,
   S = 2'b01,
