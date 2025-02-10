@@ -1,4 +1,4 @@
-package Top where
+package Soc where
 
 import Utils
 import GetPut
@@ -141,7 +141,7 @@ mkCPU_SIM :: Module Empty
 mkCPU_SIM = module
   dcache :: DCache <- mkDCache
 
-  core <- mkCore
+  core <- mkCoreOOO
   --core_d_wr <- mkAXI4_Lite_WrAXI4_Master_Adapter core.wr_dmem 4'b0
   --core_d_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_dmem 4'b0
   core_i_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_imem 4'b1
@@ -151,31 +151,35 @@ mkCPU_SIM = module
   let is_vga :: Bit 32 -> Bool = \x -> x >= 32'h40000000 && x < 32'h50000000
   let is_btn :: Bit 32 -> Bool = \x -> x == 32'h20000000
   let is_clint :: Bit 32 -> Bool = \x -> x >= 32'h30000000 && x < 32'h3000C000
+  let is_sdcard :: Bit 32 -> Bool = \x -> x == 32'h50000000
 
   rom <- mkRom (RomConfig{name="Mem.hex"; start=offset; size=alloc_size})
   clint <- mkCLINT_AXI4_Lite 32'h30000000
   vga <- mkVGA_AXI4_Lite 32'h40000000
+  sdcard <- mkSdCard 32'h50000000
   uart <- mkUART 32'h10000000
   btn <- mkBtn 32'h20000000
 
   let rd_masters_lite :: Vector 1 (RdAXI4_Lite_Master 32 4) = core.rd_dmem :> nil
   let wr_masters_lite :: Vector 1 (WrAXI4_Lite_Master 32 4) = core.wr_dmem :> nil
 
-  let rd_slaves_lite :: Vector 5 (RdAXI4_Lite_Slave 32 4) =
+  let rd_slaves_lite :: Vector 6 (RdAXI4_Lite_Slave 32 4) =
         dcache.cpu_read :> uart.axi4.read :> vga.axi4.read :> btn.axi4.read
-        :> clint.read :> nil
-  let wr_slaves_lite :: Vector 5 (WrAXI4_Lite_Slave 32 4) =
+        :> clint.read :> sdcard.axi4.read :> nil
+  let wr_slaves_lite :: Vector 6 (WrAXI4_Lite_Slave 32 4) =
         dcache.cpu_write :> uart.axi4.write :> vga.axi4.write :> btn.axi4.write
-        :> clint.write :> nil
+        :> clint.write :> sdcard.axi4.write :> nil
 
   let rdReqLiteDispatch :: AXI4_Lite_RRequest 32 -> Bit 3 =
         \ req -> if req.addr == 32'h10000000 then 1 else
         if is_vga req.addr then 2 else if is_clint req.addr then 4 else
-        if is_btn req.addr then 3 else 0
+        if is_btn req.addr then 3 else
+        if is_sdcard req.addr then 5 else 0
   let wrReqLiteDispatch :: AXI4_Lite_WRequest 32 4 -> Bit 3 =
         \ req -> if req.addr == 32'h10000000 then 1 else
         if is_vga req.addr then 2 else if is_clint req.addr then 4 else
-        if is_btn req.addr then 3 else 0
+        if is_btn req.addr then 3 else
+        if is_sdcard req.addr then 5 else 0
 
   mkXBarRdAXI4_Lite rd_masters_lite rd_slaves_lite rdReqLiteDispatch
   mkXBarWrAXI4_Lite wr_masters_lite wr_slaves_lite wrReqLiteDispatch
@@ -211,6 +215,10 @@ mkCPU_SIM = module
 
     "receive btn": when True ==> do
       btn.fabric 0
+
+    "sdcard receive": when True ==> do
+      sdcard.fabric.cmd_in 0
+      sdcard.fabric.data_in 0
 
     "clint timer interrupt": when True ==> do
       core.set_mtip(clint.timer_interrupt)

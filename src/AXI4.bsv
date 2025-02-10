@@ -406,9 +406,9 @@ module mkRdAXI4_Slave#(FIFOF_Config conf) (RdAXI4_Slave_IFC#(i, a, d));
       wire_rresp <= response.first().resp;
       wire_rlast <= response.first().last;
       wire_rid <= response.first().id;
-      if (wire_rvalid) response.deq();
+      if (wire_rready) response.deq();
     end else begin
-      wire_rready <= False;
+      wire_rvalid <= False;
       wire_rdata <= 0;
       wire_rresp <= OKAY;
       wire_rlast <= False;
@@ -578,7 +578,7 @@ module mkWrAXI4_Slave#(FIFOF_Config conf) (WrAXI4_Slave_IFC#(i, a, d));
     end
 
     // receive data
-    if (!isRst && wrequest.notEmpty()) begin
+    if (!isRst && wrequest.notFull()) begin
       wire_wready <= True;
       if (wire_wvalid)
         wrequest.enq(AXI4_WRequest{bytes: wire_wdata, strb: wire_wstrb, last: wire_wlast});

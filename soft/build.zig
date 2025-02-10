@@ -63,6 +63,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     exe.addAssemblyFile(.{ .path = "src/trampoline.s" });
+    exe.addAssemblyFile(.{ .path = "src/bootloader.S" });
     exe.addAssemblyFile(.{ .path = "src/init.s" });
 
     //exe.code_model = .medium;

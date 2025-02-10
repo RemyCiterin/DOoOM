@@ -136,7 +136,7 @@ pub export fn user_main(pid: usize) callconv(.C) noreturn {
 
     if (pid == 0) {
         var pixel = Screen.Pixel{ .red = 0b111 };
-        //measure(logger, pid, Screen.Pixel.fill, .{pixel});
+        measure(logger, pid, Screen.Pixel.fill, .{pixel});
 
         pixel.fillRectangle(101, 100, 137, 300);
 

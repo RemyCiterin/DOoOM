@@ -9,8 +9,33 @@ const Clk: *volatile u8 = @ptrFromInt(Config.sdcard_base + 2);
 
 var buffer: [512]u8 linksection(".bss") = undefined;
 
-const boot_time: usize = 10000000;
+const boot_time: usize = 100;
 const timeout: usize = 100;
+
+pub extern fn print_string(string: [*:0]const u8) callconv(.C) void;
+
+pub const Response1 = packed struct(u8) {
+    idle: u1,
+    erase_reset: u1,
+    illegal_command: u1,
+    crc_error: u1,
+    erase_sequence_error: u1,
+    address_error: u1,
+    parameter_error: u1,
+    _reserved: u1,
+
+    //const Fields = std.meta.FieldEnum(Response1);
+
+    pub fn log(self: Response1) void {
+        _ = self;
+        print_string("hello_world!\n");
+        //logger.info("  Response1:", .{});
+        //inline for (@typeInfo(Response1).Struct.fields) |field| {
+        //    if (@field(self, field.name) == 1)
+        //        logger.info("    " ++ field.name ++ ": 1", .{});
+        //}
+    }
+};
 
 pub fn send(x: u8) u8 {
     Spi.* = x;
@@ -25,22 +50,24 @@ pub fn sendCmd(cmd: u64) u8 {
         _ = send(msg[7 - i]);
     }
 
-    var index: usize = 0;
-    var result: u8 = 0xFF;
+    const index: usize = 0;
+    const result: u8 = 0xFF;
 
-    while (result == 0xFF) : (index += 1) {
-        if (index > timeout) @panic("sd: timout");
-        if (index > timeout) break;
-        result = send(0xFF);
-    }
+    _ = index;
+    //while (result == 0xFF) : (index += 1) {
+    //    if (index > timeout) @panic("sd: timout");
+    //    if (index > timeout) break;
+    //    result = send(0xFF);
+    //}
 
     return result;
 }
 
 pub fn sendCmd0() void {
-    const result = sendCmd(0xFFFF400000000095);
+    const result: Response1 = @bitCast(sendCmd(0xFFFF400000000095));
 
-    logger.info("receive {} from cmd0", .{result});
+    logger.info("Cmd0:", .{});
+    result.log();
     //if (result != 1) @panic("cmd0 fail");
 }
 

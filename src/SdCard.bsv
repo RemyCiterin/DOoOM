@@ -53,6 +53,15 @@ module mkSPI(SPI);
 
   Fifo#(1, Bit#(8)) bytesFifo <- mkBypassFifo;
 
+  Reg#(Bool) started <- mkReg(False);
+  Reg#(File) file <- mkReg(InvalidFile);
+
+  rule openFile if (!started);
+    File f <- $fopen("spi.log", "w");
+    started <= True;
+    file <= f;
+  endrule
+
   rule decrClkPhase if (clkPhase != 0);
     clkPhase <= clkPhase - 1;
   endrule
@@ -72,9 +81,10 @@ module mkSPI(SPI);
   endrule
 
   method Action send(Bit#(8) msg)
-    if (responseValid == 0 && requestValid == 0);
+    if (responseValid == 0 && requestValid == 0 && started);
     action
 `ifdef BSIM
+      $fdisplay(file, "SPI send: %h", msg);
       responseValid <= 8'hFF;
       responseBuffer <= 8'hFF;
 `else

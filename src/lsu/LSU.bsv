@@ -52,10 +52,10 @@ module mkLSU(LSU);
   LoadQ loadQ <- mkLoadQ;
   STB stb <- mkSTB;
 
-  Fifo#(1, AXI4_Lite_RRequest#(32)) rrequestQ <- mkBypassFifo;
-  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) wrequestQ <- mkBypassFifo;
-  Fifo#(1, AXI4_Lite_RResponse#(4)) rresponseQ <- mkPipelineFifo;
-  Fifo#(1, AXI4_Lite_WResponse) wresponseQ <- mkPipelineFifo;
+  Fifo#(4, AXI4_Lite_RRequest#(32)) rrequestQ <- mkBypassFifo;
+  Fifo#(4, AXI4_Lite_WRequest#(32, 4)) wrequestQ <- mkBypassFifo;
+  Fifo#(4, AXI4_Lite_RResponse#(4)) rresponseQ <- mkPipelineFifo;
+  Fifo#(4, AXI4_Lite_WResponse) wresponseQ <- mkPipelineFifo;
 
   Fifo#(1, Tuple2#(RobIndex, ExecOutput)) loadFailureQ <- mkPipelineFifo;
   Fifo#(1, Tuple2#(RobIndex, ExecOutput)) loadSuccessQ <- mkPipelineFifo;

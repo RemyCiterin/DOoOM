@@ -346,7 +346,11 @@ typedef struct {
 } RomConfig;
 
 module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
-  RegFile#(Bit#(32), Bit#(32)) rf <- mkRegFileLoad(conf.name, 0, conf.size / 4 - 1);
+  RegFile#(Bit#(32), Bit#(32)) rf;
+  if (conf.name == "")
+    rf <- mkRegFile(0, conf.size / 4 - 1);
+  else
+    rf <- mkRegFileLoad(conf.name, 0, conf.size / 4 - 1);
 
   FIFOF#(AXI4_RRequest#(4, 32)) rrequest <- mkBypassFIFOF;
   FIFOF#(AXI4_RResponse#(4, 4)) rresponse <- mkBypassFIFOF;

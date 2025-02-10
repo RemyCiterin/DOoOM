@@ -3,7 +3,7 @@ BUILD = build
 BSIM = bsim
 PACKAGES = ./src/:./src/lsu/:./src/cache/:+
 SIM_FILE = ./build/mkTop_sim
-TOP = src/Top.bs
+TOP = src/Soc.bs
 
 BSIM_MODULE = mkCPU_SIM
 
