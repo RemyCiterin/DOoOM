@@ -5,6 +5,8 @@ Mem.hex
 log.txt
 soft/zig-cache
 soft/zig-out
+soft/firmware.asm
+rust/firmware.asm
 *.log
 elf_to_hex
 rust/target
