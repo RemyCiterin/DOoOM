@@ -55,13 +55,13 @@ _start:
   la a0, start_msg
   call print_string
 
-  call reset_spi
-  call send_cmd0
-  call send_cmd8
-  call quit_idle_mode
+  # call reset_spi
+  # call send_cmd0
+  # call send_cmd8
+  # call quit_idle_mode
 
   # start the kernel
-  #call kernel_main
+  call kernel_main
 infinite_loop:
   j infinite_loop
 
@@ -75,7 +75,7 @@ reset_spi:
   li a0, 32
   SET_SPI_CLK(a0, t0)
 
-  li t0, 10000000
+  li t0, 1000
 1:
   beqz t0, 2f
   addi t0, t0, -1

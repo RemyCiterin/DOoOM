@@ -14,8 +14,8 @@ import MSHR :: *;
 import StmtFSM :: *;
 
 
-// Interface of mkRWBram#(addrT, dataT)
-//interface RWBram#(type addrT, type dataT);
+// Interface of mkBram#(addrT, dataT)
+//interface Bram#(type addrT, type dataT);
 //  method Action write(addrT addr, dataT data);
 //  method Action read(addrT addr);
 //  method dataT response;
@@ -47,7 +47,7 @@ endinterface
 
 module mkSRamPipe#(Maybe#(dataT) initValue) (SRamPipe#(addrT, dataT))
   provisos (Bits#(addrT, addrWidth), Bits#(dataT, dataWidth), Eq#(addrT));
-  RWBram#(addrT, dataT) bram <- mkRWBram();
+  Bram#(addrT, dataT) bram <- mkBram();
 
   Fifo#(1, addrT) currentAddr <- mkPipelineFifo;
 

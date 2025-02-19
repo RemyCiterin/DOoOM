@@ -21,7 +21,7 @@ import Ehr :: *;
 //   user may freely write back the previous cache line and load the new one
 // - In case of a cache it the user write the data in case of a store and stop the transaction
 
-// In case of a cache mis (stage 3) can update the data using the RWBram interface,
+// In case of a cache mis (stage 3) can update the data using the Bram interface,
 // and unset the pending tag using the stopStage3 function, it update the tag and
 // state of the cache line at the same time
 
@@ -78,7 +78,7 @@ interface DCachePipeCore#(
   // - then finish the transaction by calling unsetPending(index, way, newTag, newState)
 
   // user must care about the index he read/write because
-  interface Vector#(numWays, RWBit32Bram#(Bit#(TSub#(30, tagWidth)))) bram;
+  interface Vector#(numWays, BramBE#(Bit#(TSub#(30, tagWidth)), 4)) bram;
 
   // unset the pending tag of the cache line and update it's tag/state
   method Action stopStage3(
@@ -102,12 +102,12 @@ module mkDCachePipeCore#(lineState initState)
   Ehr#(2, Bit#(TSub#(TSub#(30, tagWidth), indexWidth))) offsetStage12 <- mkEhr(?);
   Ehr#(2, Bool) mustLoadStage12 <- mkEhr(?);
 
-  Vector#(numWays, RWBram#(Bit#(indexWidth), lineState)) stateRam <- replicateM(mkRWBram);
-  Vector#(numWays, RWBram#(Bit#(indexWidth), Bit#(tagWidth))) tagRam <- replicateM(mkRWBram);
-  Vector#(numWays, RWBram#(Bit#(indexWidth), Bool)) pendingRam <- replicateM(mkRWBram);
+  Vector#(numWays, Bram#(Bit#(indexWidth), lineState)) stateRam <- replicateM(mkBram);
+  Vector#(numWays, Bram#(Bit#(indexWidth), Bit#(tagWidth))) tagRam <- replicateM(mkBram);
+  Vector#(numWays, Bram#(Bit#(indexWidth), Bool)) pendingRam <- replicateM(mkBram);
 
-  Vector#(numWays, RWBit32Bram#(Bit#(TSub#(30, tagWidth)))) dataRam
-    <- replicateM(mkRWBit32Bram);
+  Vector#(numWays, BramBE#(Bit#(TSub#(30, tagWidth)), 4)) dataRam
+    <- replicateM(mkBramBE);
 
 
   function Action stopStage2Fn;
@@ -271,10 +271,10 @@ module mkDCache(DCache);
   endfunction
 
   FIFOF#(AXI4_Lite_RRequest#(32)) cpu_rd_req <- mkBypassFIFOF;
-  FIFOF#(AXI4_Lite_RResponse#(4)) cpu_rd_resp <- mkBypassFIFOF;
+  FIFOF#(AXI4_Lite_RResponse#(4)) cpu_rd_resp <- mkPipelineFIFOF;
 
   FIFOF#(AXI4_Lite_WRequest#(32, 4)) cpu_wr_req <- mkBypassFIFOF;
-  FIFOF#(AXI4_Lite_WResponse) cpu_wr_resp <- mkBypassFIFOF;
+  FIFOF#(AXI4_Lite_WResponse) cpu_wr_resp <- mkPipelineFIFOF;
 
   FIFOF#(AXI4_RRequest#(4, 32)) mem_rd_req <- mkBypassFIFOF;
   FIFOF#(AXI4_RResponse#(4, 4)) mem_rd_resp <- mkPipelineFIFOF;

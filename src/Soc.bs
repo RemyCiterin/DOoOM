@@ -42,13 +42,14 @@ interface CPU_IFC =
 {-# verilog mkCPU #-}
 mkCPU :: Module CPU_IFC
 mkCPU = module
-  wr_port <- mkWrAXI4_Master (Bypass 1)
-  rd_port <- mkRdAXI4_Master (Bypass 1)
+  wr_port <- mkWrAXI4_Master Pipeline
+  rd_port <- mkRdAXI4_Master Pipeline
 
   --tx_uart :: TxUART <- mkTxUART 217
 
   led_output :: Reg (Bit 8) <- mkReg 0
   dcache :: DCache <- mkDCache
+  --dcache <- mkClassicCache
 
   --testMSHR <- mkTestMSHR;
 
@@ -140,6 +141,7 @@ mkCPU = module
 mkCPU_SIM :: Module Empty
 mkCPU_SIM = module
   dcache :: DCache <- mkDCache
+  --dcache <- mkClassicCache
 
   core <- mkCoreOOO
   --core_d_wr <- mkAXI4_Lite_WrAXI4_Master_Adapter core.wr_dmem 4'b0

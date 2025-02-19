@@ -65,8 +65,9 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW, beatW))
   Fifo#(1, AXI4_WRequest#(beatW)) wrequestQ <- mkBypassFifo;
   Fifo#(1, AXI4_WResponse#(4)) wresponseQ <- mkPipelineFifo;
 
-  Vector#(wordW, RWBram#(Bit#(indexW), Bit#(8))) bram <- replicateM(mkRWBram);
-  Fifo#(1, Bool) isReadWord <- mkPipelineFifo;
+  let bram <- mkDualBramBE();
+  BramBE#(Bit#(indexW), wordW) memPort = bram.fst;
+  BramBE#(Bit#(indexW), wordW) cpuPort = bram.snd;
 
   Fifo#(buffSize, Tuple2#(Bit#(indexW), Bit#(8))) acquireQ <- mkPipelineFifo;
 
@@ -89,49 +90,6 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW, beatW))
     else return offset + fromInteger(valueOf(beatW) % valueOf(wordW));
   endfunction
 
-  function Action bramReadWord(Bit#(indexW) index);
-    action
-      for (Integer i=0; i < valueOf(wordW); i = i + 1) begin
-        bram[i].read(index);
-      end
-    endaction
-  endfunction
-
-  function Byte#(wordW) bramOutWord;
-    Bit#(8) result[valueOf(wordW)];
-
-    for (Integer i=0; i < valueOf(wordW); i = i + 1) begin
-      result[i] = bram[i].response;
-    end
-
-    return packArray(result);
-  endfunction
-
-  function Action bramDeqWord;
-    action
-      for (Integer i=0; i < valueOf(wordW); i = i + 1) begin
-        bram[i].deq;
-      end
-    endaction
-  endfunction
-
-  function Action bramWriteWord(Bit#(indexW) index, Byte#(wordW) data, Bit#(wordW) mask);
-    action
-      for (Integer i=0; i < valueOf(wordW); i = i + 1) begin
-        if (mask[i] == 1) bram[i].write(index, data[8*i+7:8*i]);
-      end
-    endaction
-  endfunction
-
-  function Action
-    bramWriteBeat(Bit#(indexW) index, Bit#(TLog#(wordW)) offset, Byte#(beatW) data, Bit#(beatW) mask);
-    action
-      for (Integer i=0; i < valueOf(beatW); i = i + 1) begin
-        if (mask[i] == 1) bram[offset+fromInteger(i)].write(index, data[8*i+7:8*i]);
-      end
-    endaction
-  endfunction
-
   rule deqAcquireQ if (acquireLength[0] == Invalid);
     match {.index, .length} = acquireQ.first;
     acquireLength[0] <= Valid(length);
@@ -149,7 +107,7 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW, beatW))
     acquireBuffer <= new_buffer;
 
     if (new_offset == 0) begin
-      bramWriteWord(acquireIndex[1], new_buffer, ~0);
+      memPort.write(acquireIndex[1], new_buffer, ~0);
     end
 
     if (length == 0) begin
@@ -168,10 +126,9 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW, beatW))
     Byte#(beatW) beat = truncateWord(releaseBuffer, releaseOffset[0]);
 
     if (releaseOffset[0] == 0) begin
-      when(!isReadWord.first, isReadWord.deq);
-      beat = truncateWord(bramOutWord, 0);
-      releaseBuffer <= bramOutWord;
-      bramDeqWord;
+      beat = truncateWord(memPort.response(), 0);
+      releaseBuffer <= memPort.response();
+      memPort.deq();
     end
 
     wrequestQ.enq(AXI4_WRequest{
@@ -192,30 +149,17 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW, beatW))
 
   rule releaseReqRl
     if (releaseLength[1] matches tagged Valid .length &&& releaseOffset[1] == 0);
-    bramReadWord(releaseIndex[1]);
-    isReadWord.enq(False);
+    memPort.read(releaseIndex[1]);
   endrule
 
-  method Action readWord(Bit#(indexW) index);
-    action
-      isReadWord.enq(True);
-      bramReadWord(index);
-    endaction
+  method readWord = cpuPort.read;
+
+  method ActionValue#(Byte#(wordW)) readWordAck;
+    cpuPort.deq();
+    return cpuPort.response();
   endmethod
 
-  method ActionValue#(Byte#(wordW)) readWordAck if (isReadWord.first);
-    actionvalue
-      bramDeqWord;
-      isReadWord.deq;
-      return bramOutWord;
-    endactionvalue
-  endmethod
-
-  method Action writeWord(Bit#(indexW) index, Byte#(wordW) data, Bit#(wordW) mask);
-    action
-      bramWriteWord(index, data, mask);
-    endaction
-  endmethod
+  method writeWord = cpuPort.write;
 
   method Action acquireLine(Bit#(addrW) address, Bit#(indexW) index, Bit#(8) length)
     if (started);
@@ -253,11 +197,7 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW, beatW))
     endaction
   endmethod
 
-  method Action releaseLineAck;
-    action
-      wresponseQ.deq;
-    endaction
-  endmethod
+  method Action releaseLineAck = wresponseQ.deq;
 
   method Action setID(Bit#(4) x) if (!started);
     action
@@ -276,72 +216,4 @@ module mkDataRam(DataRam#(buffSize, addrW, indexW, wordW, beatW))
     interface awrequest = toGet(awrequestQ);
     interface wrequest = toGet(wrequestQ);
   endinterface
-endmodule
-
-(* synthesize *)
-module mkClassicDataRam(DataRam#(4, 32, 10, 4, 4));
-  let out <- mkDataRam;
-  return out;
-endmodule
-
-(* synthesize *)
-module mkTestDataRam(Empty);
-  DataRam#(4, 32, 10, 4, 4) cache <- mkClassicDataRam;
-  AXI4_Slave#(4, 32, 4) rom <-
-    mkRom(RomConfig{name: "Mem.hex", start: 'h80000000, size: 'h10000});
-
-  mkConnection(cache.read.request, rom.read.request);
-  mkConnection(cache.read.response, rom.read.response);
-
-  mkConnection(cache.write.wrequest, rom.write.wrequest);
-  mkConnection(cache.write.awrequest, rom.write.awrequest);
-  mkConnection(cache.write.response, rom.write.response);
-
-  Reg#(Bit#(32)) cycle <- mkReg(0);
-
-  function Stmt readLine(Bit#(10) index, Integer length);
-    if (length == 0) return seq endseq;
-    else return seq
-      cache.readWord(index);
-      action
-        let x <- cache.readWordAck();
-        $display("cache[%d] := %h", index, x);
-      endaction
-      readLine(index+1, length-1);
-    endseq;
-  endfunction
-
-  Stmt stmt = seq
-    par
-      cache.setID(0);
-      cache.acquireLine('h80000000, 0, 15);
-      cache.acquireLineAck();
-    endpar
-
-    //readLine(0, 8);
-
-    //cache.writeWord(0, 64'hfedcba9876543210, -1);
-    //cache.writeWord(0, 32'h76543210, -1);
-
-    readLine(0, 16);
-
-    //par
-    //  cache.releaseLine('h80000000, 0, 15);
-    //  cache.releaseLineAck();
-    //endpar
-
-    //par
-    //  cache.acquireLine('h80000000, 4, 15);
-    //  cache.acquireLineAck();
-    //endpar
-
-    //readLine(4, 8);
-  endseq;
-
-  mkAutoFSM(stmt);
-
-  rule countCycle;
-    cycle <= cycle + 1;
-  endrule
-
 endmodule

@@ -8,6 +8,7 @@ from memory using AXI4 with their own channels when they have the permission.
 */
 
 import AXI4 :: *;
+import AXI4_Lite :: *;
 import MemoryTypes :: *;
 import BlockRam :: *;
 import Utils :: *;
@@ -37,131 +38,6 @@ function Maybe#(Integer) searchOne(Bit#(a) value);
   return result;
 endfunction
 
-// size is the maximum number of parallel cache miss on different cache blocks
-interface MSHR#(numeric type numMSHR, numeric type numEntry, type addrT, type entryT);
-  // allocate a new request, and return the new allocated mshr, or Invalid if the address was already allocated
-  method ActionValue#(Maybe#(Bit#(TLog#(numMSHR)))) allocate(addrT address, entryT entry);
-
-  // free one element of the linked-list of entries associated to an mshr
-  method ActionValue#(entryT) freeEntry(Bit#(TLog#(numMSHR)) mshr);
-
-  // free an mshr, only available if all it's sub-entries are already free
-  method Action free(Bit#(TLog#(numMSHR)) mshr);
-endinterface
-
-module mkMSHR(MSHR#(numMSHR, numEntry, Bit#(addrW), entryT))
-  provisos( Bits#(entryT, entryW) );
-
-  Reg#(Bit#(numMSHR)) valids <- mkReg(0);
-  Vector#(numMSHR, Reg#(Bit#(addrW))) addresses <- replicateM(mkReg(?));
-  Vector#(numMSHR, Reg#(Maybe#(Bit#(TLog#(numEntry))))) heads <- replicateM(mkReg(?));
-  Vector#(numMSHR, Reg#(Maybe#(Bit#(TLog#(numEntry))))) tails <- replicateM(mkReg(?));
-
-  RegFile#(Bit#(TLog#(numEntry)), entryT) entries <- mkRegFileFull;
-  LinkList#(TLog#(numEntry)) lists <- mkLinkList;
-
-  function getMSHR(Bit#(addrW) addr);
-    Bit#(numMSHR) found = ?;
-
-    for (Integer i=0; i < valueOf(numMSHR); i = i + 1) begin
-      found[i] = addr == addresses[i] && valids[i] == 1 ? 1 : 0;
-    end
-
-    return case (searchOne(found)) matches
-      Invalid : searchOne(valids);
-      tagged Valid .x : Valid(x);
-    endcase;
-  endfunction
-
-  method ActionValue#(Maybe#(Bit#(TLog#(numMSHR)))) allocate(Bit#(addrW) addr, entryT entry);
-    actionvalue
-      case (getMSHR(addr)) matches
-        Invalid : begin
-          when(False, noAction);
-          return ?;
-        end
-        tagged Valid .mshr : begin
-          valids[mshr] <= 1;
-          addresses[mshr] <= addr;
-
-          case (tails[mshr]) matches
-            Invalid : begin
-              let index <- lists.init();
-              heads[mshr] <= Valid(index);
-              tails[mshr] <= Valid(index);
-              entries.upd(index, entry);
-            end
-            tagged Valid .tail : begin
-              let new_tail <- lists.pushTail(tail);
-              tails[mshr] <= Valid(new_tail);
-              entries.upd(new_tail, entry);
-            end
-          endcase
-
-          return valids[mshr] == 1 ? Valid(fromInteger(mshr)) : Invalid;
-        end
-      endcase
-    endactionvalue
-  endmethod
-
-  method Action free(Bit#(TLog#(numMSHR)) mshr);
-    action
-      when(heads[mshr] == Invalid, action valids[mshr] <= 0; endaction);
-    endaction
-  endmethod
-
-  method ActionValue#(entryT) freeEntry(Bit#(TLog#(numMSHR)) mshr);
-    actionvalue
-      case (heads[mshr]) matches
-        Invalid : begin
-          when(False, noAction);
-          return ?;
-        end
-        tagged Valid .head : begin
-          lists.popHead(head);
-
-          case (lists.next(head)) matches
-            tagged Valid .hd : heads[mshr] <= Valid(hd);
-            Invalid : begin
-              heads[mshr] <= Invalid;
-              tails[mshr] <= Invalid;
-            end
-          endcase
-
-          return entries.sub(head);
-        end
-      endcase
-    endactionvalue
-  endmethod
-endmodule
-
-typedef enum {
-  ADD, MIN, MAX, MINU, MAXU, XOR, OR, AND, SWAP
-} AtomicOP deriving(Bits, FShow, Eq);
-
-typedef enum {
-  Half, Word, Byte
-} SizeOP deriving(Bits, FShow, Eq);
-
-typedef enum {
-  Clean, Inval, Flush
-} CBO deriving(Bits, FShow, Eq);
-
-typedef union tagged {
-  CBO Invalidate; // Invalidate the cache block
-  struct {
-    Bit#(32) data;
-    Bit#(2) offset;
-    SizeOP size;
-  } Write;
-  struct {
-    SizeOP size;
-    AtomicOP op;
-    Bit#(2) offset;
-    Bit#(32) data;
-  } Atomic;
-  void Load;
-} MemOP deriving(Bits, FShow, Eq);
 
 //function Tuple2#(Bit#(32), Bit#(32)) doAtomic(SizeOP size, AtomicOP op, Bit#(32) data, Bit#(32) memval);
 //  case (op) matches
@@ -187,9 +63,9 @@ endinterface
 
 module mkCacheCore(CacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
   provisos(Add#(tagW, __a, 32), Add#(indexW, __b, __a));
-  Vector#(TExp#(wayW), RWBram#(Bit#(indexW), Bit#(tagW))) tagRam <- replicateM(mkRWBram);
-  Vector#(TExp#(wayW), RWBram#(Bit#(indexW), Bool)) validRam <- replicateM(mkRWBram);
-  Vector#(TExp#(wayW), RWBram#(Bit#(indexW), Bool)) dirtyRam <- replicateM(mkRWBram);
+  Bram#(Bit#(indexW), Vector#(TExp#(wayW), Bit#(tagW))) tagRam <- mkBram();
+  Bram#(Bit#(indexW), Vector#(TExp#(wayW), Bool)) validRam <- mkBram();
+  Bram#(Bit#(indexW), Vector#(TExp#(wayW), Bool)) dirtyRam <- mkBram();
 
   // One waiting acquire request
   // 32 bits of address
@@ -214,6 +90,9 @@ module mkCacheCore(CacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW
   function Action doMiss(Bit#(wayW) way, Bit#(tagW) tag, Bool read, Bit#(32) data, Bit#(4) mask);
     action
       let index = indexQ.first;
+      tagRam.write(index, Vector::update(tagRam.response(), way, tag));
+      validRam.write(index, Vector::update(validRam.response(), way, True));
+      dirtyRam.write(index, Vector::update(dirtyRam.response(), way, !read));
       readQ.enq(read);
       dataQ.enq(data);
       maskQ.enq(mask);
@@ -231,15 +110,13 @@ module mkCacheCore(CacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW
 
   /* Initialize all the permissions in the cache */
   rule startRl if (!started);
-    for (Integer i=0; i < ways; i = i + 1) begin
-      validRam[i].write(initIndex, False);
-    end
+    validRam.write(initIndex, replicate(False));
 
     if (initIndex+1 == 0) started <= True;
     initIndex <= initIndex + 1;
   endrule
 
-  rule releaseLineAck;
+  rule releaseLineAck if (started);
     let tag = tagQ.first;
     let way = wayQ.first;
     let index = indexQ.first;
@@ -247,7 +124,7 @@ module mkCacheCore(CacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW
     dataRam.releaseLineAck;
   endrule
 
-  rule acquireLineAck;
+  rule acquireLineAck if (started);
     dataRam.acquireLineAck;
 
     let tag <- toGet(tagQ).get;
@@ -257,27 +134,18 @@ module mkCacheCore(CacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW
     let mask <- toGet(maskQ).get;
     let index <- toGet(indexQ).get;
     let offset <- toGet(offsetQ).get;
-    validRam[way].write(index, True);
-    tagRam[way].write(index, tag);
 
-    if (read) begin
-      dirtyRam[way].write(index, False);
-      dataRam.readWord({way, index, offset});
-    end else begin
-      dirtyRam[way].write(index, True);
-      dataRam.writeWord({way, index, offset}, data, mask);
-    end
+    if (read) dataRam.readWord({way, index, offset});
+    else dataRam.writeWord({way, index, offset}, data, mask);
   endrule
 
   method Action start(Bit#(indexW) index, Bit#(offsetW) offset) if (started);
     action
       indexQ.enq(index);
       offsetQ.enq(offset);
-      for (Integer w=0; w < ways; w = w + 1) begin
-        tagRam[w].read(index);
-        validRam[w].read(index);
-        dirtyRam[w].read(index);
-      end
+      validRam.read(index);
+      dirtyRam.read(index);
+      tagRam.read(index);
     endaction
   endmethod
 
@@ -287,25 +155,25 @@ module mkCacheCore(CacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW
       let index = indexQ.first;
       let offset = offsetQ.first;
 
-      Bool dirty = ?;
-      Bit#(tagW) tag = ?;
-      Bool valid = False;
-      Bit#(wayW) way = 0;
-      for (Integer i=0; i < ways; i = i + 1) begin
-        let found = tagRam[i].response == t && validRam[i].response;
+      Bool hit = False;
+      Bit#(wayW) way = randomWay;
 
-        if (found || (fromInteger(i) == randomWay && !valid)) begin
-          valid = validRam[i].response;
-          dirty = dirtyRam[i].response;
-          tag = tagRam[i].response;
+      for (Integer i=0; i < ways; i = i + 1) begin
+        if (tagRam.response[i] == t && validRam.response[i]) begin
           way = fromInteger(i);
+          hit = True;
         end
-        dirtyRam[i].deq;
-        validRam[i].deq;
-        tagRam[i].deq;
       end
 
-      if (t == tag && valid) begin
+      Bool dirty = dirtyRam.response[way];
+      Bool valid = validRam.response[way];
+      Bit#(tagW) tag = tagRam.response[way];
+
+      dirtyRam.deq();
+      validRam.deq();
+      tagRam.deq();
+
+      if (hit) begin
         // Cache hit
         offsetQ.deq;
         indexQ.deq;
@@ -313,7 +181,7 @@ module mkCacheCore(CacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW
         if (read) begin
           dataRam.readWord({way, index, offset});
         end else begin
-          dirtyRam[way].write(index, True);
+          dirtyRam.write(index, Vector::update(dirtyRam.response, way, True));
           dataRam.writeWord({way, index, offset}, data, mask);
         end
 
@@ -336,6 +204,15 @@ module mkCacheCore(CacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW
   method setID = dataRam.setID;
 endmodule
 
+// Use ID 0 for the moment
+interface Cache#(type wayT, type tagT, type indexT, type offsetT);
+  interface RdAXI4_Lite_Slave#(32, 4) cpu_read;
+  interface WrAXI4_Lite_Slave#(32, 4) cpu_write;
+
+  interface RdAXI4_Master#(4, 32, 4) mem_read;
+  interface WrAXI4_Master#(4, 32, 4) mem_write;
+endinterface
+
 (* synthesize *)
 module mkClassicCacheCore(CacheCore#(Bit#(2), Bit#(20), Bit#(6), Bit#(4)));
   let out <- mkCacheCore();
@@ -343,13 +220,70 @@ module mkClassicCacheCore(CacheCore#(Bit#(2), Bit#(20), Bit#(6), Bit#(4)));
 endmodule
 
 (* synthesize *)
+module mkClassicCache(Cache#(Bit#(2), Bit#(20), Bit#(6), Bit#(4)));
+  CacheCore#(Bit#(2), Bit#(20), Bit#(6), Bit#(4)) cache <- mkClassicCacheCore();
+
+  Fifo#(1, AXI4_Lite_RRequest#(32)) rreq <- mkPipelineFifo;
+  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) wreq <- mkPipelineFifo;
+
+  rule deqRdReq;
+    let req = rreq.first;
+    rreq.deq();
+
+    cache.matching(truncateLSB(req.addr), False, ?, ?);
+  endrule
+
+  rule setId0;
+    cache.setID(0);
+  endrule
+
+  interface RdAXI4_Lite_Slave cpu_read;
+    interface Put request;
+      method Action put(AXI4_Lite_RRequest#(32) request);
+        cache.start(request.addr[11:6], request.addr[5:2]);
+        rreq.enq(request);
+      endmethod
+    endinterface
+
+    interface Get response;
+      method ActionValue#(AXI4_Lite_RResponse#(4)) get();
+        let bytes <- cache.readAck();
+        return AXI4_Lite_RResponse{
+          bytes: bytes,
+          resp: OKAY
+        };
+      endmethod
+    endinterface
+  endinterface
+
+  interface WrAXI4_Lite_Slave cpu_write;
+    interface Put request;
+      method Action put(AXI4_Lite_WRequest#(32, 4) request);
+        cache.start(request.addr[11:6], request.addr[5:2]);
+        wreq.enq(request);
+      endmethod
+    endinterface
+
+    interface Get response;
+      method ActionValue#(AXI4_Lite_WResponse) get();
+        let req = wreq.first;
+        wreq.deq();
+
+        cache.matching(truncateLSB(req.addr), True, req.bytes, req.strb);
+        return AXI4_Lite_WResponse{resp: OKAY};
+      endmethod
+    endinterface
+  endinterface
+
+  interface mem_read = cache.read();
+  interface mem_write = cache.write();
+endmodule
+
+(* synthesize *)
 module mkTestCache(Empty);
   CacheCore#(Bit#(2), Bit#(20), Bit#(6), Bit#(4)) cache <- mkClassicCacheCore;
   AXI4_Slave#(4, 32, 4) rom <-
     mkRom(RomConfig{name: "Mem.hex", start: 'h80000000, size: 'h10000});
-
-  // MSHR manager
-  //MSHR#(4, 16, Bit#(32), Bit#(32)) mshrM <- mkMSHR;
 
   Bit#(20) base = truncateLSB(32'h80000000);
 
@@ -418,7 +352,35 @@ module mkTestCache(Empty);
       readAck();
       readAck();
       readAck();
+
     endpar
+
+    read(base, 0, 0);
+    readAck();
+    read(base, 0, 1);
+    readAck();
+    read(base, 0, 2);
+    readAck();
+    read(base, 0, 3);
+    readAck();
+    read(base, 0, 4);
+    readAck();
+    read(base, 0, 5);
+    readAck();
+    read(base, 0, 6);
+    readAck();
+    read(base, 0, 7);
+    readAck();
+    read(base, 0, 8);
+    readAck();
+    read(base, 0, 9);
+    readAck();
+    read(base, 0, 10);
+    readAck();
+    read(base, 0, 11);
+    readAck();
+    read(base, 0, 12);
+    readAck();
 
   endseq;
 

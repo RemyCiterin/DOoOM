@@ -93,7 +93,7 @@ module mkVGA(VGA);
   Integer ymax = vwidth;
 
   // Frame buffer
-  RWBit32Bram#(Bit#(32)) bram <- mkRWBit32BramOfSize(xmax * ymax / 4);
+  BramBE#(Bit#(32), 4) bram <- mkSizedBramBE(xmax * ymax / 4);
 
   // Fabric registers
   Reg#(Bit#(32)) fabric_addr <- mkReg(0);

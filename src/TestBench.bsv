@@ -1,5 +1,3 @@
-package TestBench;
-
 import AXI4 :: *;
 import AXI4_Lite :: *;
 import Utils :: *;
@@ -353,11 +351,11 @@ module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
     rf <- mkRegFileLoad(conf.name, 0, conf.size / 4 - 1);
 
   FIFOF#(AXI4_RRequest#(4, 32)) rrequest <- mkBypassFIFOF;
-  FIFOF#(AXI4_RResponse#(4, 4)) rresponse <- mkBypassFIFOF;
+  FIFOF#(AXI4_RResponse#(4, 4)) rresponse <- mkPipelineFIFOF;
 
   FIFOF#(AXI4_WRequest#(4)) wrequest <- mkBypassFIFOF;
   FIFOF#(AXI4_AWRequest#(4, 32)) awrequest <- mkBypassFIFOF;
-  FIFOF#(AXI4_WResponse#(4)) wresponse <- mkBypassFIFOF;
+  FIFOF#(AXI4_WResponse#(4)) wresponse <- mkPipelineFIFOF;
 
   Ehr#(2, RomState) state <- mkEhr(IDLE);
 
@@ -451,5 +449,3 @@ module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
     interface response = toGet(wresponse);
   endinterface
 endmodule
-
-endpackage

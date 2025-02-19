@@ -8,6 +8,7 @@ import FIFOF :: *;
 import SpecialFIFOs :: *;
 import GetPut :: *;
 import Vector :: *;
+import Fifo :: *;
 import Ehr :: *;
 
 import MemoryTypes :: *;
@@ -327,16 +328,16 @@ module mkXBarRdAXI4_Lite#(
 
   Vector#(nMaster, FIFOF#(AXI4_Lite_RRequest#(aW))) requests;
 
-  Vector#(nMaster, FIFOF#(Bit#(TLog#(nSlave)))) receiveRspFrom;
-  Vector#(nSlave, FIFOF#(Bit#(TLog#(nMaster)))) sendRspTo;
+  Vector#(nMaster, Fifo#(4, Bit#(TLog#(nSlave)))) receiveRspFrom;
+  Vector#(nSlave, Fifo#(4, Bit#(TLog#(nMaster)))) sendRspTo;
 
   for (Integer i=0; i < valueOf(nMaster); i = i + 1) begin
-    receiveRspFrom[i] <- mkSizedBypassFIFOF(4);
+    receiveRspFrom[i] <- mkPipelineFifo;
     requests[i] <- mkBypassFIFOF;
   end
 
   for (Integer i=0; i < valueOf(nSlave); i = i + 1) begin
-    sendRspTo[i] <- mkSizedBypassFIFOF(4);
+    sendRspTo[i] <- mkPipelineFifo;
   end
 
   function Bool receiveGuard(Integer i, Integer j);
@@ -391,16 +392,16 @@ module mkXBarWrAXI4_Lite#(
 
   Vector#(nMaster, FIFOF#(AXI4_Lite_WRequest#(aW, dW))) requests;
 
-  Vector#(nMaster, FIFOF#(Bit#(TLog#(nSlave)))) receiveRspFrom;
-  Vector#(nSlave, FIFOF#(Bit#(TLog#(nMaster)))) sendRspTo;
+  Vector#(nMaster, Fifo#(4, Bit#(TLog#(nSlave)))) receiveRspFrom;
+  Vector#(nSlave, Fifo#(4, Bit#(TLog#(nMaster)))) sendRspTo;
 
   for (Integer i=0; i < valueOf(nMaster); i = i + 1) begin
-    receiveRspFrom[i] <- mkSizedBypassFIFOF(4);
+    receiveRspFrom[i] <- mkPipelineFifo;
     requests[i] <- mkBypassFIFOF;
   end
 
   for (Integer i=0; i < valueOf(nSlave); i = i + 1) begin
-    sendRspTo[i] <- mkSizedBypassFIFOF(4);
+    sendRspTo[i] <- mkPipelineFifo;
   end
 
   function Bool receiveGuard(Integer i, Integer j);
@@ -455,16 +456,16 @@ module mkXBarRdAXI4#(
 
   Vector#(nMaster, FIFOF#(AXI4_RRequest#(idW, aW))) requests;
 
-  Vector#(nMaster, FIFOF#(Bit#(TLog#(nSlave)))) receiveRspFrom;
-  Vector#(nSlave, FIFOF#(Bit#(TLog#(nMaster)))) sendRspTo;
+  Vector#(nMaster, Fifo#(4, Bit#(TLog#(nSlave)))) receiveRspFrom;
+  Vector#(nSlave, Fifo#(4, Bit#(TLog#(nMaster)))) sendRspTo;
 
   for (Integer i=0; i < valueOf(nMaster); i = i + 1) begin
-    receiveRspFrom[i] <- mkSizedBypassFIFOF(4);
+    receiveRspFrom[i] <- mkPipelineFifo;
     requests[i] <- mkBypassFIFOF;
   end
 
   for (Integer i=0; i < valueOf(nSlave); i = i + 1) begin
-    sendRspTo[i] <- mkSizedBypassFIFOF(4);
+    sendRspTo[i] <- mkPipelineFifo;
   end
 
   function Bool receiveGuard(Integer i, Integer j);
@@ -522,17 +523,17 @@ module mkXBarWrAXI4#(
   Vector#(nMaster, FIFOF#(AXI4_AWRequest#(idW, aW))) requests;
 
   Vector#(nMaster, Ehr#(2, Maybe#(Bit#(TLog#(nSlave))))) sendDataTo;
-  Vector#(nMaster, FIFOF#(Bit#(TLog#(nSlave)))) receiveRspFrom;
-  Vector#(nSlave, FIFOF#(Bit#(TLog#(nMaster)))) sendRspTo;
+  Vector#(nMaster, Fifo#(4, Bit#(TLog#(nSlave)))) receiveRspFrom;
+  Vector#(nSlave, Fifo#(4, Bit#(TLog#(nMaster)))) sendRspTo;
 
   for (Integer i=0; i < valueOf(nMaster); i = i + 1) begin
-    receiveRspFrom[i] <- mkSizedBypassFIFOF(4);
+    receiveRspFrom[i] <- mkPipelineFifo;
     sendDataTo[i] <- mkEhr(Invalid);
     requests[i] <- mkBypassFIFOF;
   end
 
   for (Integer i=0; i < valueOf(nSlave); i = i + 1) begin
-    sendRspTo[i] <- mkSizedBypassFIFOF(4);
+    sendRspTo[i] <- mkPipelineFifo;
   end
 
   function Bool receiveGuard(Integer i, Integer j);
