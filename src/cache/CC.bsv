@@ -189,7 +189,7 @@ module mkCacheCore(CacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW
         // Release then acquire
         doMiss(way, t, read, data, mask);
         dataRam.releaseLine({tag, index, 0}, {way, index, 0}, length);
-        $display("start release");
+        //$display("start release");
       end else begin
         // Acquire
         doMiss(way, t, read, data, mask);
@@ -230,7 +230,7 @@ module mkClassicCache(Cache#(Bit#(2), Bit#(20), Bit#(6), Bit#(4)));
     let req = rreq.first;
     rreq.deq();
 
-    cache.matching(truncateLSB(req.addr), False, ?, ?);
+    cache.matching(truncateLSB(req.addr), True, ?, ?);
   endrule
 
   rule setId0;
@@ -269,7 +269,7 @@ module mkClassicCache(Cache#(Bit#(2), Bit#(20), Bit#(6), Bit#(4)));
         let req = wreq.first;
         wreq.deq();
 
-        cache.matching(truncateLSB(req.addr), True, req.bytes, req.strb);
+        cache.matching(truncateLSB(req.addr), False, req.bytes, req.strb);
         return AXI4_Lite_WResponse{resp: OKAY};
       endmethod
     endinterface
@@ -281,50 +281,59 @@ endmodule
 
 (* synthesize *)
 module mkTestCache(Empty);
-  CacheCore#(Bit#(2), Bit#(20), Bit#(6), Bit#(4)) cache <- mkClassicCacheCore;
+  Cache#(Bit#(2), Bit#(20), Bit#(6), Bit#(4)) cache <- mkClassicCache;
   AXI4_Slave#(4, 32, 4) rom <-
     mkRom(RomConfig{name: "Mem.hex", start: 'h80000000, size: 'h10000});
 
   Bit#(20) base = truncateLSB(32'h80000000);
 
-  mkConnection(cache.read.request, rom.read.request);
-  mkConnection(cache.read.response, rom.read.response);
+  mkConnection(cache.mem_read.request, rom.read.request);
+  mkConnection(cache.mem_read.response, rom.read.response);
 
-  mkConnection(cache.write.wrequest, rom.write.wrequest);
-  mkConnection(cache.write.awrequest, rom.write.awrequest);
-  mkConnection(cache.write.response, rom.write.response);
+  mkConnection(cache.mem_write.wrequest, rom.write.wrequest);
+  mkConnection(cache.mem_write.awrequest, rom.write.awrequest);
+  mkConnection(cache.mem_write.response, rom.write.response);
 
   Reg#(Bit#(32)) cycle <- mkReg(0);
 
   function Stmt read(Bit#(20) tag, Bit#(6) index, Bit#(4) offset);
     return seq
-      cache.start(index, offset);
-      cache.matching(tag, True, ?, ?);
+      cache.cpu_read.request.put(AXI4_Lite_RRequest{
+        addr: {tag, index, offset, 2'b00}
+      });
     endseq;
   endfunction
 
   function Stmt write(Bit#(20) tag, Bit#(6) index, Bit#(4) offset, Bit#(32) data);
     return seq
-      cache.start(index, offset);
-      cache.matching(tag, False, data, 4'b1111);
+      cache.cpu_write.request.put(AXI4_Lite_WRequest{
+        addr: {tag, index, offset, 2'b00},
+        bytes: data, strb: 4'b1111
+      });
     endseq;
   endfunction
 
   function Action readAck();
     action
-      let x <- cache.readAck();
-      $display("cycle: %d, value: %h", cycle, x);
+      let x <- cache.cpu_read.response.get();
+      $display("cycle: %d, value: %h", cycle, x.bytes);
+    endaction
+  endfunction
+
+  function Action writeAck();
+    action
+      let x <- cache.cpu_write.response.get();
     endaction
   endfunction
 
   Stmt stmt = seq
-    cache.setID(0);
     $display("cycle: %d", cycle);
 
     read(base, 0, 0);
     par
       readAck();
       write(base, 0, 0, 'h55555555);
+      writeAck();
     endpar
 
     par

@@ -48,8 +48,8 @@ mkCPU = module
   --tx_uart :: TxUART <- mkTxUART 217
 
   led_output :: Reg (Bit 8) <- mkReg 0
-  dcache :: DCache <- mkDCache
-  --dcache <- mkClassicCache
+  --dcache :: DCache <- mkDCache
+  dcache <- mkClassicCache
 
   --testMSHR <- mkTestMSHR;
 
@@ -140,8 +140,8 @@ mkCPU = module
 {-# verilog mkCPU #-}
 mkCPU_SIM :: Module Empty
 mkCPU_SIM = module
-  dcache :: DCache <- mkDCache
-  --dcache <- mkClassicCache
+  --dcache :: DCache <- mkDCache
+  dcache <- mkClassicCache
 
   core <- mkCoreOOO
   --core_d_wr <- mkAXI4_Lite_WrAXI4_Master_Adapter core.wr_dmem 4'b0
