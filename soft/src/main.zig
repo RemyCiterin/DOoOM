@@ -138,6 +138,7 @@ pub export fn user_main(pid: usize) callconv(.C) noreturn {
         var pixel = Screen.Pixel{ .red = 0b111 };
         measure(logger, pid, Screen.Pixel.fill, .{pixel});
 
+        pixel = .{ .blue = 0b01, .green = 0b011 };
         pixel.fillRectangle(101, 100, 137, 300);
 
         pixel = .{ .blue = 0b11, .green = 0b111 };

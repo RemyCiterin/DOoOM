@@ -19,8 +19,9 @@ import Screen
 import SdCard
 import Clint
 
-import CC
+--import CC
 import LSU
+import BCache
 --import LinkList
 --import TileLink
 --import Cache
@@ -49,7 +50,7 @@ mkCPU = module
 
   led_output :: Reg (Bit 8) <- mkReg 0
   --dcache :: DCache <- mkDCache
-  dcache <- mkClassicCache
+  dcache <- mkDefaultBCache
 
   --testMSHR <- mkTestMSHR;
 
@@ -141,12 +142,13 @@ mkCPU = module
 mkCPU_SIM :: Module Empty
 mkCPU_SIM = module
   --dcache :: DCache <- mkDCache
-  dcache <- mkClassicCache
+  dcache <- mkDefaultBCache
+  icache <- mkDefaultBCache
 
   core <- mkCoreOOO
-  --core_d_wr <- mkAXI4_Lite_WrAXI4_Master_Adapter core.wr_dmem 4'b0
-  --core_d_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_dmem 4'b0
-  core_i_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_imem 4'b1
+  --core_i_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_imem 4'b1
+  mkConnection icache.cpu_read core.rd_imem
+  let core_i_rd = icache.mem_read
 
   let alloc_size :: Bit 32 = 33 * 1024 * 1024 -- maxBound
   let offset :: Bit 32 = 32'h80000000

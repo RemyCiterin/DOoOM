@@ -8,5 +8,6 @@ soft/zig-out
 soft/firmware.asm
 rust/firmware.asm
 *.log
+screen.txt
 elf_to_hex
 rust/target
