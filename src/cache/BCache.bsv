@@ -230,7 +230,7 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
     initIndex <= initIndex + 1;
   endrule
 
-  rule releaseLineAck if (started);
+  rule releaseBlockAck if (started && opQ.first != Invalidate);
     let tag = tagQ.first;
     let way = wayQ.first;
     let index = indexQ.first;
@@ -238,7 +238,18 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
     wrAXI4.releaseBlockAck();
   endrule
 
-  rule acquireLineAck if (started);
+  rule releaseBlockAckInv if (started && opQ.first == Invalidate);
+    wrAXI4.releaseBlockAck();
+    offsetQ.deq();
+    indexQ.deq();
+    maskQ.deq();
+    dataQ.deq();
+    tagQ.deq();
+    wayQ.deq();
+    opQ.deq();
+  endrule
+
+  rule acquireBlockAck if (started);
     rdAXI4.acquireBlockAck();
 
     let op <- toGet(opQ).get;
@@ -292,7 +303,7 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
 
       if (hit) begin
         // Cache hit
-        if (op != Invalidate) begin
+        if (op != Invalidate || !dirty) begin
           offsetQ.deq;
           indexQ.deq;
         end
@@ -304,10 +315,9 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
             dirtyRam.write(index, Vector::update(dirtyRam.response, way, True));
             dataRam.write({way, index, offset}, data, mask);
           end
-          Invalidate : begin
+          Invalidate : if (dirty) begin
             doMiss(way, t, op, data, mask);
-            if (dirty) wrAXI4.releaseBlock({tag, index, 0}, {way, index, 0});
-            else rdAXI4.acquireBlock({t, index, 0}, {way, index, 0});
+            wrAXI4.releaseBlock({tag, index, 0}, {way, index, 0});
           end
         endcase
 
