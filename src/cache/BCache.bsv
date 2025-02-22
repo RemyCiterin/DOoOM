@@ -28,26 +28,52 @@ interface BCacheCore#(type wayT, type tagT, type indexT, type offsetT);
   method Action setID(Bit#(4) id);
 endinterface
 
+// Informations about a pending cache request,
+// The index and offset are stored in different registers
+typedef struct {
+  Bit#(wayW) way;
+  Bit#(tagW) tag;
+  Bit#(32) data;
+  Bit#(4) mask;
+  CacheOp op;
+} CacheInfo#(numeric type wayW, numeric type tagW)
+deriving(FShow, Eq, Bits);
+
+typedef enum {
+  // initialize the cache
+  Init,
+  // Wait for a request
+  Idle,
+  // Wait for matching
+  Matching,
+  // Acquire+Release a cache line
+  AcqRel,
+  // Acquire a cache line
+  Acquire,
+  // Release a cache line (ex: Invalidation)
+  Release
+} CacheState deriving(FShow, Eq, Bits);
+
 module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
   provisos(Add#(tagW, __a, 32), Add#(indexW, __b, __a));
   Bram#(Bit#(indexW), Vector#(TExp#(wayW), Bit#(tagW))) tagRam <- mkBram();
   Bram#(Bit#(indexW), Vector#(TExp#(wayW), Bool)) validRam <- mkBram();
   Bram#(Bit#(indexW), Vector#(TExp#(wayW), Bool)) dirtyRam <- mkBram();
 
-  DualBramBE#(Bit#(TAdd#(wayW, TAdd#(indexW, offsetW))), 4) bram <- mkDualBramBE();
-  BAcquireBlock#(TAdd#(wayW, TAdd#(indexW, offsetW)), 32, 4, TMul#(4, TExp#(offsetW)))
-    rdAXI4 <- mkBAcquireBlock(bram.snd);
-  BReleaseBlock#(TAdd#(wayW, TAdd#(indexW, offsetW)), 32, 4, TMul#(4, TExp#(offsetW)))
-    wrAXI4 <- mkBReleaseBlock(bram.snd);
-  let dataRam = bram.fst;
+  let bram <- mkBramBE();
+  Vector#(2, BramBE#(Bit#(TAdd#(wayW, TAdd#(indexW, offsetW))), 4)) vbram
+    <- mkVectorBramBE(bram);
 
-  Fifo#(1, Bit#(offsetW)) offsetQ <- mkPipelineFifo;
-  Fifo#(1, Bit#(indexW))  indexQ <- mkPipelineFifo;
-  Fifo#(1, Bit#(32))      dataQ <- mkPipelineFifo;
-  Fifo#(1, Bit#(4))       maskQ <- mkPipelineFifo;
-  Fifo#(1, Bit#(tagW))    tagQ <- mkPipelineFifo;
-  Fifo#(1, Bit#(wayW))    wayQ <- mkPipelineFifo;
-  Fifo#(1, CacheOp)       opQ <- mkPipelineFifo;
+  BAcquireBlock#(TAdd#(wayW, TAdd#(indexW, offsetW)), 32, 4, TMul#(4, TExp#(offsetW)))
+    rdAXI4 <- mkBAcquireBlock(vbram[0]);
+  BReleaseBlock#(TAdd#(wayW, TAdd#(indexW, offsetW)), 32, 4, TMul#(4, TExp#(offsetW)))
+    wrAXI4 <- mkBReleaseBlock(vbram[0]);
+  let dataRam = vbram[1];
+
+  Reg#(Bit#(indexW)) index <- mkReg(0);
+  Reg#(Bit#(offsetW)) offset <- mkReg(0);
+  Reg#(CacheInfo#(wayW, tagW)) info <- mkReg(?);
+  Ehr#(2, CacheState) state <- mkEhr(Init);
 
   // Length of a cache line
   Bit#(8) length = fromInteger(valueOf(TExp#(offsetW))-1);
@@ -57,86 +83,68 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
 
   function Action doMiss(Bit#(wayW) way, Bit#(tagW) tag, CacheOp op, Bit#(32) data, Bit#(4) mask);
     action
-      let index = indexQ.first;
-      tagRam.write(index, Vector::update(tagRam.response(), way, tag));
-      validRam.write(index, Vector::update(validRam.response(), way, True));
-      dirtyRam.write(index, Vector::update(dirtyRam.response(), way, op == Write));
-      dataQ.enq(data);
-      maskQ.enq(mask);
-      tagQ.enq(tag);
-      wayQ.enq(way);
-      opQ.enq(op);
+      tagRam.write(index, update(tagRam.response(), way, tag));
+      validRam.write(index, update(validRam.response(), way, True));
+      dirtyRam.write(index, update(dirtyRam.response(), way, op == Write));
+      let tmp = info;
+      tmp.data = data;
+      tmp.mask = mask;
+      tmp.tag = tag;
+      tmp.way = way;
+      tmp.op = op;
+      info <= tmp;
     endaction
   endfunction
-
-  Reg#(Bit#(indexW)) initIndex <- mkReg(0);
-  Reg#(Bool) started <- mkReg(False);
 
   rule randomStep;
     randomWay <= randomWay + 1;
   endrule
 
   /* Initialize all the permissions in the cache */
-  rule startRl if (!started);
-    validRam.write(initIndex, replicate(False));
+  rule startRl if (state[0] == Init);
+    validRam.write(index, replicate(False));
 
-    if (initIndex+1 == 0) started <= True;
-    initIndex <= initIndex + 1;
+    if (index+1 == 0) state[0] <= Idle;
+    index <= index + 1;
   endrule
 
-  rule releaseBlockAck if (started && opQ.first != Invalidate);
-    let tag = tagQ.first;
-    let way = wayQ.first;
-    let index = indexQ.first;
-    rdAXI4.acquireBlock({tag, index, 0}, {way, index, 0});
+  rule releaseBlockAck if (state[0] == AcqRel);
+    rdAXI4.acquireBlock({info.tag, index, 0}, {info.way, index, 0});
     wrAXI4.releaseBlockAck();
+    state[0] <= Acquire;
   endrule
 
-  rule releaseBlockAckInv if (started && opQ.first == Invalidate);
+  rule releaseBlockAckInv if (state[0] == Release);
     wrAXI4.releaseBlockAck();
-    offsetQ.deq();
-    indexQ.deq();
-    maskQ.deq();
-    dataQ.deq();
-    tagQ.deq();
-    wayQ.deq();
-    opQ.deq();
+    state[0] <= Idle;
   endrule
 
-  rule acquireBlockAck if (started);
+  rule acquireBlockAck if (state[0] == Acquire);
     rdAXI4.acquireBlockAck();
 
-    let op <- toGet(opQ).get;
-    let tag <- toGet(tagQ).get;
-    let way <- toGet(wayQ).get;
-    let data <- toGet(dataQ).get;
-    let mask <- toGet(maskQ).get;
-    let index <- toGet(indexQ).get;
-    let offset <- toGet(offsetQ).get;
+    state[0] <= Idle;
 
-    case (op) matches
-      Read : dataRam.read({way, index, offset});
-      Write : dataRam.write({way, index, offset}, data, mask);
-      Invalidate : noAction;
+    case (info.op) matches
+      Read : dataRam.read({info.way, index, offset});
+      Write : dataRam.write({info.way, index, offset}, info.data, info.mask);
     endcase
   endrule
 
-  method Action start(Bit#(indexW) index, Bit#(offsetW) offset) if (started);
+  method Action start(Bit#(indexW) idx, Bit#(offsetW) off)
+    if (state[1] == Idle);
     action
-      indexQ.enq(index);
-      offsetQ.enq(offset);
-      validRam.read(index);
-      dirtyRam.read(index);
-      tagRam.read(index);
+      index <= idx;
+      offset <= off;
+      state[1] <= Matching;
+      validRam.read(idx);
+      dirtyRam.read(idx);
+      tagRam.read(idx);
     endaction
   endmethod
 
   method Action matching(Bit#(tagW) t, CacheOp op, Bit#(32) data, Bit#(4) mask)
-    if (started);
+    if (state[0] == Matching);
     action
-      let index = indexQ.first;
-      let offset = offsetQ.first;
-
       Bool hit = False;
       Bit#(wayW) way = randomWay;
 
@@ -158,32 +166,31 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
       if (hit) begin
         // Cache hit
         if (op != Invalidate || !dirty) begin
-          offsetQ.deq;
-          indexQ.deq;
+          state[0] <= Idle;
         end
 
         case (op) matches
           Read :
             dataRam.read({way, index, offset});
           Write : begin
-            dirtyRam.write(index, Vector::update(dirtyRam.response, way, True));
+            dirtyRam.write(index, update(dirtyRam.response(), way, True));
             dataRam.write({way, index, offset}, data, mask);
           end
           Invalidate : if (dirty) begin
             doMiss(way, t, op, data, mask);
             wrAXI4.releaseBlock({tag, index, 0}, {way, index, 0});
+            state[0] <= Release;
           end
         endcase
 
       end else if (dirty && valid) begin
-        // Release then acquire
         doMiss(way, t, op, data, mask);
         wrAXI4.releaseBlock({tag, index, 0}, {way, index, 0});
-        //$display("start release");
+        state[0] <= AcqRel;
       end else begin
-        // Acquire
         doMiss(way, t, op, data, mask);
         rdAXI4.acquireBlock({t, index, 0}, {way, index, 0});
+        state[0] <= Acquire;
       end
     endaction
   endmethod
