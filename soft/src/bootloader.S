@@ -2,6 +2,7 @@
 .globl print_string
 .globl _start
 
+#define RESET_TIME 1000000
 #define SPI_BASE 0x50000000
 #define UART_BASE 0x10000000
 
@@ -55,10 +56,10 @@ _start:
   la a0, start_msg
   call print_string
 
-  # call reset_spi
-  # call send_cmd0
-  # call send_cmd8
-  # call quit_idle_mode
+  #call reset_spi
+  #call send_cmd0
+  #call send_cmd8
+  #call quit_idle_mode
 
   # start the kernel
   call kernel_main
@@ -75,7 +76,7 @@ reset_spi:
   li a0, 32
   SET_SPI_CLK(a0, t0)
 
-  li t0, 1000
+  li t0, RESET_TIME
 1:
   beqz t0, 2f
   addi t0, t0, -1
