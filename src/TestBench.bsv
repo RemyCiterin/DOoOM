@@ -341,6 +341,7 @@ typedef struct {
   String name;
   Bit#(32) start;
   Bit#(32) size;
+  Bit#(32) maxPhase;
 } RomConfig;
 
 module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
@@ -358,6 +359,7 @@ module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
   FIFOF#(AXI4_WResponse#(4)) wresponse <- mkPipelineFIFOF;
 
   Ehr#(2, RomState) state <- mkEhr(IDLE);
+  Reg#(Bit#(32)) phase <- mkReg(0);
 
   function Bit#(32) getAddr(Bit#(32) addr);
     return (addr - conf.start) >> 2;
@@ -377,6 +379,9 @@ module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
     endcase;
   endfunction
 
+  rule updatePhase;
+    phase <= phase == conf.maxPhase ? 0 : phase + 1;
+  endrule
 
   rule step;
     let currentData = rf.sub(currentAddr);
@@ -428,7 +433,7 @@ module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
     endcase
   endrule
 
-  rule enq if (state[1] == IDLE);
+  rule enq if (state[1] == IDLE && phase == 0);
     if (rrequest.notEmpty) begin
       state[1] <= tagged Read {req: rrequest.first, init_length: rrequest.first.length};
       rrequest.deq;

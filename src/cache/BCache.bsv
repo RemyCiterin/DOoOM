@@ -10,7 +10,7 @@ import Ehr :: *;
 
 typedef enum {
   Read, Write, Invalidate
-} CacheOp deriving(Bits, FShow, Eq);
+} BCacheOp deriving(Bits, FShow, Eq);
 
 // Blocking cache type
 interface BCacheCore#(type wayT, type tagT, type indexT, type offsetT);
@@ -18,7 +18,7 @@ interface BCacheCore#(type wayT, type tagT, type indexT, type offsetT);
   method Action start(indexT index, offsetT offset);
 
   // Tag matching
-  method Action matching(tagT tag, CacheOp op, Bit#(32) data, Bit#(4) mask);
+  method Action matching(tagT tag, BCacheOp op, Bit#(32) data, Bit#(4) mask);
 
   // Acknoledge a read request
   method ActionValue#(Bit#(32)) readAck;
@@ -28,15 +28,15 @@ interface BCacheCore#(type wayT, type tagT, type indexT, type offsetT);
   method Action setID(Bit#(4) id);
 endinterface
 
-// Informations about a pending cache request,
-// The index and offset are stored in different registers
+// All the informations about a cache request that we
+// Save from the matching phase
 typedef struct {
   Bit#(wayW) way;
   Bit#(tagW) tag;
   Bit#(32) data;
   Bit#(4) mask;
-  CacheOp op;
-} CacheInfo#(numeric type wayW, numeric type tagW)
+  BCacheOp op;
+} BCacheInfo#(numeric type wayW, numeric type tagW)
 deriving(FShow, Eq, Bits);
 
 typedef enum {
@@ -72,7 +72,7 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
 
   Reg#(Bit#(indexW)) index <- mkReg(0);
   Reg#(Bit#(offsetW)) offset <- mkReg(0);
-  Reg#(CacheInfo#(wayW, tagW)) info <- mkReg(?);
+  Reg#(BCacheInfo#(wayW, tagW)) info <- mkReg(?);
   Ehr#(2, CacheState) state <- mkEhr(Init);
 
   // Length of a cache line
@@ -81,7 +81,7 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
 
   Reg#(Bit#(wayW)) randomWay <- mkReg(0);
 
-  function Action doMiss(Bit#(wayW) way, Bit#(tagW) tag, CacheOp op, Bit#(32) data, Bit#(4) mask);
+  function Action doMiss(Bit#(wayW) way, Bit#(tagW) tag, BCacheOp op, Bit#(32) data, Bit#(4) mask);
     action
       tagRam.write(index, update(tagRam.response(), way, tag));
       validRam.write(index, update(validRam.response(), way, True));
@@ -142,7 +142,7 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
     endaction
   endmethod
 
-  method Action matching(Bit#(tagW) t, CacheOp op, Bit#(32) data, Bit#(4) mask)
+  method Action matching(Bit#(tagW) t, BCacheOp op, Bit#(32) data, Bit#(4) mask)
     if (state[0] == Matching);
     action
       Bool hit = False;
@@ -220,6 +220,8 @@ interface BCache#(type wayT, type tagT, type indexT, type offsetT);
 
   interface RdAXI4_Master#(4, 32, 4) mem_read;
   interface WrAXI4_Master#(4, 32, 4) mem_write;
+
+  method Action setID(Bit#(4) id);
 endinterface
 
 module mkBCache(BCache#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
@@ -245,9 +247,7 @@ module mkBCache(BCache#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
     cache.matching(truncateLSB(req.addr), Read, ?, ?);
   endrule
 
-  rule setId0;
-    cache.setID(0);
-  endrule
+  method setID = cache.setID;
 
   method Action invalidate(Bit#(32) addr);
     action

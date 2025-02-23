@@ -206,13 +206,28 @@ module mkPipelineFifoBig(Fifo#(n, t)) provisos(Bits#(t, size_t));
 endmodule
 
 module mkPipelineFifoOne(Fifo#(n, t)) provisos(Bits#(t, size_t));
-  let fifo <- mkPipelineFIFOF();
+  //let fifo <- mkPipelineFIFOF();
+  Reg#(t) value <- mkEhr0(?);
+  Ehr#(2, Bool) valid <- mkEhr(False);
 
-  method canEnq = fifo.notFull;
-  method canDeq = fifo.notEmpty;
-  method first = fifo.first;
-  method enq = fifo.enq;
-  method deq = fifo.deq;
+  method canEnq = !valid[1];
+  method canDeq = valid[0];
+  method t first if (valid[0]);
+    return value;
+  endmethod
+
+  method Action enq(t v) if (!valid[1]);
+    action
+      valid[1] <= True;
+      value <= v;
+    endaction
+  endmethod
+
+  method Action deq() if (valid[0]);
+    action
+      valid[0] <= False;
+    endaction
+  endmethod
 endmodule
 
 module mkPipelineFifo(Fifo#(n, t)) provisos(Bits#(t, size_t));

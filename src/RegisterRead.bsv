@@ -45,7 +45,7 @@ typedef enum {Rd, Wr, NotAlign} DMEM_Tag deriving(Bits, Eq, FShow);
 (* synthesize *)
 module mkDMEM(DMEM_IFC);
   DMEM_Controller dmem <- mkMiniSTB;
-  Fifo#(3, Bool) must_wcommit <- mkPipelineFifo;
+  Fifo#(4, Bool) must_wcommit <- mkPipelineFifo;
 
   Fifo#(3, Bool) sign_fifo <- mkPipelineFifo;
   Fifo#(3, Data_Size) size_fifo <- mkPipelineFifo;
@@ -445,34 +445,6 @@ interface RegisterRead_IFC;
 endinterface
 
 
-function Exec_Tag tagOfInstr(Instr instr);
-  case (instr) matches
-    tagged Btype .* : return EXEC_TAG_CONTROL;
-    tagged Rtype .* : return EXEC_TAG_EXEC;
-    tagged Utype {op: AUIPC} : return EXEC_TAG_EXEC;
-    tagged Utype {op: LUI} : return EXEC_TAG_EXEC;
-    tagged Jtype .* : return EXEC_TAG_CONTROL;
-    tagged Stype .* : return EXEC_TAG_DMEM;
-    tagged Itype {op: .op} :
-      return case (op) matches
-        tagged Load .* : EXEC_TAG_DMEM;
-        JALR : EXEC_TAG_CONTROL;
-        ADDI : EXEC_TAG_EXEC;
-        SLTI : EXEC_TAG_EXEC;
-        SLTIU : EXEC_TAG_EXEC;
-        XORI : EXEC_TAG_EXEC;
-        ORI : EXEC_TAG_EXEC;
-        ANDI : EXEC_TAG_EXEC;
-        SLLI : EXEC_TAG_EXEC;
-        SRLI : EXEC_TAG_EXEC;
-        SRAI : EXEC_TAG_EXEC;
-        FENCE : EXEC_TAG_DIRECT;
-        FENCE_I : EXEC_TAG_DIRECT;
-        default : EXEC_TAG_DIRECT;
-      endcase;
-  endcase
-endfunction
-
 (* synthesize *)
 module mkRegisterRead(RegisterRead_IFC);
   FIFOF#(WB_to_RR)       wb_to_rr      <- mkPipelineFIFOF;
@@ -487,6 +459,16 @@ module mkRegisterRead(RegisterRead_IFC);
 
   Log_IFC log <- mkLog;
 
+  Reg#(Bit#(32)) cycle <- mkReg(0);
+  Reg#(Bit#(32)) stall <- mkReg(0);
+
+  rule updateCycle;
+    cycle <= cycle + 1;
+
+    if (cycle[18:0] == 0)
+      $display("cycle: %d stall: %d", cycle, stall);
+  endrule
+
   rule dispatch;
     let request = decode_to_rr.first;
 
@@ -497,6 +479,9 @@ module mkRegisterRead(RegisterRead_IFC);
     Bool busy_rs1 = scoreboard[rs1];
     Bool busy_rs2 = scoreboard[rs2];
     let busy = busy_rs1 || busy_rs2 || scoreboard[rd];
+
+    if (busy && !request.exception)
+      stall <= stall + 1;
 
     if (request.exception || !busy) begin
       decode_to_rr.deq;

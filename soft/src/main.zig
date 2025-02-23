@@ -14,6 +14,12 @@ const Screen = @import("screen.zig");
 const SdCard = @import("sdcard.zig");
 const Clint = @import("clint.zig");
 const Manager = Process.Manager;
+const FP = @import("fpoint.zig").FixedPoint(16, 16);
+const Matrix = @import("fpoint.zig").Dense(FP);
+
+pub export fn fp_mul(a: i32, b: i32) i32 {
+    return FP.mul(.{ .raw = a }, .{ .raw = b }).raw;
+}
 
 pub const std_options = .{
     .log_level = .info,
@@ -68,9 +74,10 @@ pub export fn handler(manager: *Manager) callconv(.C) void {
 }
 
 pub export fn kernel_main() callconv(.C) void {
-    print("=== Start DOoOM ===\n");
+    const logger = std.log.scoped(.kernel);
+    logger.info("=== Start DOoOM ===", .{});
 
-    print(
+    logger.info(
         \\Dooom Out Of Order Machine:
         \\  DOoOM is an out of order RiscV with the goal of
         \\  runing DOOM on it!
@@ -79,9 +86,7 @@ pub export fn kernel_main() callconv(.C) void {
         \\  is fine-tuned to run on the ULX3S board at
         \\  25kHz, use a 8kB 2-ways cache and has an
         \\  interface for UART, SDRAM and HDMI
-    );
-
-    putChar(10);
+    , .{});
 
     var fba = std.heap.FixedBufferAllocator.init(&kalloc_buffer);
     const allocator = fba.allocator();
@@ -93,6 +98,23 @@ pub export fn kernel_main() callconv(.C) void {
     RV.mie.modify(.{ .MEIE = 1, .MTIE = 1 });
 
     //SdCard.init();
+
+    for (1..10) |i| {
+        const size = 50 * i;
+        var M1 = Matrix.init(allocator, size, size) catch unreachable;
+        defer M1.free(allocator);
+
+        var M2 = Matrix.init(allocator, size, size) catch unreachable;
+        defer M2.free(allocator);
+        M2.identity();
+
+        //var M3 = Matrix.init(allocator, size, size) catch unreachable;
+        //defer M3.free(allocator);
+        //M3.identity();
+
+        M1.fill(FP.fromInt(0));
+        measure(logger, size, Matrix.add, .{ M1, M2 });
+    }
 
     Clint.setNextTimerInterrupt();
 
@@ -133,6 +155,10 @@ pub fn syscall0(index: usize) void {
 
 pub export fn user_main(pid: usize) callconv(.C) noreturn {
     const logger = std.log.scoped(.user);
+
+    const x: FP = FP.fromInt(42);
+    const y: FP = FP.fromInt(13);
+    logger.info("x: {}", .{x.div(y)});
 
     if (pid == 0) {
         var pixel = Screen.Pixel{ .red = 0b111 };

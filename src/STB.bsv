@@ -39,16 +39,16 @@ typedef struct {
 } STB_SearchResult deriving(Eq, FShow, Bits);
 
 module mkMiniSTB(DMEM_Controller);
-  FIFOF#(AXI4_Lite_WRequest#(32, 4)) storeQ <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_RRequest#(32)) loadQ <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_WRequest#(32, 4)) stb <- mkBypassFIFOF;
+  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) storeQ <- mkPipelineFifo;
+  Fifo#(1, AXI4_Lite_RRequest#(32)) loadQ <- mkPipelineFifo;
+  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) stb <- mkBypassFifo;
 
   Fifo#(2, Maybe#(Bit#(32))) forwardQ <- mkPipelineFifo;
 
-  FIFOF#(AXI4_Lite_WRequest#(32, 4)) wrequestQ <- mkBypassFIFOF;
-  FIFOF#(AXI4_Lite_RRequest#(32)) rrequestQ <- mkBypassFIFOF;
-  FIFOF#(AXI4_Lite_WResponse) wresponseQ <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_RResponse#(4)) rresponseQ <- mkPipelineFIFOF;
+  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) wrequestQ <- mkBypassFifo;
+  Fifo#(1, AXI4_Lite_RRequest#(32)) rrequestQ <- mkBypassFifo;
+  Fifo#(1, AXI4_Lite_WResponse) wresponseQ <- mkPipelineFifo;
+  Fifo#(1, AXI4_Lite_RResponse#(4)) rresponseQ <- mkPipelineFifo;
 
   function STB_SearchResult searchLoad(Bit#(32) addr);
     STB_SearchResult ret = STB_SearchResult{
@@ -56,12 +56,12 @@ module mkMiniSTB(DMEM_Controller);
       found: False
     };
 
-    if (stb.notEmpty) begin
+    if (stb.canDeq) begin
       if (addr == stb.first.addr)
         ret.found = True;
     end
 
-    if (storeQ.notEmpty) begin
+    if (storeQ.canDeq) begin
       // Their is no storeQ forwarding because the elements
       // of the storeQ may be mispredicted
       if (addr == storeQ.first.addr) begin
@@ -141,5 +141,5 @@ module mkMiniSTB(DMEM_Controller);
     interface response = toPut(rresponseQ);
   endinterface
 
-  method Bool emptySTB = !stb.notEmpty;
+  method Bool emptySTB = !stb.canDeq;
 endmodule

@@ -30,6 +30,34 @@ typedef enum {
   EXEC_TAG_DIRECT, EXEC_TAG_CONTROL, EXEC_TAG_EXEC, EXEC_TAG_DMEM
 } Exec_Tag deriving(Bits, FShow, Eq);
 
+function Exec_Tag tagOfInstr(Instr instr);
+  case (instr) matches
+    tagged Btype .* : return EXEC_TAG_CONTROL;
+    tagged Rtype .* : return EXEC_TAG_EXEC;
+    tagged Utype {op: AUIPC} : return EXEC_TAG_EXEC;
+    tagged Utype {op: LUI} : return EXEC_TAG_EXEC;
+    tagged Jtype .* : return EXEC_TAG_CONTROL;
+    tagged Stype .* : return EXEC_TAG_DMEM;
+    tagged Itype {op: .op} :
+      return case (op) matches
+        tagged Load .* : EXEC_TAG_DMEM;
+        JALR : EXEC_TAG_CONTROL;
+        ADDI : EXEC_TAG_EXEC;
+        SLTI : EXEC_TAG_EXEC;
+        SLTIU : EXEC_TAG_EXEC;
+        XORI : EXEC_TAG_EXEC;
+        ORI : EXEC_TAG_EXEC;
+        ANDI : EXEC_TAG_EXEC;
+        SLLI : EXEC_TAG_EXEC;
+        SRLI : EXEC_TAG_EXEC;
+        SRAI : EXEC_TAG_EXEC;
+        FENCE : EXEC_TAG_DIRECT;
+        FENCE_I : EXEC_TAG_DIRECT;
+        default : EXEC_TAG_DIRECT;
+      endcase;
+  endcase
+endfunction
+
 instance Ord#(Priv);
   function Bool \<= (Priv p1, Priv p2);
     return pack(p1) <= pack(p2);
@@ -214,7 +242,6 @@ module mkSlowFIFOF#(Integer n) (FIFOF#(t)) provisos (Bits#(t, size_t));
   method notEmpty = last.notEmpty;
   method first = last.first;
   method clear = noAction;
-
 endmodule
 
 function Byte#(n) strbToMask(Bit#(n) strb);
