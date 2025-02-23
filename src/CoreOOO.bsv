@@ -1,4 +1,5 @@
 import AXI4_Lite :: *;
+import AXI4 :: *;
 
 import FIFOF :: *;
 import SpecialFIFOs :: *;
@@ -26,8 +27,10 @@ import LSU :: *;
 import FetchDecode :: *;
 
 interface Core_IFC;
-  interface WrAXI4_Lite_Master#(32, 4) wr_dmem;
-  interface RdAXI4_Lite_Master#(32, 4) rd_dmem;
+  interface WrAXI4_Lite_Master#(32, 4) wr_mmio;
+  interface RdAXI4_Lite_Master#(32, 4) rd_mmio;
+  interface WrAXI4_Master#(4, 32, 4) wr_dmem;
+  interface RdAXI4_Master#(4, 32, 4) rd_dmem;
 
   interface RdAXI4_Lite_Master#(32, 4) rd_imem;
 
@@ -77,9 +80,6 @@ module mkCoreOOO(Core_IFC);
   RegisterFile registers <- mkRegisterFile;
 
   let csr <- mkCsrFile(0);
-
-  let master_read = lsu.rd_mem;
-  let master_write = lsu.wr_mem;
 
   Reg#(Bit#(64)) timer <- mkReg(0);
   Reg#(Bit#(64)) commitN <- mkReg(0);
@@ -417,8 +417,10 @@ module mkCoreOOO(Core_IFC);
     interface response = fetch.rresponse;
   endinterface
 
-  interface rd_dmem = master_read;
-  interface wr_dmem = master_write;
+  interface rd_dmem = lsu.rd_dmem;
+  interface wr_dmem = lsu.wr_dmem;
+  interface rd_mmio = lsu.rd_mmio;
+  interface wr_mmio = lsu.wr_mmio;
 
   method Bit#(64) getTime;
     return timer;

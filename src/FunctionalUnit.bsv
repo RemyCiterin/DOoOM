@@ -216,17 +216,15 @@ endfunction
 (* synthesize *)
 module mkControlFU(FunctionalUnit);
   FIFOF#(ExecInput) to_control <- mkPipelineFIFOF;
-  FIFOF#(Tuple2#(RobIndex, ExecOutput)) to_wb <- mkBypassFIFOF;
-
-  rule step;
-    let request = to_control.first;
-    to_wb.enq(Tuple2{fst: request.index, snd: controlFlow(request)});
-    to_control.deq;
-  endrule
 
   method enq = to_control.enq;
 
-  method deq = toGet(to_wb).get;
+  method ActionValue#(Tuple2#(RobIndex, ExecOutput)) deq();
+    let request = to_control.first;
+    to_control.deq();
 
-  method canDeq = to_wb.notEmpty;
+    return tuple2(request.index, controlFlow(request));
+  endmethod
+
+  method canDeq = to_control.notEmpty;
 endmodule

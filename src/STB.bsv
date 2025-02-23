@@ -3,11 +3,13 @@ import SpecialFIFOs :: *;
 import AXI4_Lite :: *;
 import Vector :: *;
 import GetPut :: *;
+import AXI4 :: *;
 
 import Utils :: *;
 import MemoryTypes :: *;
 import Ehr :: *;
 import Fifo :: *;
+import BCache :: *;
 
 interface DMEM_Controller;
   // send write request into the speculative memory controller, input address
@@ -24,8 +26,10 @@ interface DMEM_Controller;
   // reveive a read response from the speculative memory controller
   method ActionValue#(Bit#(32)) rresponse;
 
-  interface WrAXI4_Lite_Master#(32, 4) mem_write;
-  interface RdAXI4_Lite_Master#(32, 4) mem_read;
+  interface WrAXI4_Lite_Master#(32, 4) wr_mmio;
+  interface RdAXI4_Lite_Master#(32, 4) rd_mmio;
+  interface WrAXI4_Master#(4, 32, 4) wr_dmem;
+  interface RdAXI4_Master#(4, 32, 4) rd_dmem;
 
   (* always_enabled, always_ready *)
   method Bool emptySTB;
@@ -41,7 +45,7 @@ typedef struct {
 module mkMiniSTB(DMEM_Controller);
   Fifo#(1, AXI4_Lite_WRequest#(32, 4)) storeQ <- mkPipelineFifo;
   Fifo#(1, AXI4_Lite_RRequest#(32)) loadQ <- mkPipelineFifo;
-  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) stb <- mkBypassFifo;
+  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) stb <- mkPipelineFifo;
 
   Fifo#(2, Maybe#(Bit#(32))) forwardQ <- mkPipelineFifo;
 
@@ -49,6 +53,47 @@ module mkMiniSTB(DMEM_Controller);
   Fifo#(1, AXI4_Lite_RRequest#(32)) rrequestQ <- mkBypassFifo;
   Fifo#(1, AXI4_Lite_WResponse) wresponseQ <- mkPipelineFifo;
   Fifo#(1, AXI4_Lite_RResponse#(4)) rresponseQ <- mkPipelineFifo;
+
+  let cache <- mkDefaultBCache();
+
+  Fifo#(4, Bool) isStoreMMIO <- mkPipelineFifo;
+  Fifo#(4, Bool) isLoadMMIO <- mkPipelineFifo;
+
+  function Action enqLoad(AXI4_Lite_RRequest#(32) req);
+    action
+      isLoadMMIO.enq(isMMIO(req.addr));
+      if (isMMIO(req.addr)) rrequestQ.enq(req);
+      else cache.cpu_read.request.put(req);
+    endaction
+  endfunction
+
+  function Action enqStore(AXI4_Lite_WRequest#(32, 4) req);
+    action
+      isStoreMMIO.enq(isMMIO(req.addr));
+      if (isMMIO(req.addr)) wrequestQ.enq(req);
+      else cache.cpu_write.request.put(req);
+    endaction
+  endfunction
+
+  function ActionValue#(AXI4_Lite_RResponse#(4)) deqLoad();
+    actionvalue
+      AXI4_Lite_RResponse#(4) ret = ?;
+      if (isLoadMMIO.first) ret <- toGet(rresponseQ).get();
+      else ret <- cache.cpu_read.response.get();
+      isLoadMMIO.deq();
+      return ret;
+    endactionvalue
+  endfunction
+
+  function ActionValue#(AXI4_Lite_WResponse) deqStore();
+    actionvalue
+      AXI4_Lite_WResponse ret = ?;
+      if (isStoreMMIO.first) ret <- toGet(wresponseQ).get();
+      else ret <- cache.cpu_write.response.get();
+      isStoreMMIO.deq();
+      return ret;
+    endactionvalue
+  endfunction
 
   function STB_SearchResult searchLoad(Bit#(32) addr);
     STB_SearchResult ret = STB_SearchResult{
@@ -73,8 +118,12 @@ module mkMiniSTB(DMEM_Controller);
     return ret;
   endfunction
 
+  rule setID1;
+    cache.setID(1);
+  endrule
+
   rule write_response;
-    wresponseQ.deq;
+    let _ <- deqStore();
     stb.deq;
   endrule
 
@@ -94,7 +143,7 @@ module mkMiniSTB(DMEM_Controller);
             when(False, noAction);
           else begin
             forwardQ.enq(Invalid);
-            rrequestQ.enq(req);
+            enqLoad(req);
           end
         end
       endcase
@@ -106,8 +155,7 @@ module mkMiniSTB(DMEM_Controller);
     if (forwardQ.first matches tagged Valid .resp)
       return resp;
     else begin
-      let resp = rresponseQ.first;
-      rresponseQ.deq;
+      let resp <- deqLoad();
       return resp.bytes;
     end
   endmethod
@@ -125,21 +173,24 @@ module mkMiniSTB(DMEM_Controller);
       storeQ.deq;
 
       if (commit) begin
-        wrequestQ.enq(req);
+        enqStore(req);
         stb.enq(req);
       end
     endaction
   endmethod
 
-  interface WrAXI4_Lite_Master mem_write;
+  interface WrAXI4_Lite_Master wr_mmio;
     interface request = toGet(wrequestQ);
     interface response = toPut(wresponseQ);
   endinterface
 
-  interface RdAXI4_Lite_Master mem_read;
+  interface RdAXI4_Lite_Master rd_mmio;
     interface request = toGet(rrequestQ);
     interface response = toPut(rresponseQ);
   endinterface
+
+  interface rd_dmem = cache.mem_read;
+  interface wr_dmem = cache.mem_write;
 
   method Bool emptySTB = !stb.canDeq;
 endmodule

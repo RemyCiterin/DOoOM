@@ -1,6 +1,7 @@
 import AXI4_Lite_Adapter :: *;
 import Connectable :: *;
 import AXI4_Lite :: *;
+import AXI4 :: *;
 
 import FIFOF :: *;
 import SpecialFIFOs :: *;
@@ -14,8 +15,10 @@ import WriteBack :: *;
 import RegisterRead :: *;
 
 interface Core_IFC;
-  interface WrAXI4_Lite_Master#(32, 4) wr_dmem;
-  interface RdAXI4_Lite_Master#(32, 4) rd_dmem;
+  interface WrAXI4_Master#(4, 32, 4) wr_dmem;
+  interface RdAXI4_Master#(4, 32, 4) rd_dmem;
+  interface WrAXI4_Lite_Master#(32, 4) wr_mmio;
+  interface RdAXI4_Lite_Master#(32, 4) rd_mmio;
 
   interface RdAXI4_Lite_Master#(32, 4) rd_imem;
 
@@ -94,8 +97,10 @@ module mkCore(Core_IFC);
     interface response = decode.rresponse;
   endinterface
 
-  interface rd_dmem = dmem.mem_read;
-  interface wr_dmem = dmem.mem_write;
+  interface rd_dmem = dmem.rd_dmem;
+  interface wr_dmem = dmem.wr_dmem;
+  interface rd_mmio = dmem.rd_mmio;
+  interface wr_mmio = dmem.wr_mmio;
 
   method set_meip = wb.set_meip;
   method set_mtip = wb.set_mtip;

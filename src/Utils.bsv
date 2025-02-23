@@ -274,7 +274,7 @@ module mkRegFileFullInit#(a init) (RegFile#(Bit#(n), a)) provisos(Bits#(a, sa));
 
   RegFile#(Bit#(n), a) rf <- mkRegFileFull;
 
-  rule init_rf if (!is_init);
+  rule init_register_file if (!is_init);
     rf.upd(idx, init);
 
     if (~idx == 0)
@@ -299,7 +299,7 @@ module mkRegFileFullGen#(function a init(Bit#(n) arg))
 
   RegFile#(Bit#(n), a) rf <- mkRegFileFull;
 
-  rule init_rf if (!is_init);
+  rule init_register_file if (!is_init);
     rf.upd(idx, init(idx));
 
     if (~idx == 0)

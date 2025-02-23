@@ -1,25 +1,40 @@
 //! this file define the system entry when using M-mode directly
 
 const std = @import("std");
-const Params = @import("params.zig");
-const RV = @import("riscv.zig");
-const uart = @import("print.zig").writer;
-const print = @import("print.zig").putString;
-const putChar = @import("print.zig").putChar;
-const getChar = @import("print.zig").getChar;
-const Spinlock = @import("spinlock.zig");
-const Syscall = @import("syscall.zig");
-const Process = @import("process.zig");
-const Screen = @import("screen.zig");
-const SdCard = @import("sdcard.zig");
-const Clint = @import("clint.zig");
-const Manager = Process.Manager;
-const FP = @import("fpoint.zig").FixedPoint(16, 16);
-const Matrix = @import("fpoint.zig").Dense(FP);
+const Allocator = std.mem.Allocator;
 
-pub export fn fp_mul(a: i32, b: i32) i32 {
-    return FP.mul(.{ .raw = a }, .{ .raw = b }).raw;
-}
+// Control and status registers description
+const RV = @import("riscv.zig");
+
+// UART mmio interface
+const UART = @import("print.zig");
+const print = UART.putString;
+
+// User only memory protection (ensure that no other process will access the
+// data)
+const Spinlock = @import("spinlock.zig");
+
+// User only syscall interface, must not be user by the kernel
+const Syscall = @import("syscall.zig");
+
+// Process managment
+const Process = @import("process.zig");
+const Manager = Process.Manager;
+
+// 640*480 screen using a 256 color palette
+const Screen = @import("screen.zig");
+
+// MMC interface to an SD-card
+const SdCard = @import("sdcard.zig");
+
+// Control over timer and software interrupts
+const Clint = @import("clint.zig");
+
+// User-mode performance benchmarks
+const Bench = @import("bench.zig");
+
+// Protected user memory allocator
+const UserAlloc = @import("user_alloc.zig");
 
 pub const std_options = .{
     .log_level = .info,
@@ -38,13 +53,13 @@ pub fn log(
     const prefix =
         "[" ++ @tagName(scope) ++ " at time {}] ";
 
-    uart.print(prefix, .{cycle}) catch unreachable;
-    uart.print(format, args) catch unreachable;
-    uart.print("\n", .{}) catch unreachable;
+    UART.writer.print(prefix, .{cycle}) catch unreachable;
+    UART.writer.print(format, args) catch unreachable;
+    UART.writer.print("\n", .{}) catch unreachable;
 }
 
 pub inline fn hang() noreturn {
-    putChar(0);
+    UART.putChar(0);
     while (true) {}
 }
 
@@ -58,6 +73,10 @@ pub fn panic(
 }
 
 extern var kalloc_buffer: [31 * 1024 * 1024]u8;
+
+// Main kernel allocator
+pub var kalloc: Allocator = undefined;
+pub var malloc: Allocator = undefined;
 
 pub export fn handler(manager: *Manager) callconv(.C) void {
     const pid = manager.current;
@@ -85,36 +104,24 @@ pub export fn kernel_main() callconv(.C) void {
         \\  It support the rv32i isa with machine mode,
         \\  is fine-tuned to run on the ULX3S board at
         \\  25kHz, use a 8kB 2-ways cache and has an
-        \\  interface for UART, SDRAM and HDMI
+        \\  interface for UART, SDRAM, MMC and HDMI
     , .{});
 
-    var fba = std.heap.FixedBufferAllocator.init(&kalloc_buffer);
-    const allocator = fba.allocator();
+    const kalloc_len = 28 * 1024 * 1024;
+    var kernel_fba = std.heap.FixedBufferAllocator.init(kalloc_buffer[0..kalloc_len]);
+    kalloc = kernel_fba.allocator();
 
-    var manager = Manager.init(allocator);
-    _ = manager.new(@intFromPtr(&user_main), 512, null) catch unreachable;
+    var user_fba = std.heap.FixedBufferAllocator.init(kalloc_buffer[kalloc_len..]);
+    var user_alloc = UserAlloc.init(user_fba.allocator());
+    malloc = user_alloc.allocator();
+
+    var manager = Manager.init(kalloc);
+    _ = manager.new(@intFromPtr(&user_main), 512, &malloc) catch unreachable;
 
     RV.mstatus.modify(.{ .MPIE = 1 });
     RV.mie.modify(.{ .MEIE = 1, .MTIE = 1 });
 
     //SdCard.init();
-
-    for (1..10) |i| {
-        const size = 50 * i;
-        var M1 = Matrix.init(allocator, size, size) catch unreachable;
-        defer M1.free(allocator);
-
-        var M2 = Matrix.init(allocator, size, size) catch unreachable;
-        defer M2.free(allocator);
-        M2.identity();
-
-        //var M3 = Matrix.init(allocator, size, size) catch unreachable;
-        //defer M3.free(allocator);
-        //M3.identity();
-
-        M1.fill(FP.fromInt(0));
-        measure(logger, size, Matrix.add, .{ M1, M2 });
-    }
 
     Clint.setNextTimerInterrupt();
 
@@ -153,12 +160,29 @@ pub fn syscall0(index: usize) void {
     Syscall.exec(@intFromPtr(&user_main), 512, null);
 }
 
-pub export fn user_main(pid: usize) callconv(.C) noreturn {
+pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
     const logger = std.log.scoped(.user);
 
-    const x: FP = FP.fromInt(42);
-    const y: FP = FP.fromInt(13);
-    logger.info("x: {}", .{x.div(y)});
+    for (1..10) |i| {
+        const size = 50 * i;
+        var bench = Bench.Fibo.init(size);
+        const fibo = Bench.measure(size, &bench);
+        //logger.info("fibo({}) = {}", .{ size, fibo });
+        _ = fibo;
+    }
+
+    for (1..10) |i| {
+        const size = 50 * i;
+        var bench = Bench.BinarySearch.init(alloc.*, size) catch unreachable;
+        Bench.measure(size, &bench);
+        bench.free();
+    }
+
+    for (1..10) |i| {
+        var bench = Bench.MatrixMult.init(alloc.*, i * 5) catch unreachable;
+        Bench.measure(5 * i, &bench);
+        bench.free();
+    }
 
     if (pid == 0) {
         var pixel = Screen.Pixel{ .red = 0b111 };
@@ -174,7 +198,7 @@ pub export fn user_main(pid: usize) callconv(.C) noreturn {
         pixel.drawRectangle(103, 102, 135, 298);
     }
 
-    try uart.print("ready to fence?", .{});
+    try UART.writer.print("ready to fence?", .{});
     asm volatile ("fence" ::: "memory");
 
     var index: usize = 0;

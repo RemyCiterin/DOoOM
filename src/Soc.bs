@@ -44,7 +44,6 @@ mkCPU = module
   --tx_uart :: TxUART <- mkTxUART 217
 
   led_output :: Reg (Bit 8) <- mkReg 0
-  dcache <- mkDefaultBCache
   icache <- mkDefaultBCache
 
   --testMSHR <- mkTestMSHR;
@@ -52,7 +51,7 @@ mkCPU = module
   --mkConnection dcache.mem_read rd_port.server
   --mkConnection dcache.mem_write wr_port.server
 
-  core <- mkCore
+  core <- mkCoreOOO
   --core_d_wr <- mkAXI4_Lite_WrAXI4_Master_Adapter core.wr_dmem 4'b0
   --core_d_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_dmem 4'b0
   --core_i_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_imem 4'b1
@@ -74,30 +73,32 @@ mkCPU = module
   uart <- mkUART 32'h10000000
   btn <- mkBtn 32'h20000000
 
-  let rd_masters_lite :: Vector 1 (RdAXI4_Lite_Master 32 4) = core.rd_dmem :> nil
-  let wr_masters_lite :: Vector 1 (WrAXI4_Lite_Master 32 4) = core.wr_dmem :> nil
+  let rd_masters_lite :: Vector 1 (RdAXI4_Lite_Master 32 4) = core.rd_mmio :> nil
+  let wr_masters_lite :: Vector 1 (WrAXI4_Lite_Master 32 4) = core.wr_mmio :> nil
 
-  let rd_slaves_lite :: Vector 5 (RdAXI4_Lite_Slave 32 4) =
-        dcache.cpu_read :> uart.axi4.read :> vga.axi4.read :> btn.axi4.read
+  let rd_slaves_lite :: Vector 4 (RdAXI4_Lite_Slave 32 4) =
+        uart.axi4.read :> vga.axi4.read :> btn.axi4.read
         :> sdcard.axi4.read :> nil
-  let wr_slaves_lite :: Vector 5 (WrAXI4_Lite_Slave 32 4) =
-        dcache.cpu_write :> uart.axi4.write :> vga.axi4.write :> btn.axi4.write
+  let wr_slaves_lite :: Vector 4 (WrAXI4_Lite_Slave 32 4) =
+        uart.axi4.write :> vga.axi4.write :> btn.axi4.write
         :> sdcard.axi4.write :> nil
 
-  let rdReqLiteDispatch :: AXI4_Lite_RRequest 32 -> Bit 3 =
-        \ req -> if req.addr == 32'h10000000 then 1 else
-        if is_vga req.addr then 2 else if is_btn req.addr then 3 else
-        if is_sdcard req.addr then 4 else 0
-  let wrReqLiteDispatch :: AXI4_Lite_WRequest 32 4 -> Bit 3 =
-        \ req -> if req.addr == 32'h10000000 then 1 else
-        if is_vga req.addr then 2 else if is_btn req.addr then 3 else
-        if is_sdcard req.addr then 4 else 0
+  let rdReqLiteDispatch :: AXI4_Lite_RRequest 32 -> Bit 2 =
+        \ req -> if req.addr == 32'h10000000 then 0 else
+        if is_vga req.addr then 1 else
+        if is_btn req.addr then 2 else
+        if is_sdcard req.addr then 3 else 0
+  let wrReqLiteDispatch :: AXI4_Lite_WRequest 32 4 -> Bit 2 =
+        \ req -> if req.addr == 32'h10000000 then 0 else
+        if is_vga req.addr then 1 else
+        if is_btn req.addr then 2 else
+        if is_sdcard req.addr then 3 else 0
 
   mkXBarRdAXI4_Lite rd_masters_lite rd_slaves_lite rdReqLiteDispatch
   mkXBarWrAXI4_Lite wr_masters_lite wr_slaves_lite wrReqLiteDispatch
 
-  let rd_masters :: Vector 2 (RdAXI4_Master 4 32 4) = dcache.mem_read :> core_i_rd :> nil
-  let wr_masters :: Vector 1 (WrAXI4_Master 4 32 4) = dcache.mem_write :> nil
+  let rd_masters :: Vector 2 (RdAXI4_Master 4 32 4) = core.rd_dmem :> core_i_rd :> nil
+  let wr_masters :: Vector 1 (WrAXI4_Master 4 32 4) = core.wr_dmem :> nil
 
   let rd_slaves :: Vector 2 (RdAXI4_Slave 4 32 4) = rom.read :> rd_port.server :> nil
   let wr_slaves :: Vector 2 (WrAXI4_Slave 4 32 4) = rom.write :> wr_port.server :> nil
@@ -127,7 +128,7 @@ mkCPU = module
 
     "set ids": when True ==> do
       icache.setID 0
-      dcache.setID 1
+      --dcache.setID 1
 
   interface
     sdcard_fab = sdcard.fabric
@@ -143,10 +144,9 @@ mkCPU = module
 mkCPU_SIM :: Module Empty
 mkCPU_SIM = module
   --dcache :: DCache <- mkDCache
-  dcache <- mkDefaultBCache
   icache <- mkDefaultBCache
 
-  core <- mkCore
+  core <- mkCoreOOO
   --core_i_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_imem 4'b1
   mkConnection icache.cpu_read core.rd_imem
   let core_i_rd = icache.mem_read
@@ -165,32 +165,34 @@ mkCPU_SIM = module
   uart <- mkUART 32'h10000000
   btn <- mkBtn 32'h20000000
 
-  let rd_masters_lite :: Vector 1 (RdAXI4_Lite_Master 32 4) = core.rd_dmem :> nil
-  let wr_masters_lite :: Vector 1 (WrAXI4_Lite_Master 32 4) = core.wr_dmem :> nil
+  let rd_masters_lite :: Vector 1 (RdAXI4_Lite_Master 32 4) = core.rd_mmio :> nil
+  let wr_masters_lite :: Vector 1 (WrAXI4_Lite_Master 32 4) = core.wr_mmio :> nil
 
-  let rd_slaves_lite :: Vector 6 (RdAXI4_Lite_Slave 32 4) =
-        dcache.cpu_read :> uart.axi4.read :> vga.axi4.read :> btn.axi4.read
+  let rd_slaves_lite :: Vector 5 (RdAXI4_Lite_Slave 32 4) =
+        uart.axi4.read :> vga.axi4.read :> btn.axi4.read
         :> clint.read :> sdcard.axi4.read :> nil
-  let wr_slaves_lite :: Vector 6 (WrAXI4_Lite_Slave 32 4) =
-        dcache.cpu_write :> uart.axi4.write :> vga.axi4.write :> btn.axi4.write
+  let wr_slaves_lite :: Vector 5 (WrAXI4_Lite_Slave 32 4) =
+        uart.axi4.write :> vga.axi4.write :> btn.axi4.write
         :> clint.write :> sdcard.axi4.write :> nil
 
   let rdReqLiteDispatch :: AXI4_Lite_RRequest 32 -> Bit 3 =
-        \ req -> if req.addr == 32'h10000000 then 1 else
-        if is_vga req.addr then 2 else if is_clint req.addr then 4 else
-        if is_btn req.addr then 3 else
-        if is_sdcard req.addr then 5 else 0
+        \ req -> if req.addr == 32'h10000000 then 0 else
+        if is_vga req.addr then 1 else
+        if is_clint req.addr then 3 else
+        if is_btn req.addr then 2 else
+        if is_sdcard req.addr then 4 else 0
   let wrReqLiteDispatch :: AXI4_Lite_WRequest 32 4 -> Bit 3 =
-        \ req -> if req.addr == 32'h10000000 then 1 else
-        if is_vga req.addr then 2 else if is_clint req.addr then 4 else
-        if is_btn req.addr then 3 else
-        if is_sdcard req.addr then 5 else 0
+        \ req -> if req.addr == 32'h10000000 then 0 else
+        if is_vga req.addr then 1 else
+        if is_clint req.addr then 3 else
+        if is_btn req.addr then 2 else
+        if is_sdcard req.addr then 4 else 0
 
   mkXBarRdAXI4_Lite rd_masters_lite rd_slaves_lite rdReqLiteDispatch
   mkXBarWrAXI4_Lite wr_masters_lite wr_slaves_lite wrReqLiteDispatch
 
-  let rd_masters :: Vector 2 (RdAXI4_Master 4 32 4) = dcache.mem_read :> core_i_rd :> nil
-  let wr_masters :: Vector 1 (WrAXI4_Master 4 32 4) = dcache.mem_write :> nil
+  let rd_masters :: Vector 2 (RdAXI4_Master 4 32 4) = core.rd_dmem :> core_i_rd :> nil
+  let wr_masters :: Vector 1 (WrAXI4_Master 4 32 4) = core.wr_dmem :> nil
 
   let rd_slaves :: Vector 1 (RdAXI4_Slave 4 32 4) = rom.read :> nil
   let wr_slaves :: Vector 1 (WrAXI4_Slave 4 32 4) = rom.write :> nil
@@ -233,4 +235,4 @@ mkCPU_SIM = module
 
     "set ids": when True ==> do
       icache.setID 0
-      dcache.setID 1
+      --dcache.setID 1

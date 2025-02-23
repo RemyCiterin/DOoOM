@@ -43,6 +43,8 @@ BSIM_FLAGS = -bdir $(BSIM) -vdir $(BSIM) -simdir $(BSIM) \
 DOT_FILES = $(shell ls ./build/*_combined_full.dot)
 
 svg:
+	$(foreach f, $(DOT_FILES), sed -i '/_init_register_file/d' $(f);)
+	$(foreach f, $(DOT_FILES), sed -i '/_update_register_file/d' $(f);)
 	$(foreach f, $(DOT_FILES), sed -i '/_ehr_canon/d' $(f);)
 	$(foreach f, $(DOT_FILES), sed -i '/_block_ram_apply_read/d' $(f);)
 	$(foreach f, $(DOT_FILES), sed -i '/_block_ram_apply_write/d' $(f);)

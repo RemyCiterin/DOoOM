@@ -13,7 +13,8 @@ module mkForwardRegFileFull(ForwardRegFile#(k,v))
   RWire#(v) forwardVal <- mkRWire;
 
   (* no_implicit_conditions, fire_when_enabled *)
-  rule update if (forwardKey.wget matches tagged Valid .key);
+  rule update_register_file
+    if (forwardKey.wget matches tagged Valid .key);
     regFile.upd(key, unJust(forwardVal.wget));
   endrule
 
@@ -40,7 +41,7 @@ module mkForwardRegFileFullInit#(a init) (ForwardRegFile#(Bit#(n), a)) provisos(
 
   ForwardRegFile#(Bit#(n), a) rf <- mkForwardRegFileFull;
 
-  rule init_rf if (!is_init);
+  rule init_register_file if (!is_init);
     rf.upd(idx, init);
 
     if (~idx == 0)

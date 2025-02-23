@@ -7,9 +7,12 @@ import LsuTypes :: *;
 import GetPut :: *;
 import Decode :: *;
 import Utils :: *;
+import AXI4 :: *;
 import Fifo :: *;
 import OOO :: *;
 import Ehr :: *;
+
+import BCache :: *;
 
 import Vector :: *;
 
@@ -33,10 +36,16 @@ interface LSU;
   method Action emptySTB();
 
   // read interface with memory
-  interface RdAXI4_Lite_Master#(32, 4) rd_mem;
+  interface RdAXI4_Master#(4, 32, 4) rd_dmem;
 
   // write interface with memory
-  interface WrAXI4_Lite_Master#(32, 4) wr_mem;
+  interface WrAXI4_Master#(4, 32, 4) wr_dmem;
+
+  // read interface with memory
+  interface RdAXI4_Lite_Master#(32, 4) rd_mmio;
+
+  // write interface with memory
+  interface WrAXI4_Lite_Master#(32, 4) wr_mmio;
 endinterface
 
 typedef enum {
@@ -50,7 +59,11 @@ module mkLSU(LSU);
   MemIssueQueue#(LiqSize, LqIndex) loadIQ <- mkLoadIssueQueue;
   StoreQ storeQ <- mkStoreQ;
   LoadQ loadQ <- mkLoadQ;
+
   STB stb <- mkSTB;
+  Fifo#(StbSize, Bool) isStoreMMIO <- mkPipelineFifo;
+
+  let cache <- mkDefaultBCache();
 
   Fifo#(4, AXI4_Lite_RRequest#(32)) rrequestQ <- mkBypassFifo;
   Fifo#(4, AXI4_Lite_WRequest#(32, 4)) wrequestQ <- mkBypassFifo;
@@ -61,7 +74,8 @@ module mkLSU(LSU);
   Fifo#(1, Tuple2#(RobIndex, ExecOutput)) loadSuccessQ <- mkPipelineFifo;
   Fifo#(1, Tuple2#(RobIndex, ExecOutput)) storeSuccessQ <- mkPipelineFifo;
 
-  Fifo#(LqSize, LqIndex) pendingLoadsQ <- mkPipelineFifo;
+  Fifo#(LqSize, LqIndex) pendingDmemLoadsQ <- mkPipelineFifo;
+  Fifo#(LqSize, LqIndex) pendingMmioLoadsQ <- mkPipelineFifo;
 
   Fifo#(TAdd#(LqSize, SqSize), LsuTag) tagQ <- mkPipelineFifo;
 
@@ -71,8 +85,28 @@ module mkLSU(LSU);
     stb.search(loadAddr).found ||
     storeQ.search(loadAddr, loadIQ.issueEpoch, loadIQ.issueAge).found;
 
+  function Action enqWRequest(AXI4_Lite_WRequest#(32, 4) request);
+    action
+      isStoreMMIO.enq(isMMIO(request.addr));
+      if (isMMIO(request.addr)) wrequestQ.enq(request);
+      else cache.cpu_write.request.put(request);
+    endaction
+  endfunction
+
+  function Action deqWResponse();
+    action
+      isStoreMMIO.deq();
+      if (isStoreMMIO.first) wresponseQ.deq();
+      else let _ <- cache.cpu_write.response.get();
+    endaction
+  endfunction
+
+  rule setID1;
+    cache.setID(1);
+  endrule
+
   rule deqSTB;
-    wresponseQ.deq;
+    deqWResponse();
     stb.deq;
   endrule
 
@@ -82,17 +116,28 @@ module mkLSU(LSU);
 
     case (result) matches
       tagged Success .request : begin
-        pendingLoadsQ.enq(loadIQ.issueId);
-        rrequestQ.enq(request);
+        if (isMMIO(request.addr)) begin
+          pendingMmioLoadsQ.enq(loadIQ.issueId);
+          rrequestQ.enq(request);
+        end else begin
+          pendingDmemLoadsQ.enq(loadIQ.issueId);
+          cache.cpu_read.request.put(request);
+        end
       end
       tagged Failure .cause :
         loadFailureQ.enq(tuple2(cause.index, cause.result));
     endcase
   endrule
 
-  rule loadResponse;
+  rule loadResponseMMIO if (!pendingDmemLoadsQ.canDeq);
     let resp <- toGet(rresponseQ).get;
-    let idx <- toGet(pendingLoadsQ).get;
+    let idx <- toGet(pendingMmioLoadsQ).get;
+    loadSuccessQ.enq(loadQ.issue(idx, resp));
+  endrule
+
+  rule loadResponseDMEM if (pendingDmemLoadsQ.canDeq);
+    let resp <- cache.cpu_read.response.get;
+    let idx <- toGet(pendingDmemLoadsQ).get;
     loadSuccessQ.enq(loadQ.issue(idx, resp));
   endrule
 
@@ -122,7 +167,7 @@ module mkLSU(LSU);
 
       if (must_commit) begin
         stb.enq(stbEntry);
-        wrequestQ.enq(AXI4_Lite_WRequest{
+        enqWRequest(AXI4_Lite_WRequest{
           bytes: stbEntry.data,
           addr: stbEntry.addr,
           strb: stbEntry.mask
@@ -197,13 +242,16 @@ module mkLSU(LSU);
     noAction;
   endmethod
 
-  interface RdAXI4_Lite_Master rd_mem;
+  interface RdAXI4_Lite_Master rd_mmio;
     method response = toPut(rresponseQ);
     method request = toGet(rrequestQ);
   endinterface
 
-  interface WrAXI4_Lite_Master wr_mem;
+  interface WrAXI4_Lite_Master wr_mmio;
     method response = toPut(wresponseQ);
     method request = toGet(wrequestQ);
   endinterface
+
+  interface rd_dmem = cache.mem_read;
+  interface wr_dmem = cache.mem_write;
 endmodule

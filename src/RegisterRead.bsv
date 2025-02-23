@@ -7,6 +7,7 @@ import Decode :: *;
 import Vector :: *;
 import CSR :: *;
 import ALU :: *;
+import AXI4 :: *;
 import AXI4_Lite :: *;
 import MemoryTypes :: *;
 import WriteBack :: *;
@@ -26,8 +27,10 @@ endinterface
 
 interface DMEM_IFC;
   interface Pipeline pipeline;
-  interface RdAXI4_Lite_Master#(32, 4) mem_read;
-  interface WrAXI4_Lite_Master#(32, 4) mem_write;
+  interface RdAXI4_Lite_Master#(32, 4) rd_mmio;
+  interface WrAXI4_Lite_Master#(32, 4) wr_mmio;
+  interface RdAXI4_Master#(4, 32, 4) rd_dmem;
+  interface WrAXI4_Master#(4, 32, 4) wr_dmem;
 
   // this pipeline has a type of effect so it have the commit interface to commit the
   // write operations
@@ -223,8 +226,10 @@ module mkDMEM(DMEM_IFC);
       dmem.wcommit(b);
   endmethod
 
-  interface mem_read = dmem.mem_read;
-  interface mem_write = dmem.mem_write;
+  interface rd_dmem = dmem.rd_dmem;
+  interface wr_dmem = dmem.wr_dmem;
+  interface rd_mmio = dmem.rd_mmio;
+  interface wr_mmio = dmem.wr_mmio;
   method emptySTB = dmem.emptySTB;
 endmodule
 

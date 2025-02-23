@@ -2,17 +2,17 @@ const std = @import("std");
 
 const logger = std.log.scoped(.syscall);
 
-pub const Output = union(enum) {
-    exec,
-    yield,
-};
-
 pub const Input = union(enum) {
     exec: struct {
         stack_size: usize,
         args: ?*anyopaque,
         pc: usize,
     },
+    yield,
+};
+
+pub const Output = union(enum) {
+    exec,
     yield,
 };
 
