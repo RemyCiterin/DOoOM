@@ -77,3 +77,9 @@ module mkIssueQueue(IssueQueue#(size));
     valid[1][idx] <= 1;
   endmethod
 endmodule
+
+(* synthesize *)
+module mkDefaultIssueQueue(IssueQueue#(IqSize));
+  let iq <- mkIssueQueue();
+  return iq;
+endmodule

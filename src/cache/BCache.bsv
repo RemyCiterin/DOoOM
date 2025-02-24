@@ -81,6 +81,9 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
 
   Reg#(Bit#(wayW)) randomWay <- mkReg(0);
 
+  Reg#(Bit#(32)) numHit <- mkReg(0);
+  Reg#(Bit#(32)) numMis <- mkReg(0);
+
   function Action doMiss(Bit#(wayW) way, Bit#(tagW) tag, BCacheOp op, Bit#(32) data, Bit#(4) mask);
     action
       tagRam.write(index, update(tagRam.response(), way, tag));
@@ -162,6 +165,9 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
       dirtyRam.deq();
       validRam.deq();
       tagRam.deq();
+
+      if (hit) numHit <= numHit + 1;
+      else numMis <= numMis + 1;
 
       if (hit) begin
         // Cache hit

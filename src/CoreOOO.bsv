@@ -41,8 +41,6 @@ interface Core_IFC;
   method Action set_msip(Bool b);
 endinterface
 
-typedef 2 IqSize;
-
 (* synthesize *)
 module mkCoreOOO(Core_IFC);
   Bool verbose = False;
@@ -58,17 +56,17 @@ module mkCoreOOO(Core_IFC);
 
   ROB rob <- mkROB;
 
-  IssueQueue#(IqSize) alu_issue_queue <- mkIssueQueue;
+  IssueQueue#(IqSize) alu_issue_queue <- mkDefaultIssueQueue;
   FunctionalUnit alu_fu <- mkALU_FU;
 
-  IssueQueue#(IqSize) control_issue_queue <- mkIssueQueue;
+  IssueQueue#(IqSize) control_issue_queue <- mkDefaultIssueQueue;
   FunctionalUnit control_fu <- mkControlFU;
 
   LSU lsu <- mkLSU;
 
   // indicate if a load is killed by the load store unit
   // because it return a bad value
-  Reg#(Bit#(RobSize)) killed <- mkReg(0);
+  Reg#(Bit#(RobSize)) killed <- mkEhr0(0);
 
   FIFOF#(Tuple2#(RobIndex, ExecOutput)) decodeFail <- mkPipelineFIFOF;
 
@@ -82,7 +80,6 @@ module mkCoreOOO(Core_IFC);
   let csr <- mkCsrFile(0);
 
   Reg#(Bit#(64)) timer <- mkReg(0);
-  Reg#(Bit#(64)) commitN <- mkReg(0);
 
   // Redirect the fetch unit on a new pc
   function Action fn_mispredict(Bit#(32) next_pc);
@@ -150,7 +147,7 @@ module mkCoreOOO(Core_IFC);
         age: current_age
       };
 
-      let index <- rob.enq(rob_entry); // rob_result);
+      let index <- rob.enq(rob_entry);
       let rs1_val = registers.rs1(register1(decoded.instr));
       let rs2_val = registers.rs2(register2(decoded.instr));
 
@@ -195,7 +192,7 @@ module mkCoreOOO(Core_IFC);
       if (verbose)
         $display("  wb %h ", entry.pc, displayInstr(entry.instr));
 
-      if (result matches tagged Ok .* &&& entry.tag != EXEC_TAG_DIRECT)
+      if (isOk(result) &&& entry.tag != EXEC_TAG_DIRECT)
         csr.increment_instret;
 
       case (result) matches

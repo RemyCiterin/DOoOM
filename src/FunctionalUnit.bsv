@@ -47,8 +47,37 @@ module mkALU_FU(FunctionalUnit);
   FIFOF#(ExecInput) to_mul <- mkPipelineFIFOF;
   FIFOF#(ExecInput) to_div <- mkPipelineFIFOF;
 
+  FIFOF#(Tuple2#(RobIndex, ExecOutput)) to_wb <- mkBypassFIFOF;
+
   let multiplier <- mkMulServer;
   let diviser <- mkDivServer;
+
+  rule compute;
+    if (to_alu.notEmpty) begin
+      let req <- toGet(to_alu).get;
+      to_wb.enq(tuple2(req.index, execALU(req)));
+    end else if (to_mul.notEmpty) begin
+      let req <- toGet(to_mul).get;
+      let res <- multiplier.response.get;
+      to_wb.enq(tuple2(req.index,
+        tagged Ok {
+          rd_val: res,
+          flush: False,
+          next_pc: req.pc + 4
+        }
+      ));
+    end else begin
+      let res <- diviser.response.get;
+      let req <- toGet(to_div).get;
+      to_wb.enq(tuple2(req.index,
+        tagged Ok {
+          rd_val: res,
+          flush: False,
+          next_pc: req.pc + 4
+        }
+      ));
+    end
+  endrule
 
   method Action enq(ExecInput req);
     action
@@ -114,36 +143,9 @@ module mkALU_FU(FunctionalUnit);
     endaction
   endmethod
 
-  method ActionValue#(Tuple2#(RobIndex, ExecOutput)) deq;
-    actionvalue
-      if (to_alu.notEmpty) begin
-        let req <- toGet(to_alu).get;
-        return Tuple2{fst: req.index, snd: execALU(req)};
-      end else if (to_mul.notEmpty) begin
-        let req <- toGet(to_mul).get;
-        let res <- multiplier.response.get;
-        return Tuple2{fst: req.index,
-          snd: tagged Ok {
-            rd_val: res,
-            flush: False,
-            next_pc: req.pc + 4
-          }
-        };
-      end else begin
-        let req <- toGet(to_div).get;
-        let res <- diviser.response.get;
-        return Tuple2{fst: req.index,
-          snd: tagged Ok {
-            rd_val: res,
-            flush: False,
-            next_pc: req.pc + 4
-          }
-        };
-      end
-    endactionvalue
-  endmethod
+  method deq = toGet(to_wb).get;
 
-  method canDeq = to_alu.notEmpty || to_mul.notEmpty || to_div.notEmpty;
+  method canDeq = to_wb.notEmpty;
 endmodule
 
 
@@ -216,15 +218,18 @@ endfunction
 (* synthesize *)
 module mkControlFU(FunctionalUnit);
   FIFOF#(ExecInput) to_control <- mkPipelineFIFOF;
+  FIFOF#(Tuple2#(RobIndex, ExecOutput)) to_wb <- mkBypassFIFOF;
 
-  method enq = to_control.enq;
-
-  method ActionValue#(Tuple2#(RobIndex, ExecOutput)) deq();
+  rule compute;
     let request = to_control.first;
     to_control.deq();
 
-    return tuple2(request.index, controlFlow(request));
-  endmethod
+    to_wb.enq(tuple2(request.index, controlFlow(request)));
+  endrule
 
-  method canDeq = to_control.notEmpty;
+  method enq = to_control.enq;
+
+  method deq = toGet(to_wb).get;
+
+  method canDeq = to_wb.notEmpty;
 endmodule

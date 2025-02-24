@@ -8,6 +8,8 @@ import BTB :: *;
 typedef 6 RobSize;
 typedef Bit#(TLog#(RobSize)) RobIndex;
 
+typedef 2 IqSize;
+
 // The execution of an instruction return either
 // an exception with a cause and a mtval value,
 // or the value to put in rd and the next pc

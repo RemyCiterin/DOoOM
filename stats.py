@@ -32,7 +32,8 @@ def match(l, name, typ):
 modules = [
     Module(["cpu.vga", "cpu.CAN_FIRE_RL_vga", "cpu.IF_0_CONCAT_0_CONCAT_vga"]),
     Module(["cpu.uart", "cpu.CAN_FIRE_RL_uart"]),
-    Module(["cpu.dcache", "cpu.CAN_FIRE_RL_dcache"]),
+    Module(["cpu.icache", "cpu.CAN_FIRE_RL_icache"]),
+    Module(["cpu.core.lsu.cache", "cpu.core.lsu.CAN_FIRE_RL_cache"]),
     Module(["cpu"]),
     Module(["cpu.rom", "cpu.IF_rom"]),
 
