@@ -70,9 +70,9 @@ module mkLSU(LSU);
   Fifo#(4, AXI4_Lite_RResponse#(4)) rresponseQ <- mkPipelineFifo;
   Fifo#(4, AXI4_Lite_WResponse) wresponseQ <- mkPipelineFifo;
 
-  Fifo#(1, Tuple2#(RobIndex, ExecOutput)) loadFailureQ <- mkPipelineFifo;
-  Fifo#(1, Tuple2#(RobIndex, ExecOutput)) loadSuccessQ <- mkPipelineFifo;
-  Fifo#(1, Tuple2#(RobIndex, ExecOutput)) storeSuccessQ <- mkPipelineFifo;
+  Fifo#(1, Tuple2#(RobIndex, ExecOutput)) loadFailureQ <- mkBypassFifo;
+  Fifo#(1, Tuple2#(RobIndex, ExecOutput)) loadSuccessQ <- mkBypassFifo;
+  Fifo#(1, Tuple2#(RobIndex, ExecOutput)) storeSuccessQ <- mkBypassFifo;
 
   Fifo#(LqSize, LqIndex) pendingDmemLoadsQ <- mkPipelineFifo;
   Fifo#(LqSize, LqIndex) pendingMmioLoadsQ <- mkPipelineFifo;
@@ -85,28 +85,24 @@ module mkLSU(LSU);
     stb.search(loadAddr).found ||
     storeQ.search(loadAddr, loadIQ.issueEpoch, loadIQ.issueAge).found;
 
-  function Action enqWRequest(AXI4_Lite_WRequest#(32, 4) request);
-    action
-      isStoreMMIO.enq(isMMIO(request.addr));
-      if (isMMIO(request.addr)) wrequestQ.enq(request);
-      else cache.cpu_write.request.put(request);
-    endaction
-  endfunction
+  rule enqRdCache if (!isMMIO(rrequestQ.first.addr));
+    let req <- toGet(rrequestQ).get;
+    cache.cpu_read.request.put(req);
+  endrule
 
-  function Action deqWResponse();
-    action
-      isStoreMMIO.deq();
-      if (isStoreMMIO.first) wresponseQ.deq();
-      else let _ <- cache.cpu_write.response.get();
-    endaction
-  endfunction
+  rule enqWrCache if (!isMMIO(wrequestQ.first.addr));
+    let req <- toGet(wrequestQ).get;
+    cache.cpu_write.request.put(req);
+  endrule
 
   rule setID1;
     cache.setID(1);
   endrule
 
   rule deqSTB;
-    deqWResponse();
+    isStoreMMIO.deq();
+    if (isStoreMMIO.first) wresponseQ.deq();
+    else let _ <- cache.cpu_write.response.get();
     stb.deq;
   endrule
 
@@ -121,7 +117,7 @@ module mkLSU(LSU);
           rrequestQ.enq(request);
         end else begin
           pendingDmemLoadsQ.enq(loadIQ.issueId);
-          cache.cpu_read.request.put(request);
+          rrequestQ.enq(request);
         end
       end
       tagged Failure .cause :
@@ -167,7 +163,8 @@ module mkLSU(LSU);
 
       if (must_commit) begin
         stb.enq(stbEntry);
-        enqWRequest(AXI4_Lite_WRequest{
+        isStoreMMIO.enq(isMMIO(stbEntry.addr));
+        wrequestQ.enq(AXI4_Lite_WRequest{
           bytes: stbEntry.data,
           addr: stbEntry.addr,
           strb: stbEntry.mask
@@ -244,12 +241,12 @@ module mkLSU(LSU);
 
   interface RdAXI4_Lite_Master rd_mmio;
     method response = toPut(rresponseQ);
-    method request = toGet(rrequestQ);
+    method request = when(isMMIO(rrequestQ.first.addr), toGet(rrequestQ));
   endinterface
 
   interface WrAXI4_Lite_Master wr_mmio;
     method response = toPut(wresponseQ);
-    method request = toGet(wrequestQ);
+    method request = when(isMMIO(wrequestQ.first.addr), toGet(wrequestQ));
   endinterface
 
   interface rd_dmem = cache.mem_read;

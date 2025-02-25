@@ -215,6 +215,57 @@ pub const BandwidthALU = struct {
     }
 };
 
+pub const BandwidthLSU = struct {
+    N: usize,
+
+    const Self = @This();
+
+    pub fn init(N: usize) Self {
+        return .{ .N = N };
+    }
+
+    // The time of execution is expected to be
+    // around 100 * self.N * Latency
+    // with Latency the latency of the ALU
+    pub noinline fn call(self: Self) void {
+        @setRuntimeSafety(false);
+
+        // 100 add instructions
+        for (0..self.N) |_| {
+            asm volatile ("lw zero, (zero);" ** 100);
+        }
+    }
+};
+
+pub const LatencyLSU = struct {
+    N: usize,
+
+    const Self = @This();
+
+    pub fn init(N: usize) Self {
+        return .{ .N = N };
+    }
+
+    // The time of execution is expected to be
+    // around 100 * self.N * Latency
+    // with Latency the latency of the ALU
+    pub noinline fn call(self: Self) void {
+        @setRuntimeSafety(false);
+
+        var ptr: *anyopaque = undefined;
+        ptr = @ptrCast(&ptr);
+
+        // 100 add instructions
+        for (0..self.N) |_| {
+            asm volatile ("lw %[ptr], (%[ptr]);" ** 100
+                : [ptr] "+r" (ptr),
+                :
+                : "memory"
+            );
+        }
+    }
+};
+
 pub const Sort = struct {
     alloc: std.mem.Allocator,
     larr: []u32,

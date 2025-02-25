@@ -55,6 +55,9 @@ test:
 	riscv32-none-elf-objdump soft/zig-out/bin/zig-unix.elf -D \
 		> soft/firmware.asm
 
+test_coremark:
+	elf_to_hex/elf_to_hex ./coremark/coremark.bare.riscv Mem.hex
+
 test_rust:
 	elf_to_hex/elf_to_hex ./rust/target/riscv32im-unknown-none-elf/release/SuperOS Mem.hex
 	riscv32-none-elf-objdump ./rust/target/riscv32im-unknown-none-elf/release/SuperOS -D \

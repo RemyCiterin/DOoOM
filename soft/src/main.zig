@@ -188,6 +188,22 @@ pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
         _ = output;
     }
 
+    logger.info("LSU latency:", .{});
+    for (1..11) |i| {
+        const size = 10 * i;
+        var bench = Bench.LatencyLSU.init(size);
+        const output = Bench.measure(size, &bench);
+        _ = output;
+    }
+
+    logger.info("LSU bandwidth:", .{});
+    for (1..11) |i| {
+        const size = 10 * i;
+        var bench = Bench.BandwidthLSU.init(size);
+        const output = Bench.measure(size, &bench);
+        _ = output;
+    }
+
     logger.info("Merge Sort:", .{});
     for (1..11) |i| {
         const size = 10 * i;
