@@ -43,7 +43,7 @@ module mkFetch (Fetch_IFC);
 
   rule step if(is_start && read_request.notFull);
     let pc = current_pc;
-    let predicted_pc = btb.read(pc);
+    match {.predicted_pc, .kind} = btb.read(pc);
     current_pc <= predicted_pc;
     inum <= inum + 1;
 
@@ -67,7 +67,7 @@ module mkFetch (Fetch_IFC);
 
     case (req.instr) matches
       tagged Valid .instr :
-        btb.update(req.pc, req.next_pc);
+        btb.update(req.pc, req.next_pc, instrKind(instr));
       default: noAction;
     endcase
 
@@ -99,8 +99,8 @@ interface Decode_IFC;
 endinterface
 
 module mkDecode#(EpochManager epoch) (Decode_IFC);
-  Fifo#(3, AXI4_Lite_RResponse#(4)) read_response <- mkPipelineFifo;
-  Fifo#(2, Fetch_to_Decode) fetch_to_decode <- mkPipelineFifo;
+  Fifo#(4, AXI4_Lite_RResponse#(4)) read_response <- mkPipelineFifo;
+  Fifo#(3, Fetch_to_Decode) fetch_to_decode <- mkPipelineFifo;
 
   Log_IFC log <- mkLog;
 

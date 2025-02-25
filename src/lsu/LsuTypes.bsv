@@ -6,9 +6,6 @@ import OOO :: *;
 // Store Buffer Size
 typedef 4 StbSize;
 
-// Store Buffer Index
-typedef Bit#(TLog#(StbSize)) StbIndex;
-
 // Store Queue Size
 typedef 4 SqSize;
 
@@ -20,6 +17,9 @@ typedef 2 SiqSize;
 
 // Load issue queue size
 typedef 2 LiqSize;
+
+// Store Buffer Index
+typedef Bit#(TLog#(StbSize)) StbIndex;
 
 // Store Queue Index
 typedef Bit#(TLog#(SqSize)) SqIndex;

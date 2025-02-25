@@ -100,8 +100,8 @@ module mkFetchDecode(FetchDecode);
 
   let branchPred <- mkBranchPred;
 
-  Fifo#(3, AXI4_Lite_RResponse#(4)) read_response <- mkPipelineFifo;
-  Fifo#(2, FetchToDecode) fetch_to_decode <- mkPipelineFifo;
+  Fifo#(4, AXI4_Lite_RResponse#(4)) read_response <- mkPipelineFifo;
+  Fifo#(3, FetchToDecode) fetch_to_decode <- mkPipelineFifo;
   Fifo#(1, FromDecode) outputs <- mkBypassFifo;
 
   rule fetch_step;

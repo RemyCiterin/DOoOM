@@ -172,6 +172,15 @@ pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
         _ = fibo;
     }
 
+    logger.info("Fibo Recursive:", .{});
+    for (1..11) |i| {
+        const size = 2 * i;
+        var bench = Bench.FiboRec.init(size);
+        const fibo = Bench.measure(size, &bench);
+        //logger.info("fibo({}) = {}", .{ size, fibo });
+        _ = fibo;
+    }
+
     logger.info("ALU latency:", .{});
     for (1..11) |i| {
         const size = 10 * i;

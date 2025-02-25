@@ -2,14 +2,82 @@ import Utils :: *;
 import RegFile :: *;
 import Decode :: *;
 
+typedef enum {
+  Call, Ret, RetCall, Branch, Jump, Linear
+} InstrKind deriving(Bits, FShow, Eq);
+
+function InstrKind instrKind(Instr instr);
+  return case (instr) matches
+    tagged Btype .* : Branch;
+    tagged Itype {instr: .itype, op: JALR} :
+      case (tuple2(destination(itype).name, register1(itype).name)) matches
+        Tuple2 {fst: 1, snd: 5} : Call;
+        Tuple2 {fst: 5, snd: 1} : Call;
+        Tuple2 {fst: 5, snd: .*} : Call;
+        Tuple2 {fst: 1, snd: .*} : Call;
+        Tuple2 {fst: .*, snd: 5} : Ret;
+        Tuple2 {fst: .*, snd: 1} : Ret;
+        default: Jump;
+      endcase
+    tagged Jtype .* : Jump;
+    default: Linear;
+  endcase;
+endfunction
+
+typedef 8 RasWidth;
+typedef TExp#(RasWidth) RasSize;
+typedef Bit#(RasWidth) RasIndex;
+
+
+interface RAS;
+  method RasIndex top();
+  method ActionValue#(Maybe#(Bit#(32))) pred(Bit#(32) pc, InstrKind kind);
+  method Action backtrack(RasIndex head, InstrKind kind);
+endinterface
+
+(* synthesize *)
+module mkRAS(RAS);
+  RegFile#(RasIndex, Maybe#(Bit#(32))) stack <- mkRegFileFullInit(Invalid);
+  Reg#(RasIndex) head <- mkReg(0);
+
+  method top = head;
+
+  method ActionValue#(Maybe#(Bit#(32))) pred(Bit#(32) pc, InstrKind kind);
+    head <= case (kind) matches
+      Call : head + 1;
+      Ret : head - 1;
+      default : head;
+    endcase;
+
+    if (kind == Call)
+      stack.upd(head, Valid(pc+4));
+
+    return kind == Ret ? stack.sub(head-1) : Invalid;
+  endmethod
+
+  method Action backtrack(RasIndex index, InstrKind kind);
+    action
+      head <= case (kind) matches
+        Call : index + 1;
+        Ret : index - 1;
+        default : index;
+      endcase;
+    endaction
+  endmethod
+endmodule
+
 interface BTB_IFC;
-  method Bit#(32) read(Bit#(32) pc); // return the value of next pc
-  method Action update(Bit#(32) pc, Bit#(32) next_pc); // update the value of the next pc
+  // Predict the next instruction and it's kind (Jump, Call, Ret...)
+  method Tuple2#(Bit#(32), InstrKind) read(Bit#(32) pc);
+
+  // Update the next program pointer and kind of an instruction
+  method Action update(Bit#(32) pc, Bit#(32) next_pc, InstrKind kind);
 endinterface
 
 typedef struct {
   Bit#(32) pc;
   Bit#(32) next_pc;
+  InstrKind kind;
 } BTB_Entry deriving(Bits, Eq);
 
 // return the last target of a branch instruction
@@ -18,21 +86,23 @@ typedef struct {
 module mkBTB(BTB_IFC);
   RegFile#(Bit#(12), Maybe#(BTB_Entry)) entries <- mkRegFileFullInit(Invalid);
 
-  method Bit#(32) read(Bit#(32) pc);
+  method Tuple2#(Bit#(32), InstrKind) read(Bit#(32) pc);
     let index = truncate(pc >> 2);
 
     return case (entries.sub(index)) matches
-      tagged Valid .entry : (entry.pc == pc ? entry.next_pc : pc + 4);
-      Invalid : pc + 4;
+      Invalid : tuple2(pc + 4, Linear);
+      tagged Valid .entry : entry.pc == pc ?
+        tuple2(entry.next_pc, entry.kind) :
+        tuple2(pc + 4, Linear);
     endcase;
   endmethod
 
-  method Action update(Bit#(32) pc, Bit#(32) next_pc);
+  method Action update(Bit#(32) pc, Bit#(32) next_pc, InstrKind kind);
     action
       let index = truncate(pc >> 2);
 
       if (next_pc != pc + 4)
-        entries.upd(index, tagged Valid (BTB_Entry{pc: pc, next_pc: next_pc}));
+        entries.upd(index, tagged Valid (BTB_Entry{pc: pc, next_pc: next_pc, kind: kind}));
     endaction
   endmethod
 endmodule
@@ -83,15 +153,30 @@ endmodule
 
 // State used by the branch predictor to backtrack in case of misprediction
 typedef struct {
+  // Glock branch history register
   Ghr ghr;
+
   GhtEntry entry;
+
+  // Predicted instruction kind
+  InstrKind kind;
+
+  // Top of the return address stack
+  RasIndex top;
 } BranchPredState deriving(Bits, FShow, Eq);
 
 // Informations given to the branch predictor to update itself
 typedef struct {
+  // Backtracking state
   BranchPredState state;
+
+  // Current program counter
   Bit#(32) pc;
+
+  // Next program counter
   Bit#(32) next_pc;
+
+  // Instruction if the backtracking is due to a branch misprediction
   Maybe#(Instr) instr;
 } BranchPredTrain deriving(Bits, FShow, Eq);
 
@@ -111,20 +196,27 @@ endinterface
 module mkBranchPred(BranchPred);
   let btb <- mkBTB;
   let ght <- mkGht;
+  let ras <- mkRAS;
 
   Reg#(Bit#(32)) mispred_count <- mkReg(0);
 
   method ActionValue#(BranchPredOutput) doPred(Bit#(32) pc);
     actionvalue
       let taken = ght.takeBranch(pc);
-      let branch_pc = btb.read(pc);
+      match {.branch_pc, .kind} = btb.read(pc);
+      let ret_pc <- ras.pred(pc, kind);
+
+      if (ret_pc matches tagged Valid .new_pc) branch_pc = new_pc;
 
       if (branch_pc != pc + 4)
-      ght.write( { (taken && branch_pc != pc + 4 ? 1'b1 : 1'b0), truncateLSB(ght.read) } );
+        ght.write( { (taken && branch_pc != pc + 4 ? 1'b1 : 1'b0), truncateLSB(ght.read) } );
+
+      //$display("pred pc: %h ras top: %d kind: ", pc, ras.top, fshow(kind));
 
       return BranchPredOutput{
         pc: taken ? branch_pc : pc + 4,
-        state: BranchPredState{ ghr: ght.read, entry: ght.readTable(pc) }
+        state: BranchPredState
+          { ghr: ght.read, entry: ght.readTable(pc), kind: kind, top: ras.top }
       };
     endactionvalue
   endmethod
@@ -134,7 +226,6 @@ module mkBranchPred(BranchPred);
     action
       let ghr = infos.state.ghr;
       let taken = infos.next_pc != infos.pc + 4;
-
       ght.updateTable(infos.pc, ghr, infos.state.entry, taken);
     endaction
   endmethod
@@ -151,11 +242,15 @@ module mkBranchPred(BranchPred);
 
       Ghr newGhr = { (taken ? 1'b1 : 1'b0), truncateLSB(ghr) };
 
-      if (infos.instr matches tagged Valid .*) begin
-        btb.update(infos.pc, infos.next_pc);
+      if (infos.instr matches tagged Valid .instr) begin
+        btb.update(infos.pc, infos.next_pc, instrKind(instr));
+        ras.backtrack(infos.state.top, instrKind(instr));
         ght.write(newGhr);
-      end else
+      end else begin
+        ras.backtrack(infos.state.top, infos.state.kind);
         ght.write(ghr);
+      end
+
 
       //$display("%d  %b    %b", mispred_count, ghr, newGhr);
     endaction

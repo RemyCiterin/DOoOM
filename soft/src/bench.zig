@@ -165,6 +165,28 @@ pub const Fibo = struct {
     }
 };
 
+pub const FiboRec = struct {
+    N: usize,
+
+    const Self = @This();
+
+    pub fn init(N: usize) Self {
+        return .{ .N = N };
+    }
+
+    pub noinline fn fibo(x: u32) u32 {
+        @setRuntimeSafety(false);
+        if (x < 2) return x;
+
+        return fibo(x - 1) + fibo(x - 2);
+    }
+
+    // Integer overflow around 300-350
+    pub noinline fn call(self: Self) u32 {
+        return fibo(self.N);
+    }
+};
+
 pub const LatencyALU = struct {
     N: usize,
 
