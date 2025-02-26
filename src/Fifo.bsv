@@ -168,6 +168,79 @@ endfunction
 module mkPipelineFifoBig(Fifo#(n, t)) provisos(Bits#(t, size_t));
   RegFile#(Bit#(TLog#(n)), t) data <- mkRegFileFull;
 
+  Ehr#(2, Bit#(TLog#(n))) nextP <- mkEhr(0);
+  Ehr#(2, Bit#(TLog#(n))) firstP <- mkEhr(0);
+  Ehr#(2, Bool) empty <- mkEhr(True);
+  Ehr#(2, Bool) full <- mkEhr(False);
+
+  Bit#(TLog#(n)) max_index = fromInteger(valueOf(n) - 1);
+
+  method canDeq = !empty[0];
+
+  method t first if (!empty[0]);
+    return data.sub(firstP[0]);
+  endmethod
+
+  method Action deq if (!empty[0]);
+    let next_firstP = ( firstP[0] == max_index ? 0 : firstP[0] + 1 );
+    full[0] <= False;
+
+    firstP[0] <= next_firstP;
+    if (next_firstP == nextP[0])
+      empty[0] <= True;
+  endmethod
+
+  // at instant 1
+  method canEnq = !full[1];
+
+  method Action enq(t val) if (!full[1]);
+    let next_nextP = (nextP[0] == max_index ? 0 : nextP[0] + 1);
+
+    data.upd(nextP[0], val);
+    empty[1] <= False;
+    nextP[0] <= next_nextP;
+
+    if (next_nextP == firstP[1])
+      full[1] <= True;
+  endmethod
+endmodule
+
+module mkPipelineFifoOne(Fifo#(n, t)) provisos(Bits#(t, size_t));
+  Ehr#(2, Bool) valid <- mkEhr(False);
+  Reg#(t) value <- mkReg(?);
+
+  method canEnq = !valid[1];
+  method canDeq = valid[0];
+  method t first if (valid[0]);
+    return value;
+  endmethod
+
+  method Action enq(t v) if (!valid[1]);
+    action
+      valid[1] <= True;
+      value <= v;
+    endaction
+  endmethod
+
+  method Action deq() if (valid[0]);
+    action
+      valid[0] <= False;
+    endaction
+  endmethod
+endmodule
+
+module mkPipelineFifo(Fifo#(n, t)) provisos(Bits#(t, size_t));
+  Fifo#(n, t) fifo;
+
+  if (valueOf(n) == 1) fifo <- mkPipelineFifoOne();
+  else fifo <- mkPipelineFifoBig();
+
+  return fifo;
+endmodule
+
+module mkPipelinePFifoBig(Fifo#(n, t)) provisos(Bits#(t, size_t));
+  RegFile#(Bit#(TLog#(n)), t) data <- mkRegFileFull;
+
   PReg#(2, Bit#(TLog#(n))) nextP <- mkPReg(0);
   PReg#(2, Bit#(TLog#(n))) firstP <- mkPReg(0);
   PReg#(2, Bool) empty <- mkPReg(True);
@@ -205,8 +278,7 @@ module mkPipelineFifoBig(Fifo#(n, t)) provisos(Bits#(t, size_t));
   endmethod
 endmodule
 
-module mkPipelineFifoOne(Fifo#(n, t)) provisos(Bits#(t, size_t));
-  //let fifo <- mkPipelineFIFOF();
+module mkPipelinePFifoOne(Fifo#(n, t)) provisos(Bits#(t, size_t));
   Reg#(t) value <- mkPReg0(?);
   PReg#(2, Bool) valid <- mkPReg(False);
 
@@ -230,14 +302,15 @@ module mkPipelineFifoOne(Fifo#(n, t)) provisos(Bits#(t, size_t));
   endmethod
 endmodule
 
-module mkPipelineFifo(Fifo#(n, t)) provisos(Bits#(t, size_t));
+module mkPipelinePFifo(Fifo#(n, t)) provisos(Bits#(t, size_t));
   Fifo#(n, t) fifo;
 
-  if (valueOf(n) == 1) fifo <- mkPipelineFifoOne();
-  else fifo <- mkPipelineFifoBig();
+  if (valueOf(n) == 1) fifo <- mkPipelinePFifoOne();
+  else fifo <- mkPipelinePFifoBig();
 
   return fifo;
 endmodule
+
 
 module mkBypassFifo(Fifo#(n, t)) provisos(Bits#(t, size_t));
   let fifo <- mkSizedBypassFIFOF(valueOf(n));

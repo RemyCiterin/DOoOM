@@ -155,56 +155,6 @@ function Tuple2#(Bit#(addrBits), Bit#(dataBytes)) alignAddr(Bit#(addrBits) addr,
   return Tuple2{fst: {addr_truncate, 0}, snd: strb};
 endfunction
 
-module mkSizedPipelineFIFOF#(Integer n) (FIFOF#(t)) provisos(Bits#(t, size_t));
-  Reg#(t) data[n];
-  for (Integer i=0; i < n; i = i + 1)
-    data[i] <- mkReg(?);
-
-  PReg#(2, Bit#(32)) nextP <- mkPReg(0);
-  PReg#(2, Bit#(32)) firstP <- mkPReg(0);
-  PReg#(3, Bool) empty <- mkPReg(True);
-  PReg#(3, Bool) full <- mkPReg(False);
-
-  Bit#(32) max_index = fromInteger(n - 1);
-
-  method notEmpty = !empty[0];
-
-  method t first if (!empty[0]);
-    return data[firstP[0]];
-  endmethod
-
-  method Action deq if (!empty[0]);
-    let next_firstP = ( firstP[0] == max_index ? 0 : firstP[0] + 1 );
-    full[0] <= False;
-
-    firstP[0] <= next_firstP;
-    if (next_firstP == nextP[0])
-      empty[0] <= True;
-  endmethod
-
-  // at instant 1
-  method notFull = !full[1];
-
-  method Action enq(t val) if (!full[1]);
-    let next_nextP = (nextP[0] == max_index ? 0 : nextP[0] + 1);
-
-    data[nextP[0]] <= val;
-    empty[1] <= False;
-    nextP[0] <= next_nextP;
-
-    if (next_nextP == firstP[1])
-      full[1] <= True;
-  endmethod
-
-  // at instant 2
-  method Action clear;
-    nextP[1] <= 0;
-    firstP[1] <= 0;
-    empty[2] <= True;
-    full[2] <= False;
-  endmethod
-endmodule
-
 module mkConfigFIFOF#(FIFOF_Config conf) (FIFOF#(t)) provisos(Bits#(t, k));
 
   FIFOF#(t) fifo = ?;

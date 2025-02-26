@@ -1,8 +1,6 @@
 import RevertingVirtualReg::*;
 import Vector :: *;
 
-
-
 // Type of generalized "permanant" registers:
 // they are permanant in the sens that they don't
 // have the constraint `r < w` so their value is
@@ -11,7 +9,6 @@ typedef Vector#(n, Reg#(t)) PReg#(numeric type n, type t);
 
 /*
 This register type have the following constraints:
-  forall i < j, w[i] < w[j]
   forall i < j, w[i] < r[j]
   forall i j, r[i] is conflict free with r[j]
   forall i, w[i] conflict with w[i]
@@ -63,27 +60,51 @@ endmodule
 
 typedef Vector#(n, Reg#(t)) Ehr#(numeric type n, type t);
 
+/*
+This register type have the following constraints:
+  forall i < j, w[i] < r[j]
+  forall i < j, r[i] < w[j]
+  forall i < j, w[i] < w[j]
+  forall i j, r[i] is conflict free with r[j]
+  forall i, w[i] conflict with w[i]
+*/
+
 module mkEhr#(t init) (Ehr#(n, t)) provisos(Bits#(t, tWidth));
   Vector#(n, Reg#(Bool)) order <- replicateM(mkRevertingVirtualReg(False));
-  PReg#(n, t) preg <- mkPReg(init);
+  Vector#(n, RWire#(t)) wires <- replicateM(mkRWire);
+  Reg#(t) register <- mkReg(init);
 
   Vector#(n, Reg#(t)) ifc = newVector;
+
+  function t read(Integer i);
+    t value = register;
+    for (Integer j=0; j < i; j = j + 1) begin
+      if (wires[j].wget matches tagged Valid .val)
+        value = val;
+    end
+
+    return value;
+  endfunction
+
+  (* fire_when_enabled, no_implicit_conditions *)
+  rule ehr_canon;
+    register <= read(valueOf(n));
+  endrule
 
   for(Integer i=0; i < valueOf(n); i = i + 1) begin
     ifc[i] = interface Reg;
       method Action _write(t x);
+        wires[i].wset(order[i] ? read(i) : x);
         order[i] <= True;
-        preg[i] <= x;
       endmethod
 
       method t _read();
         Bool valid = True;
-
         for (Integer j=i; j < valueOf(n); j = j + 1) begin
           valid = valid && !order[j];
         end
 
-        return valid ? preg[i] : ?;
+        return valid ? read(i) : ?;
       endmethod
     endinterface;
   end

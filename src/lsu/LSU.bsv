@@ -125,15 +125,18 @@ module mkLSU(LSU);
     endcase
   endrule
 
-  rule loadResponseMMIO if (!pendingDmemLoadsQ.canDeq);
-    let resp <- toGet(rresponseQ).get;
-    let idx <- toGet(pendingMmioLoadsQ).get;
-    loadSuccessQ.enq(loadQ.issue(idx, resp));
-  endrule
+  rule loadResponse;
+    AXI4_Lite_RResponse#(4) resp = ?;
+    LqIndex idx = ?;
 
-  rule loadResponseDMEM if (pendingDmemLoadsQ.canDeq);
-    let resp <- cache.cpu_read.response.get;
-    let idx <- toGet(pendingDmemLoadsQ).get;
+    if (pendingDmemLoadsQ.canDeq) begin
+      resp <- cache.cpu_read.response.get;
+      idx <- toGet(pendingDmemLoadsQ).get;
+    end else begin
+      resp <- toGet(rresponseQ).get;
+      idx <- toGet(pendingMmioLoadsQ).get;
+    end
+
     loadSuccessQ.enq(loadQ.issue(idx, resp));
   endrule
 

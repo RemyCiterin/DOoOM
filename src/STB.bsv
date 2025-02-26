@@ -45,7 +45,7 @@ typedef struct {
 module mkMiniSTB(DMEM_Controller);
   Fifo#(1, AXI4_Lite_WRequest#(32, 4)) storeQ <- mkPipelineFifo;
   Fifo#(1, AXI4_Lite_RRequest#(32)) loadQ <- mkPipelineFifo;
-  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) stb <- mkPipelineFifo;
+  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) stb <- mkPipelinePFifo;
 
   Fifo#(2, Maybe#(Bit#(32))) forwardQ <- mkPipelineFifo;
 

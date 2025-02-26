@@ -73,7 +73,7 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
   Reg#(Bit#(indexW)) index <- mkReg(0);
   Reg#(Bit#(offsetW)) offset <- mkReg(0);
   Reg#(BCacheInfo#(wayW, tagW)) info <- mkReg(?);
-  PReg#(2, CacheState) state <- mkPReg(Init);
+  Ehr#(2, CacheState) state <- mkEhr(Init);
 
   // Length of a cache line
   Bit#(8) length = fromInteger(valueOf(TExp#(offsetW))-1);

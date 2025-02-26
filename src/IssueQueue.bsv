@@ -20,9 +20,9 @@ endinterface
 
 // generate an issue queue of a given size
 module mkIssueQueue(IssueQueue#(size));
-  Vector#(size, PReg#(2, IssueQueueEntry)) queue <- replicateM(mkPReg(?));
+  Vector#(size, PReg#(2, IssueQueueEntry)) queue <- replicateM(mkEhr(?));
   Reg#(Bit#(TLog#(size))) lastIssue <- mkReg(0);
-  PReg#(2, Bit#(size)) valid <- mkPReg(0);
+  PReg#(2, Bit#(size)) valid <- mkEhr(0);
 
   function Maybe#(Bit#(TLog#(size))) getReadyIndex;
     Bit#(size) mask = 0;
