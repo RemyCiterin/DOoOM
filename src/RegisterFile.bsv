@@ -28,9 +28,6 @@ interface RegisterFile;
   // read into a register
   method RegVal rs2(RegName r);
 
-  // read the commited value of the register
-  method Bit#(32) read_commited(RegName r);
-
   // set a register as busy
   method Action setBusy(RegName r, RobIndex index);
 endinterface
@@ -39,8 +36,6 @@ endinterface
 module mkRegisterFile(RegisterFile);
   // Register file with commited writes and forwarding logic
   ForwardRegFile#(Bit#(5), Bit#(32)) registers <- mkForwardRegFileFullInit(0);
-  RWire#(Bit#(32)) forwardVal <- mkRWire;
-  RWire#(Bit#(5)) forwardIdx <- mkRWire;
 
   // Index of the physical registers in the Reodrer Buffer
   RegFile#(Bit#(5), RobIndex) physicalRegs <- mkRegFileFull;
@@ -70,10 +65,6 @@ module mkRegisterFile(RegisterFile);
     return scoreboard[1][r.name] == 1 ?
       tagged Wait physicalRegs.sub(r.name) :
       tagged Value registers.forward(r.name);
-  endmethod
-
-  method Bit#(32) read_commited(RegName r);
-    return registers.forward(r.name);
   endmethod
 
   method Action setBusy(RegName r, RobIndex index);

@@ -62,6 +62,8 @@ module mkCoreOOO(Core_IFC);
   IssueQueue#(IqSize) control_issue_queue <- mkDefaultIssueQueue;
   FunctionalUnit control_fu <- mkControlFU;
 
+  IssueQueue#(IqSize) direct_issue_queue <- mkDefaultOrderedIssueQueue;
+
   LSU lsu <- mkLSU;
 
   // indicate if a load is killed by the load store unit
@@ -125,6 +127,7 @@ module mkCoreOOO(Core_IFC);
       endcase;
 
       control_issue_queue.wakeup(index, rd_val);
+      direct_issue_queue.wakeup(index, rd_val);
       alu_issue_queue.wakeup(index, rd_val);
       lsu.wakeup(index, rd_val);
     endaction
@@ -181,7 +184,9 @@ module mkCoreOOO(Core_IFC);
         EXEC_TAG_DMEM: begin
           lsu.enq(iq_entry);
         end
-        default: noAction;
+        EXEC_TAG_DIRECT: begin
+          direct_issue_queue.enq(iq_entry);
+        end
       endcase
     endaction
   endfunction
@@ -237,54 +242,44 @@ module mkCoreOOO(Core_IFC);
     endaction
   endfunction
 
-  function Action execDirect(RobIndex index, RobEntry entry);
-    action
-      ExecOutput result = ?;
-
+  function ActionValue#(ExecOutput)
+    execDirect(RobIndex index, RobEntry entry, Bit#(32) rs1, Bit#(32) rs2);
+    actionvalue
       case (entry.instr) matches
         tagged Itype {instr: .*, op: ECALL} : begin
           csr.increment_instret;
-          result = tagged Error {
+          return tagged Error{
             cause: ECALL_FROM_M,
             tval: entry.pc
           };
         end
         tagged Itype {op: FENCE} : begin
           csr.increment_instret;
-          result = tagged Ok {flush: True, rd_val: 0, next_pc: entry.pc + 4};
           lsu.emptySTB();
+
+          return tagged Ok {flush: True, rd_val: 0, next_pc: entry.pc + 4};
         end
         tagged Itype {op: FENCE_I} : begin
           csr.increment_instret;
-          result = tagged Ok {flush: True, rd_val: 0, next_pc: entry.pc + 4};
+          return tagged Ok {flush: True, rd_val: 0, next_pc: entry.pc + 4};
         end
         tagged Itype {instr: .instr, op: tagged Ret MRET} : begin
           let pc <- csr.mret;
           csr.increment_instret;
-          result = tagged Ok { flush: False, rd_val: 0, next_pc: pc };
+          return tagged Ok { flush: False, rd_val: 0, next_pc: pc };
         end
         tagged Itype {instr: .instr, op: .op} : begin
-          let rs1 = registers.read_commited(register1(instr));
-
           Maybe#(Bit#(32)) val <- csr.exec_csrxx(instr, op, rs1);
 
-          case (val) matches
-            tagged Valid .v : begin
-              result = tagged Ok {flush: False, rd_val: v, next_pc: entry.pc+4};
-            end
-            Invalid: begin
-              result = tagged Error {cause: ILLEGAL_INSTRUCTION, tval: entry.pc};
-            end
-          endcase
+          if (val matches tagged Valid .v)
+            return tagged Ok {flush: False, rd_val: v, next_pc: entry.pc+4};
+          else
+            return tagged Error {cause: ILLEGAL_INSTRUCTION, tval: entry.pc};
         end
-        default: begin
-          result = tagged Error {cause: ILLEGAL_INSTRUCTION, tval: entry.pc};
-        end
+        default:
+          return tagged Error {cause: ILLEGAL_INSTRUCTION, tval: entry.pc};
       endcase
-
-      rob.writeBack(index, result);
-      wakeupFn(index, result);
-    endaction
+    endactionvalue
   endfunction
 
   rule connectALU;
@@ -297,7 +292,7 @@ module mkCoreOOO(Core_IFC);
     control_fu.enq(request);
   endrule
 
-  (* descending_urgency = "commit_interrupt, execute_csr, writeback_mispredicted_csr, write_back" *)
+  (* descending_urgency = "commit_interrupt, execute_direct, write_back" *)
   rule write_back;
     let response <- toWB.get;
     wakeupFn(response.fst, response.snd);
@@ -315,8 +310,8 @@ module mkCoreOOO(Core_IFC);
     deqRob(Invalid, Invalid);
   endrule
 
-  (* mutually_exclusive = "commit_interrupt, execute_csr" *)
-  (* preempts = "commit_interrupt, execute_csr" *)
+  (* mutually_exclusive = "commit_interrupt, execute_direct" *)
+  (* preempts = "commit_interrupt, execute_direct" *)
   rule commit_interrupt if (
       csr.readyInterrupt matches tagged Valid .cause &&&
       rob.first_result matches Invalid &&&
@@ -378,23 +373,18 @@ module mkCoreOOO(Core_IFC);
       doCommit(index, entry, result);
   endrule
 
-  // write back a direct instruction so we may commit it at the next cycle
-  rule writeback_mispredicted_csr if (
-    rob.first.tag == EXEC_TAG_DIRECT &&
-    rob.first.epoch != epoch[0] &&&
-    rob.first_result matches Invalid);
+  rule execute_direct if (
+      rob.first.tag == EXEC_TAG_DIRECT &&&
+      rob.first_result matches Invalid);
+    ExecInput request <- direct_issue_queue.issue();
 
-    rob.writeBack(rob.first_index, ?);
-    wakeupFn(rob.first_index, ?);
-  endrule
+    ExecOutput result = ?;
 
-  // write back a direct instruction so we may commit it at the next cycle
-  rule execute_csr if (
-    rob.first.tag == EXEC_TAG_DIRECT &&
-    rob.first.epoch == epoch[0] &&&
-    rob.first_result matches Invalid);
+    if (rob.first.epoch == epoch[0]) result <-
+      execDirect(rob.first_index, rob.first, request.rs1_val, request.rs2_val);
 
-    execDirect(rob.first_index, rob.first);
+    rob.writeBack(rob.first_index, result);
+    wakeupFn(rob.first_index, result);
   endrule
 
   rule dispatch;

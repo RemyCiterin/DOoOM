@@ -15,7 +15,7 @@ module mkForwardRegFileFull(ForwardRegFile#(k,v))
   (* no_implicit_conditions, fire_when_enabled *)
   rule update_register_file
     if (forwardKey.wget matches tagged Valid .key);
-    regFile.upd(key, unJust(forwardVal.wget));
+      regFile.upd(key, unJust(forwardVal.wget));
   endrule
 
   method Action upd(k key, v val);

@@ -20,9 +20,9 @@ endinterface
 
 // generate an issue queue of a given size
 module mkIssueQueue(IssueQueue#(size));
-  Vector#(size, PReg#(2, IssueQueueEntry)) queue <- replicateM(mkEhr(?));
+  Vector#(size, Ehr#(2, IssueQueueEntry)) queue <- replicateM(mkEhr(?));
   Reg#(Bit#(TLog#(size))) lastIssue <- mkReg(0);
-  PReg#(2, Bit#(size)) valid <- mkEhr(0);
+  Ehr#(2, Bit#(size)) valid <- mkEhr(0);
 
   function Maybe#(Bit#(TLog#(size))) getReadyIndex;
     Bit#(size) mask = 0;
@@ -42,23 +42,21 @@ module mkIssueQueue(IssueQueue#(size));
 
   method ActionValue#(ExecInput) issue
     if (getReadyIndex matches tagged Valid .idx);
-    actionvalue
-      valid[0][idx] <= 0;
-      lastIssue <= idx+1;
+    valid[0][idx] <= 0;
+    lastIssue <= idx+1;
 
-      IssueQueueEntry entry = queue[idx][0];
-      return ExecInput {
-        pc: entry.pc,
-        instr: entry.instr,
-        index: entry.index,
-        rs1_val: getRegValue(entry.rs1_val),
-        rs2_val: getRegValue(entry.rs2_val)
-      };
-    endactionvalue
+    IssueQueueEntry entry = queue[idx][0];
+    return ExecInput {
+      pc: entry.pc,
+      instr: entry.instr,
+      index: entry.index,
+      rs1_val: getRegValue(entry.rs1_val),
+      rs2_val: getRegValue(entry.rs2_val)
+    };
   endmethod
 
   method Action wakeup(RobIndex index, Bit#(32) value);
-    for (Integer i=0; i < valueOf(size); i = i + 1) if (valid[1][i] == 1) begin
+    for (Integer i=0; i < valueOf(size); i = i + 1) begin
       IssueQueueEntry entry = queue[i][0];
 
       if (entry.rs1_val matches tagged Wait .idx &&& idx == index)
@@ -81,5 +79,56 @@ endmodule
 (* synthesize *)
 module mkDefaultIssueQueue(IssueQueue#(IqSize));
   let iq <- mkIssueQueue();
+  return iq;
+endmodule
+
+module mkOrderedIssueQueue(IssueQueue#(size));
+  Vector#(size, Ehr#(2, IssueQueueEntry)) queue <- replicateM(mkEhr(?));
+  Reg#(Bit#(TLog#(size))) head <- mkReg(0);
+  Reg#(Bit#(TLog#(size))) tail <- mkReg(0);
+  Ehr#(2, Bit#(size)) valid <- mkEhr(0);
+
+  method ActionValue#(ExecInput) issue()
+    if (queue[head][0].rs1_val matches tagged Value .rs1
+    &&& queue[head][0].rs2_val matches tagged Value .rs2
+    &&& valid[0][head] == 1);
+
+    head <= head == fromInteger(valueOf(size)-1) ? 0 : head + 1;
+    valid[0][head] <= 0;
+
+    IssueQueueEntry entry = queue[head][0];
+    return ExecInput {
+      pc: entry.pc,
+      instr: entry.instr,
+      index: entry.index,
+      rs1_val: rs1,
+      rs2_val: rs2
+    };
+  endmethod
+
+  method Action wakeup(RobIndex index, Bit#(32) value);
+    for (Integer i=0; i < valueOf(size); i = i + 1) begin
+      IssueQueueEntry entry = queue[i][0];
+
+      if (entry.rs1_val matches tagged Wait .idx &&& idx == index)
+        entry.rs1_val = tagged Value value;
+
+      if (entry.rs2_val matches tagged Wait .idx &&& idx == index)
+        entry.rs2_val = tagged Value value;
+
+      queue[i][0] <= entry;
+    end
+  endmethod
+
+  method Action enq(IssueQueueEntry entry) if (valid[1][tail] == 0);
+    tail <= tail == fromInteger(valueOf(size)-1) ? 0 : tail + 1;
+    queue[tail][1] <= entry;
+    valid[1][tail] <= 1;
+  endmethod
+endmodule
+
+(* synthesize *)
+module mkDefaultOrderedIssueQueue(IssueQueue#(IqSize));
+  let iq <- mkOrderedIssueQueue();
   return iq;
 endmodule
