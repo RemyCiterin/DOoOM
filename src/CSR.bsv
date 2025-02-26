@@ -268,8 +268,8 @@ module mkCsrFile#(
   Reg#(Priv) priv <- mkReg(M);
 
   // Counters
-  Ehr#(2, Bit#(64)) cycle_counter <- mkEhr(0);
-  Ehr#(2, Bit#(64)) time_counter <- mkEhr(0);
+  PReg#(2, Bit#(64)) cycle_counter <- mkPReg(0);
+  PReg#(2, Bit#(64)) time_counter <- mkPReg(0);
   Reg#(Bit#(64)) instret_counter <- mkReg(0);
 
   // mtvec declaration

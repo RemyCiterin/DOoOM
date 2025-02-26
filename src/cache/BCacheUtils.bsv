@@ -100,7 +100,7 @@ module mkBReleaseBlock#(BramBE#(Bit#(indexW), wordW) bram)
   Bit#(TLog#(wordPerBlock)) maxOffset = fromInteger(valueOf(wordPerBlock) - 1);
 
   Reg#(Bit#(TLog#(wordPerBlock))) offset <- mkReg(?);
-  Ehr#(2, Maybe#(Bit#(indexW))) index <- mkEhr(Invalid);
+  PReg#(2, Maybe#(Bit#(indexW))) index <- mkPReg(Invalid);
 
   Reg#(Bit#(4)) id <- mkReg(?);
   Reg#(Bool) started <- mkReg(False);

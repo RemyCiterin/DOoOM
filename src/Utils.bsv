@@ -160,10 +160,10 @@ module mkSizedPipelineFIFOF#(Integer n) (FIFOF#(t)) provisos(Bits#(t, size_t));
   for (Integer i=0; i < n; i = i + 1)
     data[i] <- mkReg(?);
 
-  Ehr#(2, Bit#(32)) nextP <- mkEhr(0);
-  Ehr#(2, Bit#(32)) firstP <- mkEhr(0);
-  Ehr#(3, Bool) empty <- mkEhr(True);
-  Ehr#(3, Bool) full <- mkEhr(False);
+  PReg#(2, Bit#(32)) nextP <- mkPReg(0);
+  PReg#(2, Bit#(32)) firstP <- mkPReg(0);
+  PReg#(3, Bool) empty <- mkPReg(True);
+  PReg#(3, Bool) full <- mkPReg(False);
 
   Bit#(32) max_index = fromInteger(n - 1);
 

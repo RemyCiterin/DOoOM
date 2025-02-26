@@ -522,13 +522,13 @@ module mkXBarWrAXI4#(
 
   Vector#(nMaster, FIFOF#(AXI4_AWRequest#(idW, aW))) requests;
 
-  Vector#(nMaster, Ehr#(2, Maybe#(Bit#(TLog#(nSlave))))) sendDataTo;
+  Vector#(nMaster, PReg#(2, Maybe#(Bit#(TLog#(nSlave))))) sendDataTo;
   Vector#(nMaster, Fifo#(4, Bit#(TLog#(nSlave)))) receiveRspFrom;
   Vector#(nSlave, Fifo#(4, Bit#(TLog#(nMaster)))) sendRspTo;
 
   for (Integer i=0; i < valueOf(nMaster); i = i + 1) begin
     receiveRspFrom[i] <- mkPipelineFifo;
-    sendDataTo[i] <- mkEhr(Invalid);
+    sendDataTo[i] <- mkPReg(Invalid);
     requests[i] <- mkBypassFIFOF;
   end
 

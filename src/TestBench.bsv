@@ -158,7 +158,7 @@ interface Btn;
 endinterface
 
 module mkBtn#(Bit#(32) btn_addr) (Btn);
-  Ehr#(2, Bit#(6)) ehr <- mkEhr(?);
+  PReg#(2, Bit#(6)) ehr <- mkPReg(?);
 
   FIFOF#(AXI4_Lite_RRequest#(32)) rrequest <- mkPipelineFIFOF;
   FIFOF#(AXI4_Lite_RResponse#(4)) rresponse <- mkBypassFIFOF;
@@ -252,7 +252,7 @@ module mkUART#(Bit#(32) uart_addr) (UART);
   let rx_uart <- mkRxUART(217);
   let tx_uart <- mkTxUART(217);
 
-  Ehr#(2, Bit#(8)) data <- mkEhr(0);
+  PReg#(2, Bit#(8)) data <- mkPReg(0);
 
   FIFOF#(AXI4_Lite_RRequest#(32)) rrequest <- mkPipelineFIFOF;
   FIFOF#(AXI4_Lite_RResponse#(4)) rresponse <- mkBypassFIFOF;
@@ -358,7 +358,7 @@ module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
   FIFOF#(AXI4_AWRequest#(4, 32)) awrequest <- mkBypassFIFOF;
   FIFOF#(AXI4_WResponse#(4)) wresponse <- mkPipelineFIFOF;
 
-  Ehr#(2, RomState) state <- mkEhr(IDLE);
+  PReg#(2, RomState) state <- mkPReg(IDLE);
   Reg#(Bit#(32)) phase <- mkReg(0);
 
   function Bit#(32) getAddr(Bit#(32) addr);

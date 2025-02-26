@@ -21,12 +21,12 @@ interface MemIssueQueue#(numeric type size, type reqId);
 endinterface
 
 module mkMemIssueQueue(MemIssueQueue#(size, reqId)) provisos(Bits#(reqId, reqIdW));
-  Vector#(size, Ehr#(2, RegVal)) values <- replicateM(mkEhr(?));
+  Vector#(size, PReg#(2, RegVal)) values <- replicateM(mkPReg(?));
   Vector#(size, Reg#(Bit#(32))) offsets <- replicateM(mkReg(?));
   Vector#(size, Reg#(reqId)) requests <- replicateM(mkReg(?));
   Vector#(size, Reg#(Epoch)) epochs <- replicateM(mkReg(?));
   Vector#(size, Reg#(Age)) ages <- replicateM(mkReg(?));
-  Ehr#(2, Bit#(size)) valid <- mkEhr(0);
+  PReg#(2, Bit#(size)) valid <- mkPReg(0);
 
   Bit#(size) rdy = 0;
   for (Integer i=0; i < valueOf(size); i = i + 1) begin
@@ -34,7 +34,7 @@ module mkMemIssueQueue(MemIssueQueue#(size, reqId)) provisos(Bits#(reqId, reqIdW
       rdy[i] = 1;
   end
 
-  Ehr#(2, Bit#(TLog#(size))) issueIdx <- mkEhr(0);
+  PReg#(2, Bit#(TLog#(size))) issueIdx <- mkPReg(0);
 
   rule roundRobib;
     issueIdx[0] <= issueIdx[0] + 1;

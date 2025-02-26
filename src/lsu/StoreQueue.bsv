@@ -35,15 +35,15 @@ endinterface
 module mkStoreQ(StoreQ);
   Vector#(SqSize, Reg#(StoreQueueEntry)) entries <- replicateM(mkReg(?));
 
-  Ehr#(2, Bit#(SqSize)) toIssue <- mkEhr(0);
-  Ehr#(2, Bit#(SqSize)) valid <- mkEhr(0);
-  Reg#(SqIndex) head <- mkEhr0(0);
-  Reg#(SqIndex) tail <- mkEhr0(0);
+  PReg#(2, Bit#(SqSize)) toIssue <- mkPReg(0);
+  PReg#(2, Bit#(SqSize)) valid <- mkPReg(0);
+  Reg#(SqIndex) head <- mkPReg0(0);
+  Reg#(SqIndex) tail <- mkPReg0(0);
 
-  Vector#(SqSize, Reg#(Bit#(32))) addresses <- replicateM(mkEhr0(?));
-  Vector#(SqSize, Reg#(Bit#(32))) datas <- replicateM(mkEhr0(?));
-  Ehr#(2, Bit#(SqSize)) addrValid <- mkEhr(0);
-  Ehr#(2, Bit#(SqSize)) dataValid <- mkEhr(0);
+  Vector#(SqSize, Reg#(Bit#(32))) addresses <- replicateM(mkPReg0(?));
+  Vector#(SqSize, Reg#(Bit#(32))) datas <- replicateM(mkPReg0(?));
+  PReg#(2, Bit#(SqSize)) addrValid <- mkPReg(0);
+  PReg#(2, Bit#(SqSize)) dataValid <- mkPReg(0);
 
   Bit#(SqSize) rdy = toIssue[0] & addrValid[0] & valid[0] & dataValid[0];
 

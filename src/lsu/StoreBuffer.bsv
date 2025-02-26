@@ -16,12 +16,12 @@ endinterface
 
 (* synthesize *)
 module mkSTB(STB);
-  Vector#(StbSize, Reg#(Bit#(32))) addrV <- replicateM(mkEhr0(?));
-  Vector#(StbSize, Reg#(Bit#(32))) dataV <- replicateM(mkEhr0(?));
-  Vector#(StbSize, Reg#(Bit#(4))) maskV <- replicateM(mkEhr0(?));
-  Ehr#(2, Bit#(StbSize)) valid <- mkEhr(0);
-  Reg#(StbIndex) head <- mkEhr0(0);
-  Reg#(StbIndex) tail <- mkEhr0(0);
+  Vector#(StbSize, Reg#(Bit#(32))) addrV <- replicateM(mkPReg0(?));
+  Vector#(StbSize, Reg#(Bit#(32))) dataV <- replicateM(mkPReg0(?));
+  Vector#(StbSize, Reg#(Bit#(4))) maskV <- replicateM(mkPReg0(?));
+  PReg#(2, Bit#(StbSize)) valid <- mkPReg(0);
+  Reg#(StbIndex) head <- mkPReg0(0);
+  Reg#(StbIndex) tail <- mkPReg0(0);
 
   function StbIndex next(StbIndex index);
     return index == fromInteger(valueOf(StbSize)-1) ? 0 : index+1;

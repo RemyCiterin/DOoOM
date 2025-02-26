@@ -1,13 +1,26 @@
-package Ehr;
-
+import RevertingVirtualReg::*;
 import Vector :: *;
 
-typedef Vector#(n, Reg#(t)) Ehr#(numeric type n, type t);
 
-module mkEhr#(t init) (Ehr#(n, t)) provisos(Bits#(t, tWidth));
+
+// Type of generalized "permanant" registers:
+// they are permanant in the sens that they don't
+// have the constraint `r < w` so their value is
+// visible during the complete cycle
+typedef Vector#(n, Reg#(t)) PReg#(numeric type n, type t);
+
+/*
+This register type have the following constraints:
+  forall i < j, w[i] < w[j]
+  forall i < j, w[i] < r[j]
+  forall i j, r[i] is conflict free with r[j]
+  forall i, w[i] conflict with w[i]
+*/
+
+module mkPReg#(t init) (PReg#(n, t)) provisos(Bits#(t, tWidth));
   Vector#(n, RWire#(t)) wires <- replicateM(mkRWire);
   Reg#(t) register <- mkReg(init);
-  Ehr#(n, t) out = newVector;
+  PReg#(n, t) out = newVector;
 
   (* fire_when_enabled, no_implicit_conditions *)
   rule ehr_canon;
@@ -43,9 +56,37 @@ module mkEhr#(t init) (Ehr#(n, t)) provisos(Bits#(t, tWidth));
 endmodule
 
 // like a register but without the dependency read < write
-module mkEhr0#(t init) (Reg#(t)) provisos(Bits#(t, tWidth));
-  Ehr#(1, t) ehr <- mkEhr(init);
+module mkPReg0#(t init) (Reg#(t)) provisos(Bits#(t, tWidth));
+  PReg#(1, t) ehr <- mkPReg(init);
   return ehr[0];
 endmodule
 
-endpackage
+typedef Vector#(n, Reg#(t)) Ehr#(numeric type n, type t);
+
+module mkEhr#(t init) (Ehr#(n, t)) provisos(Bits#(t, tWidth));
+  Vector#(n, Reg#(Bool)) order <- replicateM(mkRevertingVirtualReg(False));
+  PReg#(n, t) preg <- mkPReg(init);
+
+  Vector#(n, Reg#(t)) ifc = newVector;
+
+  for(Integer i=0; i < valueOf(n); i = i + 1) begin
+    ifc[i] = interface Reg;
+      method Action _write(t x);
+        order[i] <= True;
+        preg[i] <= x;
+      endmethod
+
+      method t _read();
+        Bool valid = True;
+
+        for (Integer j=i; j < valueOf(n); j = j + 1) begin
+          valid = valid && !order[j];
+        end
+
+        return valid ? preg[i] : ?;
+      endmethod
+    endinterface;
+  end
+
+  return ifc;
+endmodule

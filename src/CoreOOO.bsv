@@ -49,7 +49,7 @@ module mkCoreOOO(Core_IFC);
   Reg#(Bit#(64)) mispred_instr <- mkReg(0);
   Reg#(Bit#(64)) hitpred_instr <- mkReg(0);
 
-  Ehr#(2, Epoch) epoch <- mkEhr(0);
+  PReg#(2, Epoch) epoch <- mkPReg(0);
   Reg#(Age) current_age <- mkReg(0);
 
   let fetch <- mkFetchDecode;
@@ -66,7 +66,7 @@ module mkCoreOOO(Core_IFC);
 
   // indicate if a load is killed by the load store unit
   // because it return a bad value
-  Reg#(Bit#(RobSize)) killed <- mkEhr0(0);
+  Reg#(Bit#(RobSize)) killed <- mkPReg0(0);
 
   FIFOF#(Tuple2#(RobIndex, ExecOutput)) decodeFail <- mkPipelineFIFOF;
 

@@ -45,7 +45,7 @@ module mkRegisterFile(RegisterFile);
   // Index of the physical registers in the Reodrer Buffer
   RegFile#(Bit#(5), RobIndex) physicalRegs <- mkRegFileFull;
   // Return is an entry of the physical register remaping is valid
-  Ehr#(2, Bit#(32)) scoreboard <- mkEhr(0);
+  PReg#(2, Bit#(32)) scoreboard <- mkPReg(0);
 
   method Action setReady(RegName r, RobIndex index, Maybe#(Bit#(32)) value, Bool clear);
     action

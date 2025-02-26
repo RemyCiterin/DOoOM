@@ -168,10 +168,10 @@ endfunction
 module mkPipelineFifoBig(Fifo#(n, t)) provisos(Bits#(t, size_t));
   RegFile#(Bit#(TLog#(n)), t) data <- mkRegFileFull;
 
-  Ehr#(2, Bit#(TLog#(n))) nextP <- mkEhr(0);
-  Ehr#(2, Bit#(TLog#(n))) firstP <- mkEhr(0);
-  Ehr#(2, Bool) empty <- mkEhr(True);
-  Ehr#(2, Bool) full <- mkEhr(False);
+  PReg#(2, Bit#(TLog#(n))) nextP <- mkPReg(0);
+  PReg#(2, Bit#(TLog#(n))) firstP <- mkPReg(0);
+  PReg#(2, Bool) empty <- mkPReg(True);
+  PReg#(2, Bool) full <- mkPReg(False);
 
   Bit#(TLog#(n)) max_index = fromInteger(valueOf(n) - 1);
 
@@ -207,8 +207,8 @@ endmodule
 
 module mkPipelineFifoOne(Fifo#(n, t)) provisos(Bits#(t, size_t));
   //let fifo <- mkPipelineFIFOF();
-  Reg#(t) value <- mkEhr0(?);
-  Ehr#(2, Bool) valid <- mkEhr(False);
+  Reg#(t) value <- mkPReg0(?);
+  PReg#(2, Bool) valid <- mkPReg(False);
 
   method canEnq = !valid[1];
   method canDeq = valid[0];

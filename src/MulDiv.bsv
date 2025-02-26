@@ -89,7 +89,7 @@ typedef union tagged {
 } DivideState deriving(Bits, FShow, Eq);
 
 module mkDivServer(DivServer);
-  Ehr#(2, DivideState) state <- mkEhr(Idle);
+  PReg#(2, DivideState) state <- mkPReg(Idle);
   Fifo#(1, DivRequest) requests <- mkPipelineFifo;
 
   // Let return Q, R such that

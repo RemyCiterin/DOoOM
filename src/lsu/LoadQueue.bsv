@@ -24,12 +24,12 @@ endinterface
 (* synthesize *)
 module mkLoadQ(LoadQ);
   Vector#(LqSize, Reg#(LoadQueueEntry)) entries <- replicateM(mkReg(?));
-  Ehr#(2, Bit#(LqSize)) valid <- mkEhr(0);
-  Reg#(LqIndex) head <- mkEhr0(0);
-  Reg#(LqIndex) tail <- mkEhr0(0);
+  PReg#(2, Bit#(LqSize)) valid <- mkPReg(0);
+  Reg#(LqIndex) head <- mkPReg0(0);
+  Reg#(LqIndex) tail <- mkPReg0(0);
 
-  Vector#(LqSize, Reg#(Bit#(32))) addresses <- replicateM(mkEhr0(?));
-  Ehr#(2, Bit#(LqSize)) addrValid <- mkEhr(0);
+  Vector#(LqSize, Reg#(Bit#(32))) addresses <- replicateM(mkPReg0(?));
+  PReg#(2, Bit#(LqSize)) addrValid <- mkPReg(0);
 
   Bit#(LqSize) rdy = addrValid[0] & valid[0];
 
