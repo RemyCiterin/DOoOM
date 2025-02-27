@@ -40,7 +40,8 @@ SYNTH_FLAGS = -bdir $(BUILD) -vdir $(RTL) -simdir $(BUILD) \
 BSIM_FLAGS = -bdir $(BSIM) -vdir $(BSIM) -simdir $(BSIM) \
 							-info-dir $(BSIM) -fdir $(BSIM) -D BSIM -l pthread
 
-DOT_FILES = $(shell ls ./build/*_combined_full.dot)
+DOT_FILES = $(shell ls ./build/*_combined_full.dot) \
+	$(shell ls ./build/*_conflict.dot)
 
 svg:
 	$(foreach f, $(DOT_FILES), sed -i '/_init_register_file/d' $(f);)
@@ -48,6 +49,7 @@ svg:
 	$(foreach f, $(DOT_FILES), sed -i '/_ehr_canon/d' $(f);)
 	$(foreach f, $(DOT_FILES), sed -i '/_block_ram_apply_read/d' $(f);)
 	$(foreach f, $(DOT_FILES), sed -i '/_block_ram_apply_write/d' $(f);)
+	$(foreach f, $(DOT_FILES), sed -i '/Sched /d' $(f);)
 	$(foreach f, $(DOT_FILES), dot -Tsvg $(f) > $(f:.dot=.svg);)
 
 test:

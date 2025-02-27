@@ -45,18 +45,18 @@ endinterface
 module mkROB(ROB);
   RegFile#(RobIndex, RobEntry) data <- mkRegFileFull;
   ForwardRegFile#(RobIndex, ExecOutput) results <- mkForwardRegFileFull;
-  PReg#(2, Bit#(RobSize)) resultValid <- mkPReg(0);
+  Ehr#(2, Bit#(RobSize)) resultValid <- mkEhr(0);
 
-  PReg#(2, RobIndex) firstP <- mkPReg(0);
+  Ehr#(2, RobIndex) firstP <- mkEhr(0);
   Reg#(RobIndex) nextP <- mkReg(0);
 
   RobIndex max_index = fromInteger(valueOf(RobSize) - 1);
 
-  PReg#(2, Bool) empty <- mkPReg(True);
-  PReg#(2, Bool) full <- mkPReg(False);
+  Ehr#(2, Bool) empty <- mkEhr(True);
+  Ehr#(2, Bool) full <- mkEhr(False);
 
   // true if we wait the commit notification from DMEM
-  PReg#(2, Bit#(RobSize)) waitDmemCommit <- mkPReg(0);
+  Ehr#(2, Bit#(RobSize)) waitDmemCommit <- mkEhr(0);
 
   // use port 1 of data, empty and full
   method ActionValue#(RobIndex) enq(RobEntry entry)

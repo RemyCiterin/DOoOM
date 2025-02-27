@@ -187,7 +187,7 @@ endmodule
 
 // Return a vector of BlockRam using a uniq Block of RAM
 module mkVectorBram#(Bram#(addrT, dataT) bram) (Vector#(n, Bram#(addrT, dataT)));
-  PReg#(2, Bit#(TLog#(n))) ehr <- mkPReg(?);
+  Ehr#(2, Bit#(TLog#(n))) ehr <- mkEhr(?);
 
   Vector#(n, Bram#(addrT, dataT)) ret = newVector;
 
@@ -219,7 +219,7 @@ endmodule
 
 // Return a vector of BlockRam using a uniq Block of RAM
 module mkVectorBramBE#(BramBE#(addrT, dataW) bram) (Vector#(n, BramBE#(addrT, dataW)));
-  PReg#(2, Bit#(TLog#(n))) ehr <- mkPReg(?);
+  Ehr#(2, Bit#(TLog#(n))) ehr <- mkEhr(?);
 
   Vector#(n, BramBE#(addrT, dataW)) ret = newVector;
 

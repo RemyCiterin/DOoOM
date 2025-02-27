@@ -18,6 +18,8 @@ module mkForwardRegFileFull(ForwardRegFile#(k,v))
       regFile.upd(key, unJust(forwardVal.wget));
   endrule
 
+  // The write is delayed because forward depend of `regFile.sub` but
+  // `regFile.sub < regFile.upd`
   method Action upd(k key, v val);
     action
       forwardKey.wset(key);
