@@ -5,12 +5,18 @@ const std = @import("std");
 const Spinlock = @import("spinlock.zig");
 const RV = @import("riscv.zig");
 
+const Random = @import("random.zig");
+
 const logger = std.log.scoped(.bench);
 
 var randomCount: u32 = 0;
-fn randomU32() u32 {
+noinline fn randomU32() u32 {
     randomCount += 1;
     return std.hash.uint32(randomCount);
+}
+
+noinline fn seed() u32 {
+    return RV.mcycle.read();
 }
 
 pub var measureLock = Spinlock{};
@@ -106,18 +112,17 @@ pub const BinarySearch = struct {
     }
 
     pub noinline fn search(self: Self, x: u32) ?usize {
-        var begin: usize = 0;
         var end: usize = self.array.len;
+        var begin: usize = 0;
 
         while (begin < end) {
             @setRuntimeSafety(false);
-            const m = (begin + end) >> 1;
+            const m = (end + begin) / 2;
 
             if (self.array[m] == x) return m;
-
-            const cond: usize = if (self.array[m] < x) 1 else 0;
-            begin = cond * m + (1 - cond) * begin;
-            end = cond * end + (1 - cond) * m;
+            if (self.array[m] < x) {
+                begin = m + 1;
+            } else end = m;
         }
 
         return null;
@@ -133,8 +138,8 @@ pub const BinarySearch = struct {
     }
 
     pub fn call(self: Self) void {
-        for (0..self.array.len) |i| {
-            if (self.linear(i) != i)
+        for (0.., self.array) |i, v| {
+            if (self.search(v) != i)
                 @panic("item not found");
         }
     }
@@ -373,5 +378,85 @@ pub const Sort = struct {
 
     pub fn call(self: Self) void {
         self.mergeSort(0, self.array.len - 1);
+    }
+};
+
+pub const LinkedList = struct {
+    random: Random,
+    alloc: std.mem.Allocator,
+    N: u32,
+
+    const Self = @This();
+
+    pub fn init(allocator: std.mem.Allocator, N: u32) Self {
+        return .{ .alloc = allocator, .N = N, .random = Random.initCycle() };
+    }
+
+    const List = union(enum) {
+        nil,
+        cons: struct { item: u32, next: *List },
+
+        pub fn next(list: List) ?*List {
+            return switch (list) {
+                .cons => |data| data.next,
+                .nil => null,
+            };
+        }
+
+        pub fn item(list: List) ?u32 {
+            return switch (list) {
+                .nil => null,
+                .cons => |data| data.item,
+            };
+        }
+    };
+
+    fn sum(list: List) u32 {
+        return switch (list) {
+            .cons => |info| info.item + sum(info.next.*),
+            .nil => 0,
+        };
+    }
+
+    fn len(list: List) u32 {
+        var l: List = list;
+        var x: u32 = 0;
+
+        while (l.next()) |ptr| {
+            l = ptr.*;
+            x += 1;
+        }
+
+        return x;
+    }
+
+    fn free(self: Self, l: List) void {
+        var list: List = l;
+
+        while (list.next()) |next| {
+            list = next.*;
+            self.alloc.destroy(next);
+        }
+    }
+
+    fn cons(self: Self, x: u32, list: List) !List {
+        const result = try self.alloc.create(List);
+        result.* = list;
+        return .{ .cons = .{ .next = result, .item = x } };
+    }
+
+    fn nil(self: Self) List {
+        _ = self;
+        return .nil;
+    }
+
+    pub noinline fn call(self: *Self) !u32 {
+        var list: List = .nil;
+        defer self.free(list);
+
+        for (0..self.N) |_|
+            list = try self.cons(self.random.random().int(u32), list);
+
+        return sum(list) * len(list);
     }
 };

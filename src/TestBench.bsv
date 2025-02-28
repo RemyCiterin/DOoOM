@@ -191,9 +191,15 @@ module mkBtn#(Bit#(32) btn_addr) (Btn);
     wrequest.deq;
   endrule
 
+`ifdef BSIM
+  method Action interrupt if (False);
+    noAction;
+  endmethod
+`else
   method Action interrupt if (ehr[1] != ehr[0]);
     noAction;
   endmethod
+`endif
 
   interface AXI4_Lite_Slave axi4;
     interface RdAXI4_Lite_Slave read;

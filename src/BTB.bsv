@@ -24,6 +24,13 @@ function InstrKind instrKind(Instr instr);
   endcase;
 endfunction
 
+function InstrKind instrKindOpt(Maybe#(Instr) opt);
+  return case (opt) matches
+    tagged Valid .instr : instrKind(instr);
+    Invalid : Linear;
+  endcase;
+endfunction
+
 typedef 8 RasWidth;
 typedef TExp#(RasWidth) RasSize;
 typedef Bit#(RasWidth) RasIndex;
@@ -202,13 +209,14 @@ module mkBranchPred(BranchPred);
 
   method ActionValue#(BranchPredOutput) doPred(Bit#(32) pc);
     actionvalue
-      let taken = ght.takeBranch(pc);
       match {.branch_pc, .kind} = btb.read(pc);
+      let taken = ght.takeBranch(pc) || kind != Branch;
+
       let ret_pc <- ras.pred(pc, kind);
 
       if (ret_pc matches tagged Valid .new_pc) branch_pc = new_pc;
 
-      if (branch_pc != pc + 4)
+      if (branch_pc != pc + 4 && kind == Branch)
         ght.write( { (taken && branch_pc != pc + 4 ? 1'b1 : 1'b0), truncateLSB(ght.read) } );
 
       //$display("pred pc: %h ras top: %d kind: ", pc, ras.top, fshow(kind));
@@ -233,19 +241,21 @@ module mkBranchPred(BranchPred);
   // train the branch predictor in case of a misprediction
   method Action trainMis(BranchPredTrain infos);
     action
+      let kind = instrKindOpt(infos.instr);
       mispred_count <= mispred_count + 1;
 
       let ghr = infos.state.ghr;
       let taken = infos.next_pc != infos.pc + 4;
 
-      ght.updateTable(infos.pc, ghr, infos.state.entry, taken);
+      if (kind == Branch)
+        ght.updateTable(infos.pc, ghr, infos.state.entry, taken);
 
       Ghr newGhr = { (taken ? 1'b1 : 1'b0), truncateLSB(ghr) };
 
       if (infos.instr matches tagged Valid .instr) begin
-        btb.update(infos.pc, infos.next_pc, instrKind(instr));
-        ras.backtrack(infos.state.top, instrKind(instr));
-        ght.write(newGhr);
+        btb.update(infos.pc, infos.next_pc, kind);
+        ght.write(kind == Branch ? newGhr : ghr);
+        ras.backtrack(infos.state.top, kind);
       end else begin
         ras.backtrack(infos.state.top, infos.state.kind);
         ght.write(ghr);

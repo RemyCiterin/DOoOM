@@ -184,9 +184,11 @@ module mkCoreOOO(Core_IFC);
         EXEC_TAG_DMEM: begin
           lsu.enq(iq_entry);
         end
-        EXEC_TAG_DIRECT: begin
+        EXEC_TAG_DIRECT: if (!decoded.exception) begin
           direct_issue_queue.enq(iq_entry);
         end
+        default:
+          noAction;
       endcase
     endaction
   endfunction
@@ -292,7 +294,7 @@ module mkCoreOOO(Core_IFC);
     control_fu.enq(request);
   endrule
 
-  (* descending_urgency = "commit_interrupt, execute_direct, write_back" *)
+  //(* descending_urgency = "commit_interrupt, execute_direct, write_back" *)
   rule write_back;
     let response <- toWB.get;
     wakeupFn(response.fst, response.snd);
