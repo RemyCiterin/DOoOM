@@ -61,7 +61,7 @@ mkCPU = module
   --mkConnection dcache.cpu_read core.rd_dmem
   --mkConnection dcache.cpu_write core.wr_dmem
 
-  let alloc_size :: Bit 32 = 32'h3d6f -- 32'h800 -- 32'h660 -- 32'h23000
+  let alloc_size :: Integer = 0x3d6f -- 32'h800 -- 32'h660 -- 32'h23000
   let offset :: Bit 32 = 32'h80000000
   let is_vga :: Bit 32 -> Bool = \x -> x >= 32'h40000000 && x < 32'h50000000
   let is_btn :: Bit 32 -> Bool = \x -> x == 32'h20000000
@@ -104,9 +104,9 @@ mkCPU = module
   let wr_slaves :: Vector 2 (WrAXI4_Slave 4 32 4) = rom.write :> wr_port.server :> nil
 
   let rdReqDispatch :: AXI4_RRequest 4 32 -> Bit 1 =
-        \ req -> if req.addr < offset || req.addr >= offset + alloc_size then 1 else 0
+        \ req -> if req.addr < offset || req.addr >= offset + fromInteger alloc_size then 1 else 0
   let wrReqDispatch :: AXI4_AWRequest 4 32 -> Bit 1 =
-        \ req -> if req.addr < offset || req.addr >= offset + alloc_size then 1 else 0
+        \ req -> if req.addr < offset || req.addr >= offset + fromInteger alloc_size then 1 else 0
 
   -- let rd_slaves :: Vector 1 (RdAXI4_Slave 4 32 4) = rom.read :> nil
   -- let wr_slaves :: Vector 1 (WrAXI4_Slave 4 32 4) = rom.write :> nil
@@ -151,7 +151,7 @@ mkCPU_SIM = module
   mkConnection icache.cpu_read core.rd_imem
   let core_i_rd = icache.mem_read
 
-  let alloc_size :: Bit 32 = 33 * 1024 * 1024 -- maxBound
+  let alloc_size :: Integer = 33 * 1024 * 1024 -- maxBound
   let offset :: Bit 32 = 32'h80000000
   let is_vga :: Bit 32 -> Bool = \x -> x >= 32'h40000000 && x < 32'h50000000
   let is_btn :: Bit 32 -> Bool = \x -> x == 32'h20000000

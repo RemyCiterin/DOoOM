@@ -3,7 +3,7 @@ import AXI4_Lite :: *;
 import Utils :: *;
 
 import SpecialFIFOs :: *;
-import RegFile :: *;
+import BRAMCore :: *;
 import GetPut :: *;
 import FIFOF :: *;
 import UART :: *;
@@ -346,16 +346,16 @@ endmodule
 typedef struct {
   String name;
   Bit#(32) start;
-  Bit#(32) size;
+  Integer size;
   Bit#(32) maxPhase;
 } RomConfig;
 
 module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
-  RegFile#(Bit#(32), Bit#(32)) rf;
+  BRAM_PORT_BE#(Bit#(32), Bit#(32), 4) bram;
   if (conf.name == "")
-    rf <- mkRegFile(0, conf.size / 4 - 1);
+    bram <- mkBRAMCore1BE(conf.size / 4, False);
   else
-    rf <- mkRegFileLoad(conf.name, 0, conf.size / 4 - 1);
+    bram <- mkBRAMCore1BELoad(conf.size / 4, False, conf.name, False);
 
   FIFOF#(AXI4_RRequest#(4, 32)) rrequest <- mkBypassFIFOF;
   FIFOF#(AXI4_RResponse#(4, 4)) rresponse <- mkPipelineFIFOF;
@@ -364,79 +364,73 @@ module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
   FIFOF#(AXI4_AWRequest#(4, 32)) awrequest <- mkBypassFIFOF;
   FIFOF#(AXI4_WResponse#(4)) wresponse <- mkPipelineFIFOF;
 
+  FIFOF#(void) readQ <- mkPipelineFIFOF;
+
   Ehr#(2, RomState) state <- mkEhr(IDLE);
   Reg#(Bit#(32)) phase <- mkReg(0);
+
+  Reg#(Bit#(32)) cycle <- mkReg(0);
 
   function Bit#(32) getAddr(Bit#(32) addr);
     return (addr - conf.start) >> 2;
   endfunction
 
   function Bool inBounds(Bit#(32) addr);
-    return addr >= conf.start && addr < conf.start + conf.size;
-  endfunction
-
-  function Bit#(32) currentAddr;
-    return case (state[0]) matches
-      tagged Read{req: .req} :
-        inBounds(req.addr) ? getAddr(req.addr) : 32'h0;
-      tagged Write{req: .req} :
-        inBounds(req.addr) ? getAddr(req.addr) : 32'h0;
-      default: 0;
-    endcase;
+    return addr >= conf.start && addr < conf.start + fromInteger(conf.size);
   endfunction
 
   rule updatePhase;
     phase <= phase == conf.maxPhase ? 0 : phase + 1;
+    cycle <= cycle + 1;
   endrule
 
-  rule step;
-    let currentData = rf.sub(currentAddr);
-    case (state[0]) matches
-      tagged Read {req: .req, init_length: .length} : begin
-        Bit#(32) next_addr = axi4NextAddr(4, req.addr, req.burst, length);
+  rule readReq if (state[1] matches tagged Read {req: .req});
+    bram.put(0, getAddr(req.addr), ?);
+    readQ.enq(?);
+  endrule
 
-        //$display("read addr: %h next_addr: %h length: %h data: %h id: %d", req.addr, next_addr, length, rf.sub(getAddr(req.addr)), req.id);
+  rule stepRead
+    if (state[0] matches tagged Read {req: .req, init_length: .length});
+    rresponse.enq(AXI4_RResponse{
+      bytes: bram.read(),
+      last: req.length == 0,
+      id: req.id,
+      resp: OKAY
+    });
 
-        rresponse.enq(AXI4_RResponse{
-          bytes: currentData,
-          last: req.length == 0,
-          id: req.id,
-          resp: OKAY
-        });
+    readQ.deq();
 
-        state[0] <= (req.length == 0 ? IDLE : tagged Read {init_length: length, req: AXI4_RRequest{
-          length: req.length - 1,
-          burst: req.burst,
-          addr: next_addr,
-          id: req.id
-        }});
-      end
-      tagged Write {req: .awreq, init_length: .length} : begin
-        Bit#(32) next_addr = axi4NextAddr(4, awreq.addr, awreq.burst, length);
+    //$display("read at cycle: %d", cycle);
 
-        let wreq = wrequest.first;
-        wrequest.deq;
+    Bit#(32) next_addr = axi4NextAddr(4, req.addr, req.burst, length);
+    state[0] <= (req.length == 0 ? IDLE : tagged Read {init_length: length, req: AXI4_RRequest{
+      length: req.length - 1,
+      burst: req.burst,
+      addr: next_addr,
+      id: req.id
+    }});
+  endrule
 
-        let bytes = currentData;
-        let new_bytes = filterStrb(bytes, wreq.bytes, wreq.strb);
+  rule stepWrite
+    if (state[0] matches tagged Write {req: .awreq, init_length: .length});
+    let wreq = wrequest.first;
+    wrequest.deq;
 
-        if (inBounds(awreq.addr))
-          rf.upd(getAddr(awreq.addr), new_bytes);
+    if (inBounds(awreq.addr) && wreq.strb != 0)
+      bram.put(wreq.strb, getAddr(awreq.addr), wreq.bytes);
 
-        //$display("write addr: %h data: %h length: %d, id: %d", awreq.addr, new_bytes, awreq.length, awreq.id);
+    if (awreq.length == 0)
+      wresponse.enq(AXI4_WResponse{resp: OKAY, id: awreq.id});
 
-        if (awreq.length == 0)
-          wresponse.enq(AXI4_WResponse{resp: OKAY, id: awreq.id});
+    //$display("write at cycle: %d", cycle);
 
-        state[0] <= (awreq.length == 0 ? IDLE : tagged Write {init_length: length, req: AXI4_AWRequest{
-          length: awreq.length - 1,
-          burst: awreq.burst,
-          addr: next_addr,
-          id: awreq.id
-        }});
-      end
-      default: noAction;
-    endcase
+    Bit#(32) next_addr = axi4NextAddr(4, awreq.addr, awreq.burst, length);
+    state[0] <= (awreq.length == 0 ? IDLE : tagged Write {init_length: length, req: AXI4_AWRequest{
+      length: awreq.length - 1,
+      burst: awreq.burst,
+      addr: next_addr,
+      id: awreq.id
+    }});
   endrule
 
   rule enq if (state[1] == IDLE && phase == 0);

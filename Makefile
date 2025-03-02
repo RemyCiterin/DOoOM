@@ -18,6 +18,7 @@ LIB = \
 			$(BLUESPECDIR)/Verilog/FIFO20.v \
 			$(BLUESPECDIR)/Verilog/FIFO10.v \
 			$(BLUESPECDIR)/Verilog/BRAM1.v \
+			$(BLUESPECDIR)/Verilog/BRAM1BELoad.v \
 			$(BLUESPECDIR)/Verilog/BRAM2.v \
 			$(BLUESPECDIR)/Verilog/RevertReg.v \
 			$(BLUESPECDIR)/Verilog/RegFile.v \

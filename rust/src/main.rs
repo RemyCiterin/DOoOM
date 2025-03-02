@@ -179,7 +179,7 @@ extern "C" fn user_main() -> () {
         let mut time = 0-mcycle::read();
         let mut instret = 0-minstret::read();
 
-        vector_bench();
+        btree_bench();
 
         time += mcycle::read();
         instret += minstret::read();

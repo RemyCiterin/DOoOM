@@ -1,6 +1,7 @@
 import Utils :: *;
 import RegFile :: *;
 import Decode :: *;
+import Ehr :: *;
 
 typedef enum {
   Call, Ret, RetCall, Branch, Jump, Linear
@@ -91,7 +92,7 @@ typedef struct {
 
 (* synthesize *)
 module mkBTB(BTB_IFC);
-  RegFile#(Bit#(12), Maybe#(BTB_Entry)) entries <- mkRegFileFullInit(Invalid);
+  RegFile#(Bit#(10), Maybe#(BTB_Entry)) entries <- mkRegFileFullInit(Invalid);
 
   method Tuple2#(Bit#(32), InstrKind) read(Bit#(32) pc);
     let index = truncate(pc >> 2);
@@ -114,46 +115,64 @@ module mkBTB(BTB_IFC);
   endmethod
 endmodule
 
-typedef 12 GhrBits;
+typedef 12 TagBits;
+
+typedef 10 GhrBits;
+
+typedef Bit#(TagBits) Tag;
 
 typedef Bit#(GhrBits) Ghr;
 
-typedef Bit#(3) GhtEntry;
+typedef Int#(2) GhtEntry;
 
-// Global history table interface: read < tableResponse < tableRequest < update
-interface GhtIFC;
+interface GlobalHistoryTable;
   method Ghr read;
   method Action write(Ghr newGhr);
 
   method Bool takeBranch(Bit#(32) pc);
-  method GhtEntry readTable(Bit#(32) pc);
-  method Action updateTable(Bit#(32) pc, Ghr ghr, GhtEntry val, Bool taken);
+  method Action updateTable(Bit#(32) pc, Ghr ghr, Bool taken);
 endinterface
 
-module mkGht(GhtIFC);
-  RegFile#(Ghr, GhtEntry) entries <- mkRegFileFullInit(4);
+(* synthesize *)
+module mkGht(GlobalHistoryTable);
+  RegFile#(Ghr, GhtEntry) taggedTable <- mkRegFileFull;
+  RegFile#(Tag, GhtEntry) basicTable <- mkRegFileFullInit(0);
+  RegFile#(Ghr, Maybe#(Tag)) tags <- mkRegFileFullInit(Invalid);
   Reg#(Ghr) ghr <- mkReg(0);
 
   function Ghr hash(Bit#(32) pc, Ghr r);
-    return r ^ truncate(pc >> 2) ^ (truncate(pc >> (2 + valueOf(GhrBits))) - 17);
+    return r ^ truncate(pc >> 2);
+  endfunction
+
+  function Tag defaultKey(Bit#(32) pc);
+    return truncate(pc >> 2);
   endfunction
 
   method read = ghr;
   method write = ghr._write;
 
-  method GhtEntry readTable(Bit#(32) pc);
-    return entries.sub(hash(pc, ghr));
-  endmethod
-
   method Bool takeBranch(Bit#(32) pc);
-    return entries.sub(hash(pc, ghr)) > 3;
+    let tag = tags.sub(hash(pc, ghr));
+    let pred = taggedTable.sub(hash(pc, ghr));
+    let base = basicTable.sub(defaultKey(pc));
+
+    return (tag == Valid(defaultKey(pc)) ? pred : base) >= 0;
   endmethod
 
-  method Action updateTable(Bit#(32) pc, Ghr r, GhtEntry val, Bool taken);
+  method Action updateTable(Bit#(32) pc, Ghr r, Bool taken);
     action
-      if (val != minBound && !taken) val = val - 1;
-      else if (val != maxBound && taken) val = val + 1;
-      entries.upd(hash(pc, r), val);
+      Ghr k1 = hash(pc, r);
+      Tag k2 = defaultKey(pc);
+      let v1 = taggedTable.sub(k1);
+      let found = tags.sub(k1) == Valid(k2);
+      v1 = satPlus(Sat_Bound, v1, taken ? 1 : -1);
+      v1 = found ? v1 : (taken ? 0 : -1);
+      tags.upd(k1, Valid(k2));
+      taggedTable.upd(k1, v1);
+
+      let v2 = basicTable.sub(k2);
+      v2 = satPlus(Sat_Bound, v1, taken ? 1 : -1);
+      basicTable.upd(k2, v2);
     endaction
   endmethod
 endmodule
@@ -162,8 +181,6 @@ endmodule
 typedef struct {
   // Glock branch history register
   Ghr ghr;
-
-  GhtEntry entry;
 
   // Predicted instruction kind
   InstrKind kind;
@@ -224,7 +241,7 @@ module mkBranchPred(BranchPred);
       return BranchPredOutput{
         pc: taken ? branch_pc : pc + 4,
         state: BranchPredState
-          { ghr: ght.read, entry: ght.readTable(pc), kind: kind, top: ras.top }
+          { ghr: ght.read, kind: kind, top: ras.top }
       };
     endactionvalue
   endmethod
@@ -234,7 +251,7 @@ module mkBranchPred(BranchPred);
     action
       let ghr = infos.state.ghr;
       let taken = infos.next_pc != infos.pc + 4;
-      ght.updateTable(infos.pc, ghr, infos.state.entry, taken);
+      ght.updateTable(infos.pc, ghr, taken);
     endaction
   endmethod
 
@@ -248,7 +265,7 @@ module mkBranchPred(BranchPred);
       let taken = infos.next_pc != infos.pc + 4;
 
       if (kind == Branch)
-        ght.updateTable(infos.pc, ghr, infos.state.entry, taken);
+        ght.updateTable(infos.pc, ghr, taken);
 
       Ghr newGhr = { (taken ? 1'b1 : 1'b0), truncateLSB(ghr) };
 
