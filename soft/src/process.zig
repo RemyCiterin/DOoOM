@@ -111,7 +111,7 @@ pub const Manager = struct {
 
     pub fn next(self: *Self) void {
         self.current += 1;
-        if (self.current == self.processes.items.len)
+        if (self.current >= self.processes.items.len)
             self.current = 0;
     }
 

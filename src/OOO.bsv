@@ -5,6 +5,7 @@ import Ehr :: *;
 import CSR :: *;
 import BTB :: *;
 
+// The number of slots in the reorder buffer
 typedef 6 RobSize;
 typedef Bit#(TLog#(RobSize)) RobIndex;
 

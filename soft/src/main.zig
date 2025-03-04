@@ -59,6 +59,7 @@ pub fn log(
 }
 
 pub inline fn hang() noreturn {
+    // Used to stop the execution in case of a simulation
     UART.putChar(0);
     while (true) {}
 }
@@ -163,70 +164,71 @@ pub fn syscall0(index: usize) void {
 pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
     const logger = std.log.scoped(.user);
 
-    logger.info("Binary Search:", .{});
-    for (1..11) |i| {
-        const size = 10 * i;
-        var bench = Bench.BinarySearch.init(alloc.*, size) catch unreachable;
-        Bench.measure(size, &bench);
-        bench.free();
-    }
+    measureLock.lock();
+    //logger.info("Binary Search:", .{});
+    //for (1..11) |i| {
+    //    const size = 10 * i;
+    //    var bench = Bench.BinarySearch.init(alloc.*, size) catch unreachable;
+    //    Bench.measure(size, &bench);
+    //    bench.free();
+    //}
 
-    logger.info("Linked List:", .{});
-    for (1..11) |i| {
-        const size = 10 * i;
-        var bench = Bench.LinkedList.init(alloc.*, size);
-        _ = Bench.measure(size, &bench) catch unreachable;
-    }
+    //logger.info("Linked List:", .{});
+    //for (1..11) |i| {
+    //    const size = 10 * i;
+    //    var bench = Bench.LinkedList.init(alloc.*, size);
+    //    _ = Bench.measure(size, &bench) catch unreachable;
+    //}
 
-    logger.info("Fibo:", .{});
-    for (1..11) |i| {
-        const size = 10 * i;
-        var bench = Bench.Fibo.init(size);
-        const fibo = Bench.measure(size, &bench);
-        //logger.info("fibo({}) = {}", .{ size, fibo });
-        _ = fibo;
-    }
+    //logger.info("Fibo:", .{});
+    //for (1..11) |i| {
+    //    const size = 10 * i;
+    //    var bench = Bench.Fibo.init(size);
+    //    const fibo = Bench.measure(size, &bench);
+    //    //logger.info("fibo({}) = {}", .{ size, fibo });
+    //    _ = fibo;
+    //}
 
-    logger.info("Fibo Recursive:", .{});
-    for (1..11) |i| {
-        const size = 2 * i;
-        var bench = Bench.FiboRec.init(size);
-        const fibo = Bench.measure(size, &bench);
-        //logger.info("fibo({}) = {}", .{ size, fibo });
-        _ = fibo;
-    }
+    //logger.info("Fibo Recursive:", .{});
+    //for (1..11) |i| {
+    //    const size = 2 * i;
+    //    var bench = Bench.FiboRec.init(size);
+    //    const fibo = Bench.measure(size, &bench);
+    //    //logger.info("fibo({}) = {}", .{ size, fibo });
+    //    _ = fibo;
+    //}
 
-    logger.info("ALU latency:", .{});
-    for (1..11) |i| {
-        const size = 10 * i;
-        var bench = Bench.LatencyALU.init(size);
-        const output = Bench.measure(size, &bench);
-        _ = output;
-    }
+    //logger.info("ALU latency:", .{});
+    //for (1..11) |i| {
+    //    const size = 10 * i;
+    //    var bench = Bench.LatencyALU.init(size);
+    //    const output = Bench.measure(size, &bench);
+    //    _ = output;
+    //}
 
-    logger.info("ALU bandwidth:", .{});
-    for (1..11) |i| {
-        const size = 10 * i;
-        var bench = Bench.BandwidthALU.init(size);
-        const output = Bench.measure(size, &bench);
-        _ = output;
-    }
+    //logger.info("ALU bandwidth:", .{});
+    //for (1..11) |i| {
+    //    const size = 10 * i;
+    //    var bench = Bench.BandwidthALU.init(size);
+    //    const output = Bench.measure(size, &bench);
+    //    _ = output;
+    //}
 
-    logger.info("LSU latency:", .{});
-    for (1..11) |i| {
-        const size = 10 * i;
-        var bench = Bench.LatencyLSU.init(size);
-        const output = Bench.measure(size, &bench);
-        _ = output;
-    }
+    //logger.info("LSU latency:", .{});
+    //for (1..11) |i| {
+    //    const size = 10 * i;
+    //    var bench = Bench.LatencyLSU.init(size);
+    //    const output = Bench.measure(size, &bench);
+    //    _ = output;
+    //}
 
-    logger.info("LSU bandwidth:", .{});
-    for (1..11) |i| {
-        const size = 10 * i;
-        var bench = Bench.BandwidthLSU.init(size);
-        const output = Bench.measure(size, &bench);
-        _ = output;
-    }
+    //logger.info("LSU bandwidth:", .{});
+    //for (1..11) |i| {
+    //    const size = 10 * i;
+    //    var bench = Bench.BandwidthLSU.init(size);
+    //    const output = Bench.measure(size, &bench);
+    //    _ = output;
+    //}
 
     logger.info("Merge Sort:", .{});
     for (1..11) |i| {
@@ -236,27 +238,28 @@ pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
         bench.free();
     }
 
-    logger.info("Matrix Multiplication:", .{});
-    for (1..11) |i| {
-        const size = 2 * i;
-        var bench = Bench.MatrixMult.init(alloc.*, size) catch unreachable;
-        Bench.measure(size, &bench);
-        bench.free();
-    }
+    //logger.info("Matrix Multiplication:", .{});
+    //for (1..11) |i| {
+    //    const size = 2 * i;
+    //    var bench = Bench.MatrixMult.init(alloc.*, size) catch unreachable;
+    //    Bench.measure(size, &bench);
+    //    bench.free();
+    //}
+    measureLock.unlock();
 
-    if (pid == 0) {
-        var pixel = Screen.Pixel{ .red = 0b111 };
-        measure(logger, pid, Screen.Pixel.fill, .{pixel});
+    //if (pid == 0) {
+    //    var pixel = Screen.Pixel{ .red = 0b111 };
+    //    measure(logger, pid, Screen.Pixel.fill, .{pixel});
 
-        pixel = .{ .blue = 0b01, .green = 0b011 };
-        pixel.fillRectangle(101, 100, 137, 300);
+    //    pixel = .{ .blue = 0b01, .green = 0b011 };
+    //    pixel.fillRectangle(101, 100, 137, 300);
 
-        pixel = .{ .blue = 0b11, .green = 0b111 };
+    //    pixel = .{ .blue = 0b11, .green = 0b111 };
 
-        pixel.drawRectangle(101, 100, 137, 300);
-        pixel.drawRectangle(102, 101, 136, 299);
-        pixel.drawRectangle(103, 102, 135, 298);
-    }
+    //    pixel.drawRectangle(101, 100, 137, 300);
+    //    pixel.drawRectangle(102, 101, 136, 299);
+    //    pixel.drawRectangle(103, 102, 135, 298);
+    //}
 
     try UART.writer.print("ready to fence?", .{});
     asm volatile ("fence" ::: "memory");

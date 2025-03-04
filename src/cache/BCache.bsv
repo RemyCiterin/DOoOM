@@ -40,8 +40,6 @@ typedef struct {
 deriving(FShow, Eq, Bits);
 
 typedef enum {
-  // initialize the cache
-  Init,
   // Wait for a request
   Idle,
   // Wait for matching
@@ -57,8 +55,9 @@ typedef enum {
 module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
   provisos(Add#(tagW, __a, 32), Add#(indexW, __b, __a));
   Bram#(Bit#(indexW), Vector#(TExp#(wayW), Bit#(tagW))) tagRam <- mkBram();
-  Bram#(Bit#(indexW), Vector#(TExp#(wayW), Bool)) validRam <- mkBram();
   Bram#(Bit#(indexW), Vector#(TExp#(wayW), Bool)) dirtyRam <- mkBram();
+  Bram#(Bit#(indexW), Vector#(TExp#(wayW), Bool)) validRam <-
+    mkBramInit(replicate(False));
 
   let bram <- mkBramBE();
   Vector#(2, BramBE#(Bit#(TAdd#(wayW, TAdd#(indexW, offsetW))), 4)) vbram
@@ -73,7 +72,7 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
   Reg#(Bit#(indexW)) index <- mkReg(0);
   Reg#(Bit#(offsetW)) offset <- mkReg(0);
   Reg#(BCacheInfo#(wayW, tagW)) info <- mkReg(?);
-  Ehr#(2, CacheState) state <- mkEhr(Init);
+  Ehr#(2, CacheState) state <- mkEhr(Idle);
 
   // Length of a cache line
   Bit#(8) length = fromInteger(valueOf(TExp#(offsetW))-1);
@@ -101,14 +100,6 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
 
   rule randomStep;
     randomWay <= randomWay + 1;
-  endrule
-
-  /* Initialize all the permissions in the cache */
-  rule startRl if (state[0] == Init);
-    validRam.write(index, replicate(False));
-
-    if (index+1 == 0) state[0] <= Idle;
-    index <= index + 1;
   endrule
 
   rule releaseBlockAck if (state[0] == AcqRel);

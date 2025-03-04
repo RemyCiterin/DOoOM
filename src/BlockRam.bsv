@@ -68,6 +68,43 @@ module mkSizedBram#(Integer size) (Bram#(addrT, dataT))
   method deq = rsp.deq;
 endmodule
 
+// return an initialized block of ram
+module mkSizedBramGen
+  #(Integer size, function dataT gen(addrT addr)) (Bram#(addrT, dataT))
+  provisos (Bits#(addrT, addrWidth), Bits#(dataT, dataWidth), Eq#(addrT));
+  Bram#(addrT, dataT) bram <- mkSizedBram(size);
+
+  Reg#(Maybe#(Bit#(addrWidth))) startIndex <- mkReg(Valid(0));
+
+  rule init_register_file if (startIndex matches tagged Valid .index);
+    startIndex <= index == fromInteger(size - 1) ? Invalid : Valid (index + 1);
+    bram.write(unpack(index), gen(unpack(index)));
+  endrule
+
+  method Action read(addrT addr) if (startIndex == Invalid);
+    bram.read(addr);
+  endmethod
+
+  method dataT response if (startIndex == Invalid);
+    return bram.response();
+  endmethod
+
+  method Action deq() if (startIndex == Invalid);
+    bram.deq();
+  endmethod
+
+  method canDeq = bram.canDeq && startIndex == Invalid;
+
+  method Action write(addrT addr, dataT data) if (startIndex == Invalid);
+    bram.write(addr, data);
+  endmethod
+endmodule
+
+module mkSizedBramInit #(Integer size, dataT init) (Bram#(addrT, dataT))
+  provisos (Bits#(addrT, addrWidth), Bits#(dataT, dataWidth), Eq#(addrT));
+  let ifc <- mkSizedBramGen(size, constFn(init));
+  return ifc;
+endmodule
 
 module mkBram(Bram#(addrT, dataT))
   provisos (Bits#(addrT, addrWidth), Bits#(dataT, dataWidth), Eq#(addrT));
@@ -75,10 +112,22 @@ module mkBram(Bram#(addrT, dataT))
   return ifc;
 endmodule
 
+module mkBramGen#(function dataT gen(addrT addr)) (Bram#(addrT, dataT))
+  provisos (Bits#(addrT, addrWidth), Bits#(dataT, dataWidth), Eq#(addrT));
+  let ifc <- mkSizedBramGen(valueOf(TExp#(addrWidth)), gen);
+  return ifc;
+endmodule
+
+module mkBramInit#(dataT init) (Bram#(addrT, dataT))
+  provisos (Bits#(addrT, addrWidth), Bits#(dataT, dataWidth), Eq#(addrT));
+  let ifc <- mkSizedBramInit(valueOf(TExp#(addrWidth)), init);
+  return ifc;
+endmodule
+
 interface BramVec#(type addrT, numeric type n, type dataT);
   method Action write(addrT addr, Vector#(n, dataT) data, Bit#(n) mask);
   method Action read(addrT addr);
-    method Vector#(n, dataT) response;
+  method Vector#(n, dataT) response;
   method Bool canDeq;
   method Action deq;
 endinterface
@@ -147,9 +196,62 @@ module mkSizedBramVec#(Integer size) (BramVec#(addrT, n, dataT))
   method deq = rsp.deq;
 endmodule
 
+// return an initialized block of ram
+module mkSizedBramGenVec
+  #(Integer size, function Vector#(n, dataT) gen(addrT addr)) (BramVec#(addrT, n, dataT))
+  provisos (Bits#(addrT, addrWidth), Bits#(dataT, dataWidth), Eq#(addrT));
+  BramVec#(addrT, n, dataT) bram <- mkSizedBramVec(size);
+
+  Reg#(Maybe#(Bit#(addrWidth))) startIndex <- mkReg(Valid(0));
+
+  rule init_register_file if (startIndex matches tagged Valid .index);
+    startIndex <= index == fromInteger(size - 1) ? Invalid : Valid (index + 1);
+    bram.write(unpack(index), gen(unpack(index)), -1);
+  endrule
+
+  method Action read(addrT addr) if (startIndex == Invalid);
+    bram.read(addr);
+  endmethod
+
+  method Vector#(n, dataT) response if (startIndex == Invalid);
+    return bram.response();
+  endmethod
+
+  method Action deq() if (startIndex == Invalid);
+    bram.deq();
+  endmethod
+
+  method canDeq = bram.canDeq && startIndex == Invalid;
+
+  method Action write(addrT addr, Vector#(n, dataT) data, Bit#(n) mask)
+    if (startIndex == Invalid);
+    bram.write(addr, data, mask);
+  endmethod
+endmodule
+
+module mkSizedBramInitVec
+  #(Integer size, Vector#(n, dataT) init) (BramVec#(addrT, n, dataT))
+  provisos (Bits#(addrT, addrWidth), Bits#(dataT, dataWidth), Eq#(addrT));
+  let ifc <- mkSizedBramGenVec(size, constFn(init));
+  return ifc;
+endmodule
+
 module mkBramVec(BramVec#(addrT, n, dataT))
   provisos (Bits#(addrT, addrWidth), Eq#(addrT), Bits#(dataT, dataW));
   let ifc <- mkSizedBramVec(valueOf(TExp#(addrWidth)));
+  return ifc;
+endmodule
+
+module mkBramGenVec
+  #(function Vector#(n,dataT) gen(addrT addr)) (BramVec#(addrT, n, dataT))
+  provisos (Bits#(addrT, addrWidth), Bits#(dataT, dataWidth), Eq#(addrT));
+  let ifc <- mkSizedBramGenVec(valueOf(TExp#(addrWidth)), gen);
+  return ifc;
+endmodule
+
+module mkBramInitVec#(Vector#(n,dataT) init) (BramVec#(addrT, n, dataT))
+  provisos (Bits#(addrT, addrWidth), Bits#(dataT, dataWidth), Eq#(addrT));
+  let ifc <- mkSizedBramInitVec(valueOf(TExp#(addrWidth)), init);
   return ifc;
 endmodule
 
@@ -179,9 +281,45 @@ module mkSizedBramBE#(Integer size) (BramBE#(addrT, dataW))
   endmethod
 endmodule
 
+module mkSizedBramGenBE
+  #(Integer size, function Byte#(dataW) gen(addrT addr)) (BramBE#(addrT, dataW))
+  provisos (Bits#(addrT, addrSz), Eq#(addrT));
+  BramVec#(addrT, dataW, Bit#(8)) bram <- mkSizedBramGenVec(size, compose(unpack, gen));
+
+  method canDeq = bram.canDeq;
+  method response = pack(bram.response);
+  method read = bram.read;
+  method deq = bram.deq;
+
+  method Action write(addrT addr, Byte#(dataW) data, Bit#(dataW) mask);
+    action
+      bram.write(addr, unpack(data), mask);
+    endaction
+  endmethod
+endmodule
+
+module mkSizedBramInitBE
+  #(Integer size, Byte#(dataW) init) (BramBE#(addrT, dataW))
+  provisos (Bits#(addrT, addrWidth), Eq#(addrT));
+  let ifc <- mkSizedBramGenBE(size, constFn(init));
+  return ifc;
+endmodule
+
 module mkBramBE(BramBE#(addrT, dataW))
   provisos (Bits#(addrT, addrWidth), Eq#(addrT));
   let ifc <- mkSizedBramBE(valueOf(TExp#(addrWidth)));
+  return ifc;
+endmodule
+
+module mkBramGenBE#(function Byte#(dataW) gen(addrT addr))(BramBE#(addrT, dataW))
+  provisos (Bits#(addrT, addrWidth), Eq#(addrT));
+  let ifc <- mkSizedBramGenBE(valueOf(TExp#(addrWidth)), gen);
+  return ifc;
+endmodule
+
+module mkBramInitBE#(Byte#(dataW) init) (BramBE#(addrT, dataW))
+  provisos (Bits#(addrT, addrWidth), Eq#(addrT));
+  let ifc <- mkSizedBramInitBE(valueOf(TExp#(addrWidth)), init);
   return ifc;
 endmodule
 

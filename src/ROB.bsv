@@ -45,7 +45,7 @@ endinterface
 module mkROB(ROB);
   RegFile#(RobIndex, RobEntry) data <- mkRegFileFull;
   ForwardRegFile#(RobIndex, ExecOutput) results <- mkForwardRegFileFull;
-  Ehr#(2, Bit#(RobSize)) resultValid <- mkEhr(0);
+  Ehr#(3, Bit#(RobSize)) resultValid <- mkEhr(0);
 
   Ehr#(2, RobIndex) firstP <- mkEhr(0);
   Reg#(RobIndex) nextP <- mkReg(0);
@@ -62,7 +62,7 @@ module mkROB(ROB);
   method ActionValue#(RobIndex) enq(RobEntry entry)
     if (!full[1]);
     actionvalue
-      resultValid[1][nextP] <= 0;
+      //resultValid[1][nextP] <= 0;
       let next_nextP = (nextP == max_index ? 0 : nextP + 1);
       let index = nextP;
 
@@ -103,24 +103,25 @@ module mkROB(ROB);
     full[0] <= False;
 
     firstP[0] <= next_firstP;
+    resultValid[0][firstP[0]] <= 0;
     if (next_firstP == nextP)
       empty[0] <= True;
   endmethod
 
   method Maybe#(ExecOutput) read1(RobIndex index);
-    return resultValid[1][index] == 1 ?
+    return resultValid[2][index] == 1 ?
       Valid(results.forward(index)) : Invalid;
   endmethod
 
   method Maybe#(ExecOutput) read2(RobIndex index);
-    return resultValid[1][index] == 1 ?
+    return resultValid[2][index] == 1 ?
       Valid(results.forward(index)) : Invalid;
   endmethod
 
   method Action writeBack(RobIndex index, ExecOutput result);
     action
       results.upd(index, result);
-      resultValid[0][index] <= 1;
+      resultValid[1][index] <= 1;
     endaction
   endmethod
 endmodule

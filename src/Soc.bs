@@ -22,6 +22,7 @@ import Clint
 --import CC
 import LSU
 import BCache
+import BranchPred
 
 interface CPU_IFC =
   -- write SDRAM port using AXI4 protocol

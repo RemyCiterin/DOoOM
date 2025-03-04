@@ -29,8 +29,8 @@ pub fn measure(
     var cycle = RV.mcycle.read();
     var instret = RV.minstret.read();
     const output = bench.call();
-    instret = RV.minstret.read() - instret;
-    cycle = RV.mcycle.read() - cycle;
+    instret = RV.minstret.read() -% instret;
+    cycle = RV.mcycle.read() -% cycle;
 
     measureLock.lock();
     defer measureLock.unlock();
@@ -376,7 +376,7 @@ pub const Sort = struct {
         }
     }
 
-    pub fn call(self: Self) void {
+    pub inline fn call(self: Self) void {
         self.mergeSort(0, self.array.len - 1);
     }
 };
