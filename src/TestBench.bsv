@@ -385,7 +385,8 @@ module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
   endrule
 
   rule readReq if (state[1] matches tagged Read {req: .req});
-    bram.put(0, getAddr(req.addr), ?);
+    let addr = getAddr(req.addr);
+    bram.put(0, inBounds(req.addr) ? addr : 0, ?);
     readQ.enq(?);
   endrule
 
