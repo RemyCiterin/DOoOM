@@ -9,11 +9,11 @@ def read_byte(byte: int):
     b = [0,0x55,0xaa,0xff][byte & 3]
     return np.array([r,g,b], dtype=np.uint8)
 
-buffer = np.zeros((480, 640, 3), dtype=np.uint8)
+buffer = np.zeros((240, 320, 3), dtype=np.uint8)
 
 def write_byte(addr, color):
-    y = addr // 640
-    x = addr % 640
+    y = addr // 320
+    x = addr % 320
     buffer[y,x] = color
 
 def write_buffer(addr, data, mask):

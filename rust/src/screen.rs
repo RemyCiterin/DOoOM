@@ -37,7 +37,7 @@ impl Pixel {
 
     pub fn write_frame_buffer(&self, x: usize, y: usize) {
         let screen: &'static mut [u8] =
-            PhysAddr::from(SCREEN_BASE).as_slice_mut(640*480);
-        screen[x + y * 640] = self.byte;
+            PhysAddr::from(SCREEN_BASE).as_slice_mut(320*240);
+        screen[x + y * 320] = self.byte;
     }
 }

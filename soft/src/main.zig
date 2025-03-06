@@ -247,19 +247,19 @@ pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
     //}
     measureLock.unlock();
 
-    //if (pid == 0) {
-    //    var pixel = Screen.Pixel{ .red = 0b111 };
-    //    measure(logger, pid, Screen.Pixel.fill, .{pixel});
+    if (pid == 0) {
+        var pixel = Screen.Pixel{ .red = 0b111 };
+        measure(logger, pid, Screen.Pixel.fill, .{pixel});
 
-    //    pixel = .{ .blue = 0b01, .green = 0b011 };
-    //    pixel.fillRectangle(101, 100, 137, 300);
+        pixel = .{ .blue = 0b01, .green = 0b011 };
+        pixel.fillRectangle(101, 100, 137, 200);
 
-    //    pixel = .{ .blue = 0b11, .green = 0b111 };
+        pixel = .{ .blue = 0b11, .green = 0b111 };
 
-    //    pixel.drawRectangle(101, 100, 137, 300);
-    //    pixel.drawRectangle(102, 101, 136, 299);
-    //    pixel.drawRectangle(103, 102, 135, 298);
-    //}
+        pixel.drawRectangle(101, 100, 137, 200);
+        pixel.drawRectangle(102, 101, 136, 199);
+        pixel.drawRectangle(103, 102, 135, 198);
+    }
 
     try UART.writer.print("ready to fence?", .{});
     asm volatile ("fence" ::: "memory");

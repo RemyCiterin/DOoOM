@@ -93,7 +93,8 @@ module mkVGA(VGA);
   Integer ymax = vwidth;
 
   // Frame buffer
-  BramBE#(Bit#(32), 4) bram <- mkSizedBramBE(xmax * ymax / 4);
+  // Represent a 320 * 240 pixel screen
+  BramBE#(Bit#(32), 4) bram <- mkSizedBramBE(xmax * ymax / 16);
 
   // Fabric registers
   Reg#(Bit#(32)) fabric_addr <- mkReg(0);
@@ -104,17 +105,17 @@ module mkVGA(VGA);
   Reg#(Bool) started <- mkReg(False);
 
   function Bit#(32) getFabricAddr;
-    Bit#(20) h = zeroExtend(hpos);
-    Bit#(20) v = zeroExtend(vpos);
+    Bit#(20) h = zeroExtend(hpos) >> 1;
+    Bit#(20) v = zeroExtend(vpos) >> 1;
 
-    Bit#(32) ret = zeroExtend(h + v * fromInteger(xmax));
-    return (ret >= fromInteger(xmax * ymax) ? 0 : ret);
+    Bit#(32) ret = zeroExtend(h + v * fromInteger(xmax) >> 1);
+    return (ret >= fromInteger(xmax * ymax / 4) ? 0 : ret);
   endfunction
 
   function Bit#(8) getFabricResponse;
     let x = bram.response;
 
-    return case (fabric_addr[1:0]) matches
+    return case (fabric_addr[2:1]) matches
       2'b00 : x[7:0];
       2'b01 : x[15:8];
       2'b10 : x[23:16];
@@ -150,7 +151,7 @@ module mkVGA(VGA);
   endrule
 
   method Action write(Bit#(32) addr, Bit#(32) data, Bit#(4) mask) if (started);
-      $fdisplay(file, "%d %d %d", addr, data, mask);
+    $fdisplay(file, "%d %d %d", addr, data, mask);
     bram.write(addr, data, mask);
   endmethod
 

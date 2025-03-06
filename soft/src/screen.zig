@@ -2,10 +2,10 @@ const Config = @import("config.zig");
 const std = @import("std");
 
 pub var screen: []volatile Line =
-    @as([*]volatile Line, @ptrFromInt(Config.screen_base))[0..480];
+    @as([*]volatile Line, @ptrFromInt(Config.screen_base))[0..240];
 
-pub const Line = [640]Pixel;
-pub const LineWord = [160][4]Pixel;
+pub const Line = [320]Pixel;
+pub const LineWord = [80][4]Pixel;
 
 pub const Pixel = packed struct(u8) {
     blue: u2 = 0,
@@ -75,7 +75,7 @@ pub const Pixel = packed struct(u8) {
 
     // Fill all the screen using an uniform color
     pub fn fill(self: Self) void {
-        for (0..480) |v| {
+        for (0..240) |v| {
             self.fillLine(v);
         }
     }
