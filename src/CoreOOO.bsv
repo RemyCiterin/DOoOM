@@ -20,7 +20,7 @@ import RegisterFile :: *;
 import FunctionalUnit :: *;
 
 import Ehr :: *;
-import BTB :: *;
+import BranchPred :: *;
 
 import LSU :: *;
 

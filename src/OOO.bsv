@@ -3,7 +3,7 @@ import Decode :: *;
 import Vector :: *;
 import Ehr :: *;
 import CSR :: *;
-import BTB :: *;
+import BranchPred :: *;
 
 // The number of slots in the reorder buffer
 typedef 6 RobSize;

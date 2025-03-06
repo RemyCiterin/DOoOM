@@ -9,9 +9,10 @@ import SpecialFIFOs :: *;
 import Decode :: *;
 import Utils :: *;
 import CSR :: *;
-import BTB :: *;
+import BranchPred :: *;
 import Types :: *;
 import Fifo :: *;
+import Ehr :: *;
 
 typedef struct {
   Bit#(32) pc;
@@ -76,6 +77,7 @@ function FromDecode decodeFn(FetchToDecode req, AXI4_Lite_RResponse#(4) resp, IN
   end
 endfunction
 
+// {redirect, trainHit, trainMis} < to_RR
 interface FetchDecode;
   interface Get#(AXI4_Lite_RRequest#(32)) rrequest;
 
@@ -93,35 +95,55 @@ endinterface
 module mkFetchDecode(FetchDecode);
   Fifo#(1, AXI4_Lite_RRequest#(32)) read_request <- mkBypassFifo;
 
-  Reg#(Epoch) epoch <- mkReg(0);
-  Reg#(Bit#(32)) current_pc <- mkReg(32'h80000000);
+  Ehr#(2, Epoch) epoch <- mkEhr(0);
+  Ehr#(2, Bit#(32)) current_pc <- mkEhr(32'h80000000);
 
   Reg#(INum) inum <- mkReg(0);
 
-  let branchPred <- mkBranchPred;
+  let bpred <- mkBranchPred;
 
   Fifo#(4, AXI4_Lite_RResponse#(4)) read_response <- mkPipelineFifo;
-  Fifo#(3, FetchToDecode) fetch_to_decode <- mkPipelineFifo;
+  Fifo#(3, Maybe#(FetchToDecode)) fetch_to_decode <- mkPipelineFifo;
   Fifo#(1, FromDecode) outputs <- mkBypassFifo;
 
-  rule fetch_step;
-    let pc = current_pc;
+  Reg#(Bit#(32)) misCount <- mkReg(0);
+  Reg#(Bit#(32)) cycle <- mkReg(0);
 
-    let pred <- branchPred.doPred(pc);
-    current_pc <= pred.pc;
+  rule perf;
+    cycle <= cycle + 1;
 
-    read_request.enq(AXI4_Lite_RRequest{
-      addr: pc
-    });
-
-    fetch_to_decode.enq(FetchToDecode{
-      pc: pc, pred_pc: pred.pc, epoch: epoch, bpred_state: pred.state
-    });
+    if (cycle[18:0] == 0) begin
+      $display("cycle: %d hit: %d mis: %d", cycle, inum - misCount, misCount);
+    end
   endrule
 
-  rule decode_step;
+  rule start;
+    let pc = current_pc[1];
+    bpred.start(pc, epoch[1]);
+    read_request.enq(AXI4_Lite_RRequest{addr: pc});
+  endrule
+
+  rule deq_bpred_result if (epoch[0] == bpred.predEpoch);
+    let pred <- bpred.pred();
+
+    current_pc[0] <= pred.pc;
+    fetch_to_decode.enq(Valid(FetchToDecode{
+      bpred_state: pred.state,
+      epoch: bpred.predEpoch,
+      pc: bpred.predPc,
+      pred_pc: pred.pc
+    }));
+
+    bpred.deq();
+  endrule
+
+  rule ignore_bpred_result if (epoch[0] != bpred.predEpoch);
+    fetch_to_decode.enq(Invalid);
+    bpred.deq();
+  endrule
+
+  rule decode_step if (fetch_to_decode.first matches tagged Valid .req);
     let resp = read_response.first;
-    let req = fetch_to_decode.first;
     fetch_to_decode.deq;
     read_response.deq;
 
@@ -129,17 +151,23 @@ module mkFetchDecode(FetchDecode);
     inum <= inum + 1;
   endrule
 
+  rule decode_ignore_step if (fetch_to_decode.first == Invalid);
+    fetch_to_decode.deq;
+    read_response.deq;
+  endrule
+
   method Action redirect(Bit#(32) next_pc, Epoch next_epoch);
     action
-      current_pc <= next_pc;
-      epoch <= next_epoch;
+      misCount <= misCount + 1;
+      current_pc[0] <= next_pc;
+      epoch[0] <= next_epoch;
     endaction
   endmethod
 
   interface rrequest = toGet(read_request);
 
-  method trainMis = branchPred.trainMis;
-  method trainHit = branchPred.trainHit;
+  method trainMis = bpred.trainMis;
+  method trainHit = bpred.trainHit;
 
   interface to_RR = toGet(outputs);
   interface rresponse = toPut(read_response);

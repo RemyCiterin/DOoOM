@@ -36,11 +36,11 @@ function InstrKind instrKindOpt(Maybe#(Instr) opt);
 endfunction
 
 typedef 256 StackSize;
-typedef 10 HistorySize;
+typedef 12 HistorySize;
 typedef 12 TagSize;
 
-typedef Bit#(TLog#(TagSize)) Tag;
-typedef Bit#(TLog#(HistorySize)) History;
+typedef Bit#(TagSize) Tag;
+typedef Bit#(HistorySize) History;
 typedef Bit#(TLog#(StackSize)) StackIndex;
 
 // An entry of the branch target buffer
@@ -50,7 +50,7 @@ typedef struct {
   InstrKind kind;
 } BtbEntry deriving(Bits, Eq);
 
-interface Btb;
+interface BranchTargetBuffer;
   /* Stage 1: read request */
   method Action start(Bit#(32) pc);
 
@@ -63,7 +63,7 @@ interface Btb;
 endinterface
 
 (* synthesize *)
-module mkBtb(Btb);
+module mkBranchTargetBuffer(BranchTargetBuffer);
   Bram#(Tag, Maybe#(BtbEntry)) entries <- mkBramInit(Invalid);
   Fifo#(1, Bit#(32)) pcQ <- mkPipelineFifo;
 
@@ -77,13 +77,13 @@ module mkBtb(Btb);
   method Tuple2#(Bit#(32), InstrKind) response();
     let pc = pcQ.first();
 
-    case (entries.response) matches
-      tagged Valid .entry :
-        if (entry.pc == pc) return tuple2(entry.next_pc, entry.kind);
-        else return tuple2(pc+4, Linear);
+    return case (entries.response) matches
+      tagged Valid .entry : entry.pc == pc ?
+        tuple2(entry.next_pc, entry.kind) :
+        tuple2(pc+4, Linear);
       Invalid :
-        return tuple2(pc+4, Linear);
-    endcase
+        tuple2(pc+4, Linear);
+    endcase;
   endmethod
 
   method Action deq();
@@ -95,7 +95,7 @@ module mkBtb(Btb);
 
   method Action write(Bit#(32) pc, Bit#(32) next_pc, InstrKind kind);
     action
-      if (pc + 4 != next_pc && kind != Linear)
+      if (pc + 4 != next_pc)
         entries.write(truncate(pc >> 2), Valid(BtbEntry{
           next_pc: next_pc,
           kind: kind,
@@ -105,7 +105,7 @@ module mkBtb(Btb);
   endmethod
 endmodule
 
-interface RetrnAddresStack;
+interface ReturnAddressStack;
   method StackIndex topOfStack();
   method ActionValue#(Maybe#(Bit#(32))) pred(Bit#(32) pc, InstrKind kind);
   method Action backtrack(StackIndex head, InstrKind kind);
@@ -116,7 +116,7 @@ module mkReturnAddressStack(ReturnAddressStack);
   RegFile#(StackIndex, Maybe#(Bit#(32))) stack <- mkRegFileFullInit(Invalid);
   Reg#(StackIndex) head <- mkReg(0);
 
-  method top = head;
+  method topOfStack = head;
 
   method ActionValue#(Maybe#(Bit#(32))) pred(Bit#(32) pc, InstrKind kind);
     head <= case (kind) matches
@@ -144,13 +144,13 @@ endmodule
 
 typedef struct {
   // Basic prediciton using only the program counter
-  Int#(2) base;
+  Int#(3) base;
 
   // Accurate prediction using the program counter and the history
-  Int#(2) pred;
+  Int#(3) pred;
 
   // Tag to check the validity of the accurate prediction
-  Maybe#(tag) tag;
+  Maybe#(Tag) tag;
 } GhtState deriving(Bits, FShow, Eq);
 
 interface GlobalHistoryTable;
@@ -161,18 +161,21 @@ interface GlobalHistoryTable;
   method Bool prediction;
   method GhtState state;
   method Action deq();
+
+  method Action train(Bit#(32) pc, History h, Bool taken, GhtState st);
 endinterface
 
+(* synthesize *)
 module mkGlobalHistoryTable(GlobalHistoryTable);
   Bram#(History, Maybe#(Tag)) tagRam <- mkBramInit(Invalid);
-  Bram#(History, Int#(2)) predRam <- mkBram();
-  Bram#(Tag, Int#(2)) baseRam <- mkBram();
+  Bram#(Tag, Int#(3)) baseRam <- mkBramInit(0);
+  Bram#(History, Int#(3)) predRam <- mkBram();
 
   Fifo#(1, History) historyQ <- mkPipelineFifo;
   Fifo#(1, Tag) tagQ <- mkPipelineFifo;
 
-  function History hashTaged(Bit#(32) pc, History h);
-    return history ^ truncate(pc >> 2);
+  function History hashTagged(Bit#(32) pc, History h);
+    return h ^ truncate(pc >> 2);
   endfunction
 
   function Tag hashBasic(Bit#(32) pc);
@@ -190,7 +193,7 @@ module mkGlobalHistoryTable(GlobalHistoryTable);
   endmethod
 
   method GhtState state;
-    return GhtEntry{
+    return GhtState{
       pred: predRam.response(),
       base: baseRam.response(),
       tag: tagRam.response()
@@ -210,6 +213,158 @@ module mkGlobalHistoryTable(GlobalHistoryTable);
       baseRam.deq();
       tagRam.deq();
       tagQ.deq();
+    endaction
+  endmethod
+
+  method Action train(Bit#(32) pc, History h, Bool taken, GhtState st);
+    action
+      let base = satPlus(Sat_Bound, st.base, taken ? 1 : -1);
+      let pred = satPlus(Sat_Bound, st.pred, taken ? 1 : -1);
+      let found = st.tag == Valid(hashBasic(pc));
+      pred = found ? pred : (taken ? 0 : -1);
+
+      tagRam.write(hashTagged(pc, h), Valid(hashBasic(pc)));
+      predRam.write(hashTagged(pc, h), pred);
+      baseRam.write(hashBasic(pc), base);
+    endaction
+  endmethod
+endmodule
+
+// State used by the branch predictor to backtrack in case of misprediction
+typedef struct {
+  // Glock branch history register
+  History ghr;
+
+  // Predicted instruction kind
+  InstrKind kind;
+
+  // Top of the return address stack
+  StackIndex top;
+
+  // State saved from the GlobalHistoryTable
+  GhtState state;
+} BranchPredState deriving(Bits, FShow, Eq);
+
+// Informations given to the branch predictor to update itself
+typedef struct {
+  // Backtracking state
+  BranchPredState state;
+
+  // Current program counter
+  Bit#(32) pc;
+
+  // Next program counter
+  Bit#(32) next_pc;
+
+  // Instruction if the backtracking is due to a branch misprediction
+  Maybe#(Instr) instr;
+} BranchPredTrain deriving(Bits, FShow, Eq);
+
+typedef struct {
+  Bit#(32) pc;
+  BranchPredState state;
+} BranchPredOutput deriving(Bits, FShow, Eq);
+
+interface BranchPred;
+  /* Stage 1: read request */
+  method Action start(Bit#(32) pc, Epoch epoch);
+
+  /* Stage 2: do the prediction */
+  // deq and pred are in two different methods such that if the epoch is not
+  // up-to-date we may ignore the prediction and just deq from the predictor
+  method ActionValue#(BranchPredOutput) pred;
+  // return the Epoch and Program counter we used to make the prediciton
+  // (not the predicted Pc, the initial Pc)
+  method Epoch predEpoch();
+  method Bit#(32) predPc();
+  method Action deq();
+
+  method Action trainMis(BranchPredTrain infos);
+  method Action trainHit(BranchPredTrain infos);
+endinterface
+
+(* synthesize *)
+module mkBranchPred(BranchPred);
+  let btb <- mkBranchTargetBuffer;
+  let ght <- mkGlobalHistoryTable;
+  let ras <- mkReturnAddressStack;
+  Ehr#(2, History) history <- mkEhr(0);
+
+  Fifo#(1, Epoch) epochQ <- mkPipelineFifo;
+  Fifo#(1, Bit#(32)) pcQ <- mkPipelineFifo;
+
+  method Action start(Bit#(32) pc, Epoch epoch);
+    action
+      ght.start(pc, history[1]);
+      epochQ.enq(epoch);
+      btb.start(pc);
+      pcQ.enq(pc);
+    endaction
+  endmethod
+
+  method ActionValue#(BranchPredOutput) pred();
+    let pc = pcQ.first();
+
+    match {.branch_pc, .kind} = btb.response();
+    let taken = ght.prediction() || kind != Branch;
+
+    let ret_pc <- ras.pred(pc, kind);
+    if (ret_pc matches tagged Valid .new_pc) branch_pc = new_pc;
+
+    if (branch_pc != pc + 4 && kind == Branch)
+      history[0] <= {truncate(history[0]), taken ? 1'b1 : 1'b0};
+
+    return BranchPredOutput{
+      pc: taken ? branch_pc : pc + 4,
+      state: BranchPredState{
+        top: ras.topOfStack,
+        state: ght.state,
+        ghr: history[0],
+        kind: kind
+      }
+    };
+  endmethod
+
+  method predEpoch = epochQ.first;
+  method predPc = pcQ.first;
+
+  method Action deq();
+    action
+      epochQ.deq();
+      btb.deq();
+      ght.deq();
+      pcQ.deq();
+    endaction
+  endmethod
+
+  method Action trainHit(BranchPredTrain infos);
+    action
+      let ghr = infos.state.ghr;
+      let taken = infos.next_pc != infos.pc + 4;
+      ght.train(infos.pc, ghr, taken, infos.state.state);
+    endaction
+  endmethod
+
+  method Action trainMis(BranchPredTrain infos);
+    action
+      let kind = instrKindOpt(infos.instr);
+
+      let ghr = infos.state.ghr;
+      let taken = infos.next_pc != infos.pc + 4;
+
+      if (kind == Branch)
+        ght.train(infos.pc, ghr, taken, infos.state.state);
+
+      History newGhr = {truncate(ghr), taken ? 1'b1 : 1'b0};
+
+      if (infos.instr matches tagged Valid .instr) begin
+        history[0] <= kind == Branch ? newGhr : ghr;
+        btb.write(infos.pc, infos.next_pc, kind);
+        ras.backtrack(infos.state.top, kind);
+      end else begin
+        ras.backtrack(infos.state.top, infos.state.kind);
+        history[0] <= ghr;
+      end
     endaction
   endmethod
 endmodule
