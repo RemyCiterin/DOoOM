@@ -63,9 +63,9 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
   Vector#(2, BramBE#(Bit#(TAdd#(wayW, TAdd#(indexW, offsetW))), 4)) vbram
     <- mkVectorBramBE(bram);
 
-  BAcquireBlock#(TAdd#(wayW, TAdd#(indexW, offsetW)), 32, 4, TMul#(4, TExp#(offsetW)))
+  BAcquireBlock#(TAdd#(wayW, TAdd#(indexW, offsetW)), 32, 4, 4, TMul#(4, TExp#(offsetW)))
     rdAXI4 <- mkBAcquireBlock(vbram[0]);
-  BReleaseBlock#(TAdd#(wayW, TAdd#(indexW, offsetW)), 32, 4, TMul#(4, TExp#(offsetW)))
+  BReleaseBlock#(TAdd#(wayW, TAdd#(indexW, offsetW)), 32, 4, 4, TMul#(4, TExp#(offsetW)))
     wrAXI4 <- mkBReleaseBlock(vbram[0]);
   let dataRam = vbram[1];
 
