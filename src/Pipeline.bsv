@@ -10,7 +10,6 @@ import ALU :: *;
 import AXI4 :: *;
 import AXI4_Lite :: *;
 import MemoryTypes :: *;
-import WriteBack :: *;
 import RegFile :: *;
 import ClientServer :: *;
 import MulDiv :: *;
@@ -58,8 +57,8 @@ module mkDMEM(DMEM_IFC);
   Fifo#(1, RR_to_Pipeline) rr_to_dmem <- mkPipelineFifo;
 
   Fifo#(3, Pipeline_to_WB) rd_to_wb <- mkBypassFifo;
-  Fifo#(3, Pipeline_to_WB) wr_to_wb <- mkBypassFifo;
-  Fifo#(3, DMEM_Tag) tag_to_wb <- mkBypassFifo;
+  Fifo#(3, Pipeline_to_WB) wr_to_wb <- mkPipelineFifo;
+  Fifo#(3, DMEM_Tag) tag_to_wb <- mkPipelineFifo;
 
   function Bool isAligned(Bit#(32) addr, Data_Size size);
     return case (size) matches
@@ -423,136 +422,4 @@ module mkControlPipeline(Pipeline);
 
   interface from_RR = toPut(rr_to_control);
   interface to_WB = toGet(control_to_wb);
-endmodule
-
-interface RegisterRead_IFC;
-  // input fifo
-  interface Put#(Decode_to_RR) from_Decode;
-
-  // send information about the current instruction to the WriteBack stage
-  interface Get#(RR_to_WB) to_WB;
-
-  // send instructions to the Control pipeline (Branch, Jumps...)
-  interface Get#(RR_to_Pipeline) to_Ex_Control;
-
-  // send instructions to the execute pipeline (ALU, FPU...)
-  interface Get#(RR_to_Pipeline) to_Ex_Pipes;
-
-  // send instruction to the Data Memory pipeline
-  interface Get#(RR_to_Pipeline) to_DMEM;
-
-  // update a register from the WriteBack stage
-  // It's not necessary to send a message if rd = 0 (e.g. the instruction
-  // is an exception)
-  interface Put#(WB_to_RR) from_WriteBack;
-
-  method Action start(File flog);
-endinterface
-
-
-(* synthesize *)
-module mkRegisterRead(RegisterRead_IFC);
-  FIFOF#(WB_to_RR)       wb_to_rr      <- mkPipelineFIFOF;
-  FIFOF#(Decode_to_RR)   decode_to_rr  <- mkPipelineFIFOF;
-  FIFOF#(RR_to_Pipeline) rr_to_dmem    <- mkBypassFIFOF;
-  FIFOF#(RR_to_WB)       rr_to_wb      <- mkSizedBypassFIFOF(4);
-  FIFOF#(RR_to_Pipeline) rr_to_control <- mkBypassFIFOF;
-  FIFOF#(RR_to_Pipeline) rr_to_pipes   <- mkBypassFIFOF;
-
-  Vector#(32, Reg#(Bit#(32))) registers <- replicateM(mkReg(0));
-  Vector#(32, Reg#(Bool)) scoreboard <- replicateM(mkReg(False));
-
-  Log_IFC log <- mkLog;
-
-  Reg#(Bit#(32)) cycle <- mkReg(0);
-  Reg#(Bit#(32)) stall <- mkReg(0);
-
-  rule updateCycle;
-    cycle <= cycle + 1;
-
-    if (cycle[18:0] == 0)
-      $display("cycle: %d stall: %d", cycle, stall);
-  endrule
-
-  rule dispatch;
-    let request = decode_to_rr.first;
-
-    let rs1 = register1(request.instr).name;
-    let rs2 = register2(request.instr).name;
-    let rd = (request.exception ? 0 : destination(request.instr).name);
-
-    Bool busy_rs1 = scoreboard[rs1];
-    Bool busy_rs2 = scoreboard[rs2];
-    let busy = busy_rs1 || busy_rs2 || scoreboard[rd];
-
-    if (busy && !request.exception)
-      stall <= stall + 1;
-
-    if (request.exception || !busy) begin
-      decode_to_rr.deq;
-      if (rd != 0) scoreboard[rd] <= True;
-
-      log.log("RR", request.inum, request.pc, displayInstr(request.instr));
-
-      //$display(displayInstr(request.instr));
-
-      // Direct tag correspond to a CSR operation or an exception
-      Exec_Tag tag = (request.exception ? EXEC_TAG_DIRECT : tagOfInstr(request.instr));
-
-      // send the request to the wb stage
-      rr_to_wb.enq(RR_to_WB{
-        exec_tag: tag,
-        exception: request.exception,
-        cause: request.cause,
-        tval: request.tval,
-        epoch: request.epoch,
-        pc: request.pc,
-        instr: request.instr,
-        predicted_pc: request.predicted_pc,
-        rs1_val: registers[rs1],
-        rs2_val: registers[rs2],
-        inum: request.inum
-      });
-
-      let msg = RR_to_Pipeline{
-        epoch: request.epoch,
-        pc: request.pc,
-        instr: request.instr,
-        rs1_val: registers[rs1],
-        rs2_val: registers[rs2]
-      };
-
-
-      // send the request to the pipeline
-      case (tag) matches
-        EXEC_TAG_DMEM : rr_to_dmem.enq(msg);
-        EXEC_TAG_EXEC : rr_to_pipes.enq(msg);
-        EXEC_TAG_CONTROL : rr_to_control.enq(msg);
-        default: noAction;
-      endcase
-    end
-  endrule
-
-  rule from_wb;
-    let request = wb_to_rr.first;
-    let rd = request.rd.name;
-    wb_to_rr.deq;
-
-    if (rd != 0) begin
-      scoreboard[rd] <= False;
-
-      if (request.commit)
-        registers[rd] <= request.val;
-    end
-  endrule
-
-
-  interface from_Decode = toPut(decode_to_rr);
-  interface to_DMEM = toGet(rr_to_dmem);
-  interface to_WB = toGet(rr_to_wb);
-  interface to_Ex_Control = toGet(rr_to_control);
-  interface to_Ex_Pipes = toGet(rr_to_pipes);
-  interface from_WriteBack = toPut(wb_to_rr);
-
-  method start = log.start;
 endmodule

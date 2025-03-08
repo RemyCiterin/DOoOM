@@ -15,7 +15,7 @@ import OOO :: *;
 // The register is already reserved by another instruction and is still busy.
 // The module must have setReady < read < setBusy otherwise a global deadlock
 // may exist
-interface RegisterFile;
+interface RegisterFileOOO;
   // set a register as ready, it must execute first so if we write back
   // into a register and allocate a new entry in the issue queue, then
   // the issue queue get the new retired value of the register and avoid deadlock
@@ -33,7 +33,7 @@ interface RegisterFile;
 endinterface
 
 (* synthesize *)
-module mkRegisterFile(RegisterFile);
+module mkRegisterFileOOO(RegisterFileOOO);
   // Register file with commited writes and forwarding logic
   ForwardRegFile#(Bit#(5), Bit#(32)) registers <- mkForwardRegFileFullInit(0);
 

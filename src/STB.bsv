@@ -42,9 +42,10 @@ typedef struct {
   Maybe#(Bit#(32)) forward;
 } STB_SearchResult deriving(Eq, FShow, Bits);
 
+(* synthesize *)
 module mkMiniSTB(DMEM_Controller);
-  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) storeQ <- mkPipelineFifo;
-  Fifo#(1, AXI4_Lite_RRequest#(32)) loadQ <- mkPipelineFifo;
+  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) storeQ <- mkPipelinePFifo;
+  Fifo#(2, AXI4_Lite_RRequest#(32)) loadQ <- mkPipelinePFifo;
   Fifo#(1, AXI4_Lite_WRequest#(32, 4)) stb <- mkPipelinePFifo;
 
   Fifo#(2, Maybe#(Bit#(32))) forwardQ <- mkPipelineFifo;
@@ -102,17 +103,19 @@ module mkMiniSTB(DMEM_Controller);
     };
 
     if (stb.canDeq) begin
-      if (addr == stb.first.addr)
-        ret.found = True;
+      ret.found = True;
+      //if (addr == stb.first.addr)
+      //  ret.found = True;
     end
 
     if (storeQ.canDeq) begin
+      ret.found = True;
       // Their is no storeQ forwarding because the elements
       // of the storeQ may be mispredicted
-      if (addr == storeQ.first.addr) begin
-        ret.forward = Invalid;
-        ret.found = True;
-      end
+      //if (addr == storeQ.first.addr) begin
+      //  ret.forward = Invalid;
+      //  ret.found = True;
+      //end
     end
 
     return ret;

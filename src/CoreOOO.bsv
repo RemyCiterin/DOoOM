@@ -77,7 +77,7 @@ module mkCoreOOO(Core_IFC);
     vec(toGet(decodeFail).get, alu_fu.deq, control_fu.deq, lsu.deq)
   );
 
-  RegisterFile registers <- mkRegisterFile;
+  RegisterFileOOO registers <- mkRegisterFileOOO;
 
   let csr <- mkCsrFile(0);
 
