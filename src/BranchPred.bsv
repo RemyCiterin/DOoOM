@@ -67,9 +67,13 @@ module mkBranchTargetBuffer(BranchTargetBuffer);
   Bram#(Tag, Maybe#(BtbEntry)) entries <- mkBramInit(Invalid);
   Fifo#(1, Bit#(32)) pcQ <- mkPipelineFifo;
 
+  function Tag hash(Bit#(32) addr);
+    return truncate(addr >> (2 + supLogSize));
+  endfunction
+
   method Action start(Bit#(32) pc);
     action
-      entries.read(truncate(pc >> 2));
+      entries.read(hash(pc));
       pcQ.enq(pc);
     endaction
   endmethod
@@ -96,7 +100,7 @@ module mkBranchTargetBuffer(BranchTargetBuffer);
   method Action write(Bit#(32) pc, Bit#(32) next_pc, InstrKind kind);
     action
       if (pc + 4 != next_pc)
-        entries.write(truncate(pc >> 2), Valid(BtbEntry{
+        entries.write(hash(pc), Valid(BtbEntry{
           next_pc: next_pc,
           kind: kind,
           pc: pc
@@ -175,11 +179,11 @@ module mkGlobalHistoryTable(GlobalHistoryTable);
   Fifo#(1, Tag) tagQ <- mkPipelineFifo;
 
   function History hashTagged(Bit#(32) pc, History h);
-    return h ^ truncate(pc >> 2);
+    return h ^ truncate(pc >> (2 + supLogSize));
   endfunction
 
   function Tag hashBasic(Bit#(32) pc);
-    return truncate(pc >> 2);
+    return truncate(pc >> (2 + supLogSize));
   endfunction
 
   method Action start(Bit#(32) pc, History h);

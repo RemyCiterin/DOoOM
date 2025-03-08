@@ -106,17 +106,6 @@ module mkFetchDecode(FetchDecode);
   Fifo#(3, Maybe#(FetchToDecode)) fetch_to_decode <- mkPipelineFifo;
   Fifo#(1, FromDecode) outputs <- mkBypassFifo;
 
-  Reg#(Bit#(32)) misCount <- mkReg(0);
-  Reg#(Bit#(32)) cycle <- mkReg(0);
-
-  rule perf;
-    cycle <= cycle + 1;
-
-    if (cycle[18:0] == 0) begin
-      $display("cycle: %d hit: %d mis: %d", cycle, inum - misCount, misCount);
-    end
-  endrule
-
   rule start;
     let pc = current_pc[1];
     bpred.start(pc, epoch[1]);
@@ -158,7 +147,6 @@ module mkFetchDecode(FetchDecode);
 
   method Action redirect(Bit#(32) next_pc, Epoch next_epoch);
     action
-      misCount <= misCount + 1;
       current_pc[0] <= next_pc;
       epoch[0] <= next_epoch;
     endaction

@@ -77,6 +77,16 @@ typedef Bit#(8) Epoch;
 // or the reorder buffer
 typedef Bit#(8) Age;
 
+typedef 1 SupLogSize;
+typedef TExp#(SupLogSize) SupSize;
+Integer supLogSize = valueOf(SupLogSize);
+Integer supSize = valueOf(SupSize);
+
+typedef Vector#(SupSize, t) Super#(type t);
+typedef Super#(Maybe#(t)) SupMaybe#(type t);
+typedef Bit#(SupLogSize) SupIndex;
+typedef Bit#(SupSize) SupMask;
+
 function Bool isBefore(Age a, Age b);
   Integer msb = valueOf(SizeOf#(Age)) - 1;
   return (b-a)[msb] == 0;

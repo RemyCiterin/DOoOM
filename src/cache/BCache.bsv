@@ -13,15 +13,16 @@ typedef enum {
 } BCacheOp deriving(Bits, FShow, Eq);
 
 // Blocking cache type
-interface BCacheCore#(type wayT, type tagT, type indexT, type offsetT);
+interface BCacheCore
+  #(type wayT, type tagT, type indexT, type offsetT, numeric type wordW);
   // Start a memory operation
   method Action start(indexT index, offsetT offset);
 
   // Tag matching
-  method Action matching(tagT tag, BCacheOp op, Bit#(32) data, Bit#(4) mask);
+    method Action matching(tagT tag, BCacheOp op, Byte#(wordW) data, Bit#(wordW) mask);
 
   // Acknoledge a read request
-  method ActionValue#(Bit#(32)) readAck;
+      method ActionValue#(Byte#(wordW)) readAck;
 
   interface RdAXI4_Master#(4, 32, 4) read;
   interface WrAXI4_Master#(4, 32, 4) write;
@@ -33,10 +34,10 @@ endinterface
 typedef struct {
   Bit#(wayW) way;
   Bit#(tagW) tag;
-  Bit#(32) data;
-  Bit#(4) mask;
+  Byte#(wordW) data;
+  Bit#(wordW) mask;
   BCacheOp op;
-} BCacheInfo#(numeric type wayW, numeric type tagW)
+} BCacheInfo#(numeric type wayW, numeric type tagW, numeric type wordW)
 deriving(FShow, Eq, Bits);
 
 typedef enum {
@@ -52,30 +53,29 @@ typedef enum {
   Release
 } CacheState deriving(FShow, Eq, Bits);
 
-module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
-  provisos(Add#(tagW, __a, 32), Add#(indexW, __b, __a));
+module mkBCacheCore
+  (BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW), wordW))
+  provisos(Add#(tagW, __a, 32), Add#(indexW, __b, __a), Mul#(4, beatPerWord, wordW));
   Bram#(Bit#(indexW), Vector#(TExp#(wayW), Bit#(tagW))) tagRam <- mkBram();
   Bram#(Bit#(indexW), Vector#(TExp#(wayW), Bool)) dirtyRam <- mkBram();
   Bram#(Bit#(indexW), Vector#(TExp#(wayW), Bool)) validRam <-
     mkBramInit(replicate(False));
 
   let bram <- mkBramBE();
-  Vector#(2, BramBE#(Bit#(TAdd#(wayW, TAdd#(indexW, offsetW))), 4)) vbram
+  Vector#(2, BramBE#(Bit#(TAdd#(wayW, TAdd#(indexW, offsetW))), wordW)) vbram
     <- mkVectorBramBE(bram);
 
-  BAcquireBlock#(TAdd#(wayW, TAdd#(indexW, offsetW)), 32, 4, 4, TMul#(4, TExp#(offsetW)))
+  BAcquireBlock#(TAdd#(wayW, TAdd#(indexW, offsetW)), 32, 4, wordW, TMul#(wordW, TExp#(offsetW)))
     rdAXI4 <- mkBAcquireBlock(vbram[0]);
-  BReleaseBlock#(TAdd#(wayW, TAdd#(indexW, offsetW)), 32, 4, 4, TMul#(4, TExp#(offsetW)))
+  BReleaseBlock#(TAdd#(wayW, TAdd#(indexW, offsetW)), 32, 4, wordW, TMul#(wordW, TExp#(offsetW)))
     wrAXI4 <- mkBReleaseBlock(vbram[0]);
   let dataRam = vbram[1];
 
   Reg#(Bit#(indexW)) index <- mkReg(0);
   Reg#(Bit#(offsetW)) offset <- mkReg(0);
-  Reg#(BCacheInfo#(wayW, tagW)) info <- mkReg(?);
+  Reg#(BCacheInfo#(wayW, tagW, wordW)) info <- mkReg(?);
   Ehr#(2, CacheState) state <- mkEhr(Idle);
 
-  // Length of a cache line
-  Bit#(8) length = fromInteger(valueOf(TExp#(offsetW))-1);
   Integer ways = valueOf(TExp#(wayW));
 
   Reg#(Bit#(wayW)) randomWay <- mkReg(0);
@@ -83,7 +83,8 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
   Reg#(Bit#(32)) numHit <- mkReg(0);
   Reg#(Bit#(32)) numMis <- mkReg(0);
 
-  function Action doMiss(Bit#(wayW) way, Bit#(tagW) tag, BCacheOp op, Bit#(32) data, Bit#(4) mask);
+  function Action doMiss
+    (Bit#(wayW) way, Bit#(tagW) tag, BCacheOp op, Byte#(wordW) data, Bit#(wordW) mask);
     action
       tagRam.write(index, update(tagRam.response(), way, tag));
       validRam.write(index, update(validRam.response(), way, True));
@@ -136,7 +137,8 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
     endaction
   endmethod
 
-  method Action matching(Bit#(tagW) t, BCacheOp op, Bit#(32) data, Bit#(4) mask)
+  method Action matching
+    (Bit#(tagW) t, BCacheOp op, Byte#(wordW) data, Bit#(wordW) mask)
     if (state[0] == Matching);
     action
       Bool hit = False;
@@ -192,7 +194,7 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
     endaction
   endmethod
 
-  method ActionValue#(Bit#(32)) readAck;
+  method ActionValue#(Byte#(wordW)) readAck;
     dataRam.deq();
     return dataRam.response();
   endmethod
@@ -208,9 +210,10 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
 endmodule
 
 // Use ID 0 for the moment
-interface BCache#(type wayT, type tagT, type indexT, type offsetT);
-  interface RdAXI4_Lite_Slave#(32, 4) cpu_read;
-  interface WrAXI4_Lite_Slave#(32, 4) cpu_write;
+interface BCache
+  #(type wayT, type tagT, type indexT, type offsetT, numeric type logWordW);
+  interface RdAXI4_Lite_Slave#(32, TExp#(logWordW)) cpu_read;
+  interface WrAXI4_Lite_Slave#(32, TExp#(logWordW)) cpu_write;
 
   method Action invalidate(Bit#(32) addr);
   method Action invalidateAck();
@@ -221,20 +224,28 @@ interface BCache#(type wayT, type tagT, type indexT, type offsetT);
   method Action setID(Bit#(4) id);
 endinterface
 
-module mkBCache(BCache#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
-  provisos(Add#(tagW, __a, 32), Add#(indexW, __b, __a));
-  BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)) cache <- mkBCacheCore();
+module mkBCache
+  (BCache#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW), logWordW))
+  provisos(
+      Add#(tagW, __a, 32),
+      Add#(indexW, __b, __a),
+      Mul#(4, beatPerWord, wordW),
+      NumAlias#(TExp#(logWordW), wordW)
+  );
+
+  BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW), wordW) cache
+    <- mkBCacheCore();
 
   Fifo#(1, AXI4_Lite_RRequest#(32)) rreq <- mkPipelineFifo;
-  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) wreq <- mkPipelineFifo;
+  Fifo#(1, AXI4_Lite_WRequest#(32, wordW)) wreq <- mkPipelineFifo;
   Fifo#(1, Bit#(32)) invreq <- mkPipelineFifo;
 
   function Bit#(indexW) getIndex(Bit#(32) addr);
-    return addr[2+valueOf(indexW)+valueOf(offsetW)-1: 2+valueOf(offsetW)];
+    return (addr >> valueOf(TAdd#(offsetW, logWordW)))[valueOf(indexW)-1: 0];
   endfunction
 
   function Bit#(offsetW) getOffset(Bit#(32) addr);
-    return addr[2+valueOf(offsetW)-1: 2];
+    return (addr >> valueOf(logWordW))[valueOf(offsetW)-1: 0];
   endfunction
 
   rule deqRdReq;
@@ -269,7 +280,7 @@ module mkBCache(BCache#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
     endinterface
 
     interface Get response;
-      method ActionValue#(AXI4_Lite_RResponse#(4)) get();
+      method ActionValue#(AXI4_Lite_RResponse#(wordW)) get();
         let bytes <- cache.readAck();
         return AXI4_Lite_RResponse{
           bytes: bytes,
@@ -281,7 +292,7 @@ module mkBCache(BCache#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
 
   interface WrAXI4_Lite_Slave cpu_write;
     interface Put request;
-      method Action put(AXI4_Lite_WRequest#(32, 4) request);
+      method Action put(AXI4_Lite_WRequest#(32, wordW) request);
         cache.start(getIndex(request.addr), getOffset(request.addr));
         wreq.enq(request);
       endmethod
@@ -303,7 +314,7 @@ module mkBCache(BCache#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
 endmodule
 
 (* synthesize *)
-module mkDefaultBCache(BCache#(Bit#(2), Bit#(20), Bit#(7), Bit#(3)));
+module mkDefaultBCache(BCache#(Bit#(2), Bit#(20), Bit#(7), Bit#(3), 2));
   let ifc <- mkBCache();
   return ifc;
 endmodule
