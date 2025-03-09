@@ -2,7 +2,7 @@
 .globl print_string
 .globl _start
 
-#define RESET_TIME 1000000
+#define RESET_TIME 10000000
 #define SPI_BASE 0x50000000
 #define UART_BASE 0x10000000
 

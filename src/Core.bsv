@@ -57,8 +57,6 @@ module mkRegisterFile(RegisterFile);
   method Action setReady(RegName r, Bit#(32) value, Bool commit);
     action
       if (commit && r.name != 0) registers.upd(r.name, value);
-      //if (commit && r.name != 0)
-      //  $display(fshow(r), " <= 0x%h", value);
       scoreboard[0][r.name] <= 0;
     endaction
   endmethod
@@ -116,10 +114,6 @@ module mkCore(Core_IFC);
 
       let rs1_val = registers.read1(rs1);
       let rs2_val = registers.read2(rs2);
-
-      //$display("dispatch instr: %h ", req.pc, displayInstr(req.instr));
-      //$display("  rs1: 0x%h rs2: 0x%h", rs1_val, rs2_val);
-
 
       bpred_states.enq(req.bpred_state);
       window.enq(RR_to_WB{

@@ -47,18 +47,18 @@ typedef enum {Rd, Wr, NotAlign} DMEM_Tag deriving(Bits, Eq, FShow);
 (* synthesize *)
 module mkDMEM(DMEM_IFC);
   DMEM_Controller dmem <- mkMiniSTB;
-  Fifo#(4, Bool) must_wcommit <- mkPipelineFifo;
+  Fifo#(4, Bool) commitQ <- mkPipelineFifo;
 
-  Fifo#(3, Bool) sign_fifo <- mkPipelineFifo;
-  Fifo#(3, Data_Size) size_fifo <- mkPipelineFifo;
-  Fifo#(3, Bit#(2)) offset_fifo <- mkPipelineFifo;
-  Fifo#(3, RR_to_Pipeline) req_fifo <- mkPipelineFifo;
+  Fifo#(3, Bool) signQ <- mkPipelineFifo;
+  Fifo#(3, Data_Size) sizeQ <- mkPipelineFifo;
+  Fifo#(3, Bit#(2)) offsetQ <- mkPipelineFifo;
+  Fifo#(3, RR_to_Pipeline) reqQ <- mkPipelineFifo;
 
-  Fifo#(1, RR_to_Pipeline) rr_to_dmem <- mkPipelineFifo;
+  Fifo#(1, RR_to_Pipeline) inputQ <- mkPipelineFifo;
 
-  Fifo#(3, Pipeline_to_WB) rd_to_wb <- mkBypassFifo;
-  Fifo#(3, Pipeline_to_WB) wr_to_wb <- mkPipelineFifo;
-  Fifo#(3, DMEM_Tag) tag_to_wb <- mkPipelineFifo;
+  Fifo#(1, Pipeline_to_WB) rresponseQ <- mkBypassFifo;
+  Fifo#(3, Pipeline_to_WB) wresponseQ <- mkPipelineFifo;
+  Fifo#(3, DMEM_Tag) tagQ <- mkPipelineFifo;
 
   function Bool isAligned(Bit#(32) addr, Data_Size size);
     return case (size) matches
@@ -69,15 +69,15 @@ module mkDMEM(DMEM_IFC);
   endfunction
 
   rule deq_rresponse;
-    let sign = sign_fifo.first;
-    let size = size_fifo.first;
-    let offset = offset_fifo.first;
-    sign_fifo.deq;
-    size_fifo.deq;
-    offset_fifo.deq;
+    let sign = signQ.first;
+    let size = sizeQ.first;
+    let offset = offsetQ.first;
+    signQ.deq;
+    sizeQ.deq;
+    offsetQ.deq;
 
-    let req = req_fifo.first;
-    req_fifo.deq;
+    let req = reqQ.first;
+    reqQ.deq;
 
     Bit#(32) response <- dmem.rresponse;
     Bit#(32) bytes = response >> {offset, 3'b0};
@@ -88,7 +88,7 @@ module mkDMEM(DMEM_IFC);
       Byte : (sign ? signExtend(bytes[7:0]) : zeroExtend(bytes[7:0]));
     endcase;
 
-    rd_to_wb.enq(Pipeline_to_WB{
+    rresponseQ.enq(Pipeline_to_WB{
       exception: False,
       cause: ?,
       tval: ?,
@@ -99,8 +99,8 @@ module mkDMEM(DMEM_IFC);
   endrule
 
   rule deq_from_rr;
-    let req = rr_to_dmem.first;
-    rr_to_dmem.deq;
+    let req = inputQ.first;
+    inputQ.deq;
 
     let addr = req.rs1_val + immediateBits(req.instr);
     let bytes = req.rs2_val;
@@ -121,16 +121,16 @@ module mkDMEM(DMEM_IFC);
 
         let aligned = isAligned(addr, size);
 
-        must_wcommit.enq(aligned);
+        commitQ.enq(aligned);
 
         if (aligned) begin
-          tag_to_wb.enq(Wr);
+          tagQ.enq(Wr);
 
           bytes = bytes << {addr[1:0], 3'b0};
           mask = mask << addr[1:0];
 
           dmem.wrequest(addr, bytes, mask);
-          wr_to_wb.enq(Pipeline_to_WB{
+          wresponseQ.enq(Pipeline_to_WB{
             exception: False,
             cause: ?,
             tval: ?,
@@ -139,8 +139,8 @@ module mkDMEM(DMEM_IFC);
             result: ?
           });
         end else begin
-          tag_to_wb.enq(NotAlign);
-          wr_to_wb.enq(Pipeline_to_WB{
+          tagQ.enq(NotAlign);
+          wresponseQ.enq(Pipeline_to_WB{
             epoch: req.epoch,
             exception: True,
             cause: STORE_AMO_ADDRESS_MISALIGNED,
@@ -162,18 +162,17 @@ module mkDMEM(DMEM_IFC);
 
         let aligned = isAligned(addr, size);
 
-        must_wcommit.enq(False);
-        tag_to_wb.enq(aligned ? Rd : NotAlign);
-
+        commitQ.enq(False);
+        tagQ.enq(aligned ? Rd : NotAlign);
 
         if (aligned) begin
-          req_fifo.enq(req);
-          sign_fifo.enq(sign);
-          size_fifo.enq(size);
-          offset_fifo.enq(addr[1:0]);
+          reqQ.enq(req);
+          signQ.enq(sign);
+          sizeQ.enq(size);
+          offsetQ.enq(addr[1:0]);
           dmem.rrequest(addr & ~32'b11);
         end else begin
-          wr_to_wb.enq(Pipeline_to_WB{
+          wresponseQ.enq(Pipeline_to_WB{
             epoch: req.epoch,
             exception: True,
             cause: LOAD_ADDRESS_MISALIGNED,
@@ -188,27 +187,24 @@ module mkDMEM(DMEM_IFC);
   endrule
 
   interface Pipeline pipeline;
-    interface from_RR = toPut(rr_to_dmem);
+    interface from_RR = toPut(inputQ);
     interface Get to_WB;
       method ActionValue#(Pipeline_to_WB) get;
         actionvalue
-          let tag = tag_to_wb.first;
-          tag_to_wb.deq;
+          let tag = tagQ.first;
+          tagQ.deq;
 
           case (tag) matches
             Rd : begin
-              let ret = rd_to_wb.first;
-              rd_to_wb.deq;
+              let ret <- toGet(rresponseQ).get;
               return ret;
             end
             Wr : begin
-              let ret = wr_to_wb.first;
-              wr_to_wb.deq;
+              let ret <- toGet(wresponseQ).get;
               return ret;
             end
             NotAlign : begin
-              let ret = wr_to_wb.first;
-              wr_to_wb.deq;
+              let ret <- toGet(wresponseQ).get;
               return ret;
             end
           endcase
@@ -218,8 +214,8 @@ module mkDMEM(DMEM_IFC);
   endinterface
 
   method Action commit(Bool b);
-    let op = must_wcommit.first;
-    must_wcommit.deq;
+    let op = commitQ.first;
+    commitQ.deq;
 
     if (op)
       dmem.wcommit(b);

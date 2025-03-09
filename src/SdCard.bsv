@@ -56,6 +56,12 @@ module mkSPI(SPI);
   Reg#(Bool) started <- mkReg(False);
   Reg#(File) file <- mkReg(InvalidFile);
 
+  Reg#(Bit#(32)) cycle <- mkReg(0);
+
+  rule incrCycle;
+    cycle <= cycle + 1;
+  endrule
+
   rule openFile if (!started);
     File f <- $fopen("spi.log", "w");
     started <= True;
@@ -84,7 +90,7 @@ module mkSPI(SPI);
     if (responseValid == 0 && requestValid == 0 && started);
     action
 `ifdef BSIM
-      $fdisplay(file, "SPI send: %h", msg);
+      $fdisplay(file, "[%d] SPI send: %h", cycle, msg);
       responseValid <= 8'hFF;
       responseBuffer <= 8'hFF;
 `else
@@ -100,8 +106,23 @@ module mkSPI(SPI);
     return responseBuffer;
   endmethod
 
-  method setClk = maxPhase._write;
-  method setCS = cs._write;
+  method Action setClk(Bit#(32) clk);
+    action
+      maxPhase <= clk;
+`ifdef BSIM
+      $fdisplay(file, "[%d] CLK set: %d", cycle, clk);
+`endif
+    endaction
+  endmethod
+
+  method Action setCS(Bit#(1) b);
+    action
+      cs <= b;
+`ifdef BSIM
+      $fdisplay(file, "[%d] CS set: %b", cycle, b);
+`endif
+    endaction
+  endmethod
 
   interface SdCardFab fabric;
     method clk = sclk;

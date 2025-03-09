@@ -246,7 +246,16 @@ module mkPipelinePFifoBig(Fifo#(n, t)) provisos(Bits#(t, size_t));
   PReg#(2, Bool) empty <- mkPReg(True);
   PReg#(2, Bool) full <- mkPReg(False);
 
+  RWire#(Bit#(TLog#(n))) updateIdx <- mkRWire();
+  RWire#(t) updateVal <- mkRWire();
+
   Bit#(TLog#(n)) max_index = fromInteger(valueOf(n) - 1);
+
+  rule register_file_update
+    if (updateIdx.wget matches tagged Valid .idx &&&
+    updateVal.wget matches tagged Valid .val);
+    data.upd(idx, val);
+  endrule
 
   method canDeq = !empty[0];
 
@@ -269,7 +278,8 @@ module mkPipelinePFifoBig(Fifo#(n, t)) provisos(Bits#(t, size_t));
   method Action enq(t val) if (!full[1]);
     let next_nextP = (nextP[0] == max_index ? 0 : nextP[0] + 1);
 
-    data.upd(nextP[0], val);
+    updateIdx.wset(nextP[0]);
+    updateVal.wset(val);
     empty[1] <= False;
     nextP[0] <= next_nextP;
 

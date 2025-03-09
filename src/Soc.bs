@@ -42,58 +42,48 @@ mkCPU = module
   wr_port <- mkWrAXI4_Master Pipeline
   rd_port <- mkRdAXI4_Master Pipeline
 
-  --tx_uart :: TxUART <- mkTxUART 217
-
-  led_output :: Reg (Bit 8) <- mkReg 0
   icache <- mkDefaultBCache
 
-  --testMSHR <- mkTestMSHR;
-
-  --mkConnection dcache.mem_read rd_port.server
-  --mkConnection dcache.mem_write wr_port.server
-
   core <- mkCoreOOO
-  --core_d_wr <- mkAXI4_Lite_WrAXI4_Master_Adapter core.wr_dmem 4'b0
-  --core_d_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_dmem 4'b0
-  --core_i_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_imem 4'b1
   mkConnection icache.cpu_read core.rd_imem
   let core_i_rd = icache.mem_read
-
-  --mkConnection dcache.cpu_read core.rd_dmem
-  --mkConnection dcache.cpu_write core.wr_dmem
 
   let alloc_size :: Integer = 0x3d6f -- 32'h800 -- 32'h660 -- 32'h23000
   let offset :: Bit 32 = 32'h80000000
   let is_vga :: Bit 32 -> Bool = \x -> x >= 32'h40000000 && x < 32'h50000000
   let is_btn :: Bit 32 -> Bool = \x -> x == 32'h20000000
   let is_sdcard :: Bit 32 -> Bool = \x -> x == 32'h50000000
+  let is_clint :: Bit 32 -> Bool = \x -> x >= 32'h30000000 && x < 32'h3000C000
 
   rom <- mkRom (RomConfig{name="Mem.hex"; start=offset; size=alloc_size; maxPhase=0})
-  sdcard <- mkSdCard 32'h50000000
+  clint <- mkCLINT_AXI4_Lite 32'h30000000
   vga <- mkVGA_AXI4_Lite 32'h40000000
+  sdcard <- mkSdCard 32'h50000000
   uart <- mkUART 32'h10000000
   btn <- mkBtn 32'h20000000
 
   let rd_masters_lite :: Vector 1 (RdAXI4_Lite_Master 32 4) = core.rd_mmio :> nil
   let wr_masters_lite :: Vector 1 (WrAXI4_Lite_Master 32 4) = core.wr_mmio :> nil
 
-  let rd_slaves_lite :: Vector 4 (RdAXI4_Lite_Slave 32 4) =
+  let rd_slaves_lite :: Vector 5 (RdAXI4_Lite_Slave 32 4) =
         uart.axi4.read :> vga.axi4.read :> btn.axi4.read
-        :> sdcard.axi4.read :> nil
-  let wr_slaves_lite :: Vector 4 (WrAXI4_Lite_Slave 32 4) =
+        :> clint.read :> sdcard.axi4.read :> nil
+  let wr_slaves_lite :: Vector 5 (WrAXI4_Lite_Slave 32 4) =
         uart.axi4.write :> vga.axi4.write :> btn.axi4.write
-        :> sdcard.axi4.write :> nil
+        :> clint.write :> sdcard.axi4.write :> nil
 
-  let rdReqLiteDispatch :: AXI4_Lite_RRequest 32 -> Bit 2 =
+  let rdReqLiteDispatch :: AXI4_Lite_RRequest 32 -> Bit 3 =
         \ req -> if req.addr == 32'h10000000 then 0 else
         if is_vga req.addr then 1 else
         if is_btn req.addr then 2 else
-        if is_sdcard req.addr then 3 else 0
-  let wrReqLiteDispatch :: AXI4_Lite_WRequest 32 4 -> Bit 2 =
+        if is_clint req.addr then 3 else
+        if is_sdcard req.addr then 4 else 0
+  let wrReqLiteDispatch :: AXI4_Lite_WRequest 32 4 -> Bit 3 =
         \ req -> if req.addr == 32'h10000000 then 0 else
         if is_vga req.addr then 1 else
         if is_btn req.addr then 2 else
-        if is_sdcard req.addr then 3 else 0
+        if is_clint req.addr then 3 else
+        if is_sdcard req.addr then 4 else 0
 
   mkXBarRdAXI4_Lite rd_masters_lite rd_slaves_lite rdReqLiteDispatch
   mkXBarWrAXI4_Lite wr_masters_lite wr_slaves_lite wrReqLiteDispatch
@@ -109,12 +99,6 @@ mkCPU = module
   let wrReqDispatch :: AXI4_AWRequest 4 32 -> Bit 1 =
         \ req -> if req.addr < offset || req.addr >= offset + fromInteger alloc_size then 1 else 0
 
-  -- let rd_slaves :: Vector 1 (RdAXI4_Slave 4 32 4) = rom.read :> nil
-  -- let wr_slaves :: Vector 1 (WrAXI4_Slave 4 32 4) = rom.write :> nil
-
-  -- let rdReqDispatch :: AXI4_RRequest 4 32 -> Bit 0 = _
-  -- let wrReqDispatch :: AXI4_AWRequest 4 32 -> Bit 0 = _
-
   mkXBarRdAXI4 rd_masters rd_slaves rdReqDispatch
   mkXBarWrAXI4 wr_masters wr_slaves wrReqDispatch
 
@@ -129,7 +113,12 @@ mkCPU = module
 
     "set ids": when True ==> do
       icache.setID 0
-      --dcache.setID 1
+
+    "clint timer interrupt": when True ==> do
+      core.set_mtip(clint.timer_interrupt)
+
+    "clint software interrupt": when True ==> do
+      core.set_msip(clint.software_interrupt)
 
   interface
     sdcard_fab = sdcard.fabric
@@ -147,7 +136,7 @@ mkCPU_SIM = module
   --dcache :: DCache <- mkDCache
   icache <- mkDefaultBCache
 
-  core <- mkCore
+  core <- mkCoreOOO
   --core_i_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_imem 4'b1
   mkConnection icache.cpu_read core.rd_imem
   let core_i_rd = icache.mem_read
