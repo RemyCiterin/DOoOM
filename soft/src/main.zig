@@ -116,9 +116,20 @@ pub export fn kernel_main() callconv(.C) void {
     var buf = kalloc.alloc(u8, 512) catch unreachable;
     defer buf.free();
 
-    for (0..50) |i| {
+    for (0..15) |i| {
         logger.info("block: {}", .{i});
         SdCard.readBlock(i, buf) catch unreachable;
+    }
+
+    const addresses = [_]u32{
+        63000000000 / 512,
+        64000000000 / 512,
+        65000000000 / 512,
+    };
+
+    for (addresses) |id| {
+        logger.info("block: {}", .{id});
+        SdCard.readBlock(id, buf) catch unreachable;
     }
 
     while (true) {}

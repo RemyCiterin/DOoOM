@@ -10,8 +10,30 @@ const Clk: *volatile u8 = @ptrFromInt(Config.sdcard_base + 2);
 
 var buffer: [512]u8 linksection(".bss") = undefined;
 
-const boot_time: usize = 25000000;
+const boot_time: usize = 1000000;
 const timeout: usize = 1000;
+
+const CRC16 = struct {
+    crc: u16,
+
+    const Self = @This();
+
+    fn step(self: *Self, data: u8) void {
+        self.crc = (self.crc >> 8) | (self.crc << 8);
+        self.crc ^= @intCast(data);
+        self.crc ^= (self.crc & 0xFF) >> 4;
+        self.crc ^= self.crc << 12;
+        self.crc ^= (self.crc & 0xFF) << 5;
+    }
+
+    pub fn compute(buf: []u8) Self {
+        var self = Self{ .crc = 0 };
+
+        for (buf) |x| self.step(x);
+
+        return self;
+    }
+};
 
 const SdError = error{
     // We reach the timeout for reading a response from the SD card
@@ -21,11 +43,15 @@ const SdError = error{
 };
 
 pub fn disable() void {
+    _ = send(0xFF);
     CS.* = 1;
+    _ = send(0xFF);
 }
 
 pub fn enable() void {
+    _ = send(0xFF);
     CS.* = 0;
+    _ = send(0xFF);
 }
 
 pub const Response1 = packed struct(u8) {
@@ -79,6 +105,9 @@ pub fn sendCmd(cmd: u8, arg: u32, crc: u8) SdError!u8 {
 }
 
 pub fn sendCmd0() SdError!void {
+    enable();
+    defer disable();
+
     const result: Response1 = @bitCast(try sendCmd(0, 0, 0x95));
 
     logger.info("Cmd0:", .{});
@@ -89,6 +118,9 @@ pub fn sendCmd0() SdError!void {
 }
 
 pub fn sendCmd8() SdError!void {
+    enable();
+    defer disable();
+
     var results: [10]u8 = undefined;
     results[0] = try sendCmd(8, 0x01AA, 0x87);
 
@@ -101,6 +133,9 @@ pub fn sendCmd8() SdError!void {
 }
 
 pub fn sendCmd41() SdError!void {
+    enable();
+    defer disable();
+
     var idle: bool = true;
     var index: usize = 0;
 
@@ -130,6 +165,9 @@ pub fn sendCmd41() SdError!void {
 }
 
 pub fn sendCmd58() SdError!void {
+    enable();
+    defer disable();
+
     var res: [6]u8 = undefined;
     res[0] = @bitCast(try sendCmd(58, 0, 0));
 
@@ -137,6 +175,15 @@ pub fn sendCmd58() SdError!void {
         res[i] = send(0xFF);
 
     logger.info("cmd58: {any}", .{res});
+}
+
+pub fn sendCmd16() SdError!void {
+    enable();
+    defer disable();
+
+    const response: Response1 = @bitCast(try sendCmd(16, 512, 0));
+    logger.info("Cmd16:", .{});
+    response.log();
 }
 
 pub fn initInternal() SdError!void {
@@ -168,9 +215,15 @@ pub fn initInternal() SdError!void {
 
     try sendCmd41();
 
+    Clk.* = 0;
+
     logger.info("send command 58", .{});
 
     try sendCmd58();
+
+    logger.info("send command 16", .{});
+
+    try sendCmd16();
 }
 
 pub fn init() void {
@@ -192,6 +245,9 @@ pub fn init() void {
 pub fn readBlock(block_id: u32, buf: []u8) SdError!void {
     if (buf.len < 512) @panic("The buffer length must be >= 512");
 
+    enable();
+    defer disable();
+
     logger.info("send comand 17:", .{});
 
     const response = try sendCmd(17, block_id, 0);
@@ -201,8 +257,8 @@ pub fn readBlock(block_id: u32, buf: []u8) SdError!void {
         const res: u8 = send(0xFF);
 
         if (res < 0x10) {
-            UART.writer.print("0{x}", .{send(0xFF)}) catch unreachable;
-        } else UART.writer.print("{x}", .{send(0xFF)}) catch unreachable;
+            UART.writer.print("0{x}", .{res}) catch unreachable;
+        } else UART.writer.print("{x}", .{res}) catch unreachable;
     }
     UART.writer.print("\n", .{}) catch unreachable;
 
