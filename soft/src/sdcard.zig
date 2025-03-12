@@ -243,40 +243,32 @@ pub fn init() void {
 }
 
 pub fn readBlock(block_id: u32, buf: []u8) SdError!void {
-    if (buf.len < 512) @panic("The buffer length must be >= 512");
+    if (buf.len != 512) @panic("The buffer length must be >= 512");
 
     enable();
     defer disable();
 
-    logger.info("send comand 17:", .{});
+    logger.debug("send comand 17:", .{});
 
-    const response = try sendCmd(17, block_id, 0);
-    logger.info("    {}", .{response});
+    var response = try sendCmd(17, block_id, 0);
+    logger.debug("    {}", .{response});
 
-    for (0..550) |_| {
-        const res: u8 = send(0xFF);
-
-        if (res < 0x10) {
-            UART.writer.print("0{x}", .{res}) catch unreachable;
-        } else UART.writer.print("{x}", .{res}) catch unreachable;
+    response = 0xFF;
+    var index: usize = 0;
+    while (response == 0xFF) : (index += 1) {
+        if (index >= timeout) return error.Timeout;
+        response = send(0xFF);
     }
-    UART.writer.print("\n", .{}) catch unreachable;
 
-    // response = 0xFF;
-    // var index: usize = 0;
-    // while (response == 0xFF) : (index += 1) {
-    //     if (index >= timeout) return error.Timeout;
-    //     response = send(0xFF);
-    // }
+    if (response != 0xFE)
+        return error.Invalid;
 
-    // if (response != 0xFE)
-    //     return error.Invalid;
+    for (0..512) |i|
+        buf[i] = send(0xFF);
 
-    // for (0..512) |i|
-    //     buf[i] = send(0xFF);
+    var crc: u16 = @as(u16, @intCast(send(0xFF))) << 8;
+    crc |= @intCast(send(0xFF));
 
-    // _ = send(0xFF);
-    // _ = send(0xFF);
-
-    // for (buf) |c| logger.info("{x}", .{c});
+    if (crc != CRC16.compute(buf[0..512]).crc)
+        return error.Invalid;
 }

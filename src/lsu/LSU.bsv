@@ -17,6 +17,9 @@ import BCache :: *;
 import Vector :: *;
 
 interface LSU;
+  // Receive an invalidation request from the CPU
+  method Action invalidate(Bit#(32) addr);
+
   // Add a new entry in the issue queue
   method Action enq(IssueQueueEntry entry);
 
@@ -65,6 +68,8 @@ module mkLSU(LSU);
 
   let cache <- mkDefaultBCache();
 
+  Fifo#(1, void) invalidateQ <- mkPipelineFifo;
+
   Fifo#(4, AXI4_Lite_RRequest#(32)) rrequestQ <- mkBypassFifo;
   Fifo#(4, AXI4_Lite_WRequest#(32, 4)) wrequestQ <- mkBypassFifo;
   Fifo#(4, AXI4_Lite_RResponse#(4)) rresponseQ <- mkPipelineFifo;
@@ -84,6 +89,11 @@ module mkLSU(LSU);
   Bool loadBlocked =
     stb.search(loadAddr).found ||
     storeQ.search(loadAddr, loadIQ.issueEpoch, loadIQ.issueAge).found;
+
+  rule invalidateAck;
+    invalidateQ.deq();
+    cache.invalidateAck();
+  endrule
 
   rule enqRdCache if (!isMMIO(rrequestQ.first.addr));
     let req <- toGet(rrequestQ).get;
@@ -238,8 +248,13 @@ module mkLSU(LSU);
     end
   endmethod
 
-  method Action emptySTB() if (stb.empty());
+  method Action emptySTB() if (stb.empty() && invalidateQ.canEnq);
     noAction;
+  endmethod
+
+  method Action invalidate(Bit#(32) addr);
+    cache.invalidate(addr);
+    invalidateQ.enq(?);
   endmethod
 
   interface RdAXI4_Lite_Master rd_mmio;

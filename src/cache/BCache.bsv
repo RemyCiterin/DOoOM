@@ -83,11 +83,12 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
   Reg#(Bit#(32)) numHit <- mkReg(0);
   Reg#(Bit#(32)) numMis <- mkReg(0);
 
-  function Action doMiss(Bit#(wayW) way, Bit#(tagW) tag, BCacheOp op, Bit#(32) data, Bit#(4) mask);
+  function Action doMiss(
+      Bit#(wayW) way, Bit#(tagW) tag, BCacheOp op, Bit#(32) data, Bit#(4) mask);
     action
       tagRam.write(index, update(tagRam.response(), way, tag));
-      validRam.write(index, update(validRam.response(), way, True));
       dirtyRam.write(index, update(dirtyRam.response(), way, op == Write));
+      validRam.write(index, update(validRam.response(), way, op != Invalidate));
       let tmp = info;
       tmp.data = data;
       tmp.mask = mask;
@@ -177,9 +178,12 @@ module mkBCacheCore(BCacheCore#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offse
             doMiss(way, t, op, data, mask);
             wrAXI4.releaseBlock({tag, index, 0}, {way, index, 0});
             state[0] <= Release;
+          end else begin
+            validRam.write(index, update(validRam.response(), way, False));
           end
         endcase
-
+      end else if (op == Invalidate) begin
+        state[0] <= Idle;
       end else if (dirty && valid) begin
         doMiss(way, t, op, data, mask);
         wrAXI4.releaseBlock({tag, index, 0}, {way, index, 0});

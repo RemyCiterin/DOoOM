@@ -35,6 +35,8 @@ interface DMEM_IFC;
   // write operations
   method Action commit(Bool must_commit);
 
+  method Action invalidate(Bit#(32) addr);
+
   (* always_ready, always_enabled *)
   method Bool emptySTB;
 endinterface
@@ -226,6 +228,7 @@ module mkDMEM(DMEM_IFC);
   interface rd_mmio = dmem.rd_mmio;
   interface wr_mmio = dmem.wr_mmio;
   method emptySTB = dmem.emptySTB;
+  method invalidate = dmem.invalidate;
 endmodule
 
 

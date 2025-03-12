@@ -26,6 +26,9 @@ interface DMEM_Controller;
   // reveive a read response from the speculative memory controller
   method ActionValue#(Bit#(32)) rresponse;
 
+  // Receive an invalidation request from the CPU
+  method Action invalidate(Bit#(32) addr);
+
   interface WrAXI4_Lite_Master#(32, 4) wr_mmio;
   interface RdAXI4_Lite_Master#(32, 4) rd_mmio;
   interface WrAXI4_Master#(4, 32, 4) wr_dmem;
@@ -56,6 +59,8 @@ module mkMiniSTB(DMEM_Controller);
   Fifo#(1, AXI4_Lite_RResponse#(4)) rresponseQ <- mkPipelineFifo;
 
   let cache <- mkDefaultBCache();
+
+  Fifo#(1, void) invalidateQ <- mkPipelineFifo;
 
   Fifo#(4, Bool) isStoreMMIO <- mkPipelineFifo;
   Fifo#(4, Bool) isLoadMMIO <- mkPipelineFifo;
@@ -125,6 +130,11 @@ module mkMiniSTB(DMEM_Controller);
     cache.setID(1);
   endrule
 
+  rule invalidateAck;
+    cache.invalidateAck();
+    invalidateQ.deq();
+  endrule
+
   rule write_response;
     let _ <- deqStore();
     stb.deq;
@@ -182,6 +192,11 @@ module mkMiniSTB(DMEM_Controller);
     endaction
   endmethod
 
+  method Action invalidate(Bit#(32) addr);
+    cache.invalidate(addr);
+    invalidateQ.enq(?);
+  endmethod
+
   interface WrAXI4_Lite_Master wr_mmio;
     interface request = toGet(wrequestQ);
     interface response = toPut(wresponseQ);
@@ -195,5 +210,5 @@ module mkMiniSTB(DMEM_Controller);
   interface rd_dmem = cache.mem_read;
   interface wr_dmem = cache.mem_write;
 
-  method Bool emptySTB = !stb.canDeq;
+  method Bool emptySTB = !stb.canDeq && invalidateQ.canEnq;
 endmodule

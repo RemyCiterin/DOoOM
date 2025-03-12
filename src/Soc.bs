@@ -42,11 +42,8 @@ mkCPU = module
   wr_port <- mkWrAXI4_Master Pipeline
   rd_port <- mkRdAXI4_Master Pipeline
 
-  icache <- mkDefaultBCache
-
   core <- mkCoreOOO
-  mkConnection icache.cpu_read core.rd_imem
-  let core_i_rd = icache.mem_read
+  let core_i_rd = core.rd_imem
 
   let alloc_size :: Integer = 0x3d6f -- 32'h800 -- 32'h660 -- 32'h23000
   let offset :: Bit 32 = 32'h80000000
@@ -111,9 +108,6 @@ mkCPU = module
       core.set_meip(True)
       btn.interrupt
 
-    "set ids": when True ==> do
-      icache.setID 0
-
     "clint timer interrupt": when True ==> do
       core.set_mtip(clint.timer_interrupt)
 
@@ -134,12 +128,9 @@ mkCPU = module
 mkCPU_SIM :: Module Empty
 mkCPU_SIM = module
   --dcache :: DCache <- mkDCache
-  icache <- mkDefaultBCache
 
   core <- mkCoreOOO
-  --core_i_rd <- mkAXI4_Lite_RdAXI4_Master_Adapter core.rd_imem 4'b1
-  mkConnection icache.cpu_read core.rd_imem
-  let core_i_rd = icache.mem_read
+  let core_i_rd = core.rd_imem
 
   let alloc_size :: Integer = 33 * 1024 * 1024 -- maxBound
   let offset :: Bit 32 = 32'h80000000
@@ -222,7 +213,3 @@ mkCPU_SIM = module
 
     "clint software interrupt": when True ==> do
       core.set_msip(clint.software_interrupt)
-
-    "set ids": when True ==> do
-      icache.setID 0
-      --dcache.setID 1

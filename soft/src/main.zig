@@ -41,6 +41,20 @@ pub const std_options = .{
     .logFn = log,
 };
 
+// Log informations provided by the kernel. As example:
+// ```zig
+//  const logger = std.log.scoped(.my_scope);
+//
+//  pub fn foo() void {
+//      // visible at runtime
+//      logger.info("run foo {}", .{42});
+//  }
+//
+//  pub fn bar() void {
+//      // visible only in debug mode
+//      logger.debug("run bar", .{});
+//  }
+// ```
 pub fn log(
     comptime level: std.log.Level,
     comptime scope: @TypeOf(.EnumLiteral),
@@ -93,7 +107,7 @@ pub export fn handler(manager: *Manager) callconv(.C) void {
     }
 }
 
-pub export fn kernel_main() callconv(.C) void {
+pub export fn kernel_main() align(16) callconv(.C) void {
     const logger = std.log.scoped(.kernel);
     logger.info("=== Start DOoOM ===", .{});
 
@@ -112,182 +126,123 @@ pub export fn kernel_main() callconv(.C) void {
     var kernel_fba = std.heap.FixedBufferAllocator.init(kalloc_buffer[0..kalloc_len]);
     kalloc = kernel_fba.allocator();
 
-    SdCard.init();
-    var buf = kalloc.alloc(u8, 512) catch unreachable;
-    defer buf.free();
+    var user_fba = std.heap.FixedBufferAllocator.init(kalloc_buffer[kalloc_len..]);
+    var user_alloc = UserAlloc.init(user_fba.allocator());
+    malloc = user_alloc.allocator();
 
-    for (0..15) |i| {
-        logger.info("block: {}", .{i});
-        SdCard.readBlock(i, buf) catch unreachable;
+    var manager = Manager.init(kalloc);
+    _ = manager.new(@intFromPtr(&user_main), 4096, &malloc) catch unreachable;
+
+    RV.mstatus.modify(.{ .MPIE = 1 });
+    RV.mie.modify(.{ .MEIE = 1, .MTIE = 1 });
+
+    Clint.setNextTimerInterrupt();
+
+    while (true) {
+        manager.run();
+        handler(&manager);
     }
 
-    const addresses = [_]u32{
-        63000000000 / 512,
-        64000000000 / 512,
-        65000000000 / 512,
-    };
+    @panic("unreachable");
+}
 
-    for (addresses) |id| {
-        logger.info("block: {}", .{id});
-        SdCard.readBlock(id, buf) catch unreachable;
+pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
+    const logger = std.log.scoped(.user);
+
+    logger.info("Binary Search:", .{});
+    for (1..11) |i| {
+        const size = 10 * i;
+        var bench = Bench.BinarySearch.init(alloc.*, size) catch unreachable;
+        Bench.measure(size, &bench);
+        bench.free();
+    }
+
+    logger.info("Linked List:", .{});
+    for (1..11) |i| {
+        const size = 10 * i;
+        var bench = Bench.LinkedList.init(alloc.*, size);
+        _ = Bench.measure(size, &bench) catch unreachable;
+    }
+
+    logger.info("Fibo:", .{});
+    for (1..11) |i| {
+        const size = 10 * i;
+        var bench = Bench.Fibo.init(size);
+        const fibo = Bench.measure(size, &bench);
+        //logger.info("fibo({}) = {}", .{ size, fibo });
+        _ = fibo;
+    }
+
+    logger.info("Fibo Recursive:", .{});
+    for (1..11) |i| {
+        const size = 2 * i;
+        var bench = Bench.FiboRec.init(size);
+        const fibo = Bench.measure(size, &bench);
+        //logger.info("fibo({}) = {}", .{ size, fibo });
+        _ = fibo;
+    }
+
+    logger.info("ALU latency:", .{});
+    for (1..11) |i| {
+        const size = 10 * i;
+        var bench = Bench.LatencyALU.init(size);
+        const output = Bench.measure(size, &bench);
+        _ = output;
+    }
+
+    logger.info("ALU bandwidth:", .{});
+    for (1..11) |i| {
+        const size = 10 * i;
+        var bench = Bench.BandwidthALU.init(size);
+        const output = Bench.measure(size, &bench);
+        _ = output;
+    }
+
+    logger.info("LSU latency:", .{});
+    for (1..11) |i| {
+        const size = 10 * i;
+        var bench = Bench.LatencyLSU.init(size);
+        const output = Bench.measure(size, &bench);
+        _ = output;
+    }
+
+    logger.info("LSU bandwidth:", .{});
+    for (1..11) |i| {
+        const size = 10 * i;
+        var bench = Bench.BandwidthLSU.init(size);
+        const output = Bench.measure(size, &bench);
+        _ = output;
+    }
+
+    logger.info("Merge Sort:", .{});
+    for (1..11) |i| {
+        const size = 10 * i;
+        var bench = Bench.Sort.init(alloc.*, size) catch unreachable;
+        Bench.measure(size, &bench);
+        bench.free();
+    }
+
+    logger.info("Matrix Multiplication:", .{});
+    for (1..11) |i| {
+        const size = 2 * i;
+        var bench = Bench.MatrixMult.init(alloc.*, size) catch unreachable;
+        Bench.measure(size, &bench);
+        bench.free();
+    }
+
+    if (pid == 0) {
+        var pixel = Screen.Pixel{ .red = 0b111 };
+        pixel.fill();
+
+        pixel = .{ .blue = 0b01, .green = 0b011 };
+        pixel.fillRectangle(101, 100, 137, 200);
+
+        pixel = .{ .blue = 0b11, .green = 0b111 };
+
+        pixel.drawRectangle(101, 100, 137, 200);
+        pixel.drawRectangle(102, 101, 136, 199);
+        pixel.drawRectangle(103, 102, 135, 198);
     }
 
     while (true) {}
-
-    //var user_fba = std.heap.FixedBufferAllocator.init(kalloc_buffer[kalloc_len..]);
-    //var user_alloc = UserAlloc.init(user_fba.allocator());
-    //malloc = user_alloc.allocator();
-
-    //var manager = Manager.init(kalloc);
-    //_ = manager.new(@intFromPtr(&user_main), 4096, &malloc) catch unreachable;
-
-    //RV.mstatus.modify(.{ .MPIE = 1 });
-    //RV.mie.modify(.{ .MEIE = 1, .MTIE = 1 });
-
-    //Clint.setNextTimerInterrupt();
-
-    //while (true) {
-    //    manager.run();
-    //    handler(&manager);
-    //}
-
-    //@panic("unreachable");
 }
-
-pub var measureLock = Spinlock{};
-
-pub fn measure(
-    logger: anytype,
-    pid: usize,
-    func: anytype,
-    args: anytype,
-) @TypeOf(@call(.auto, func, args)) {
-    var cycle = RV.mcycle.read();
-    var instret = RV.minstret.read();
-    const output = @call(.auto, func, args);
-    instret = RV.minstret.read() - instret;
-    cycle = RV.mcycle.read() - cycle;
-
-    measureLock.lock();
-    defer measureLock.unlock();
-
-    logger.info("pid: {} cycle: {} instret: {}", .{ pid, cycle, instret });
-
-    return output;
-}
-
-//pub fn syscall0(index: usize) void {
-//    if (index <= 4) return Syscall.yield();
-//    Syscall.exec(@intFromPtr(&user_main), 512, null);
-//}
-
-//pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
-//    const logger = std.log.scoped(.user);
-//
-//    measureLock.lock();
-//    logger.info("Binary Search:", .{});
-//    for (1..11) |i| {
-//        const size = 10 * i;
-//        var bench = Bench.BinarySearch.init(alloc.*, size) catch unreachable;
-//        Bench.measure(size, &bench);
-//        bench.free();
-//    }
-//
-//    logger.info("Linked List:", .{});
-//    for (1..11) |i| {
-//        const size = 10 * i;
-//        var bench = Bench.LinkedList.init(alloc.*, size);
-//        _ = Bench.measure(size, &bench) catch unreachable;
-//    }
-//
-//    logger.info("Fibo:", .{});
-//    for (1..11) |i| {
-//        const size = 10 * i;
-//        var bench = Bench.Fibo.init(size);
-//        const fibo = Bench.measure(size, &bench);
-//        //logger.info("fibo({}) = {}", .{ size, fibo });
-//        _ = fibo;
-//    }
-//
-//    logger.info("Fibo Recursive:", .{});
-//    for (1..11) |i| {
-//        const size = 2 * i;
-//        var bench = Bench.FiboRec.init(size);
-//        const fibo = Bench.measure(size, &bench);
-//        //logger.info("fibo({}) = {}", .{ size, fibo });
-//        _ = fibo;
-//    }
-//
-//    logger.info("ALU latency:", .{});
-//    for (1..11) |i| {
-//        const size = 10 * i;
-//        var bench = Bench.LatencyALU.init(size);
-//        const output = Bench.measure(size, &bench);
-//        _ = output;
-//    }
-//
-//    logger.info("ALU bandwidth:", .{});
-//    for (1..11) |i| {
-//        const size = 10 * i;
-//        var bench = Bench.BandwidthALU.init(size);
-//        const output = Bench.measure(size, &bench);
-//        _ = output;
-//    }
-//
-//    logger.info("LSU latency:", .{});
-//    for (1..11) |i| {
-//        const size = 10 * i;
-//        var bench = Bench.LatencyLSU.init(size);
-//        const output = Bench.measure(size, &bench);
-//        _ = output;
-//    }
-//
-//    logger.info("LSU bandwidth:", .{});
-//    for (1..11) |i| {
-//        const size = 10 * i;
-//        var bench = Bench.BandwidthLSU.init(size);
-//        const output = Bench.measure(size, &bench);
-//        _ = output;
-//    }
-//
-//    logger.info("Merge Sort:", .{});
-//    for (1..11) |i| {
-//        const size = 10 * i;
-//        var bench = Bench.Sort.init(alloc.*, size) catch unreachable;
-//        Bench.measure(size, &bench);
-//        bench.free();
-//    }
-//
-//    //logger.info("Matrix Multiplication:", .{});
-//    //for (1..11) |i| {
-//    //    const size = 2 * i;
-//    //    var bench = Bench.MatrixMult.init(alloc.*, size) catch unreachable;
-//    //    Bench.measure(size, &bench);
-//    //    bench.free();
-//    //}
-//    measureLock.unlock();
-//
-//    if (pid == 0) {
-//        var pixel = Screen.Pixel{ .red = 0b111 };
-//        measure(logger, pid, Screen.Pixel.fill, .{pixel});
-//
-//        pixel = .{ .blue = 0b01, .green = 0b011 };
-//        pixel.fillRectangle(101, 100, 137, 200);
-//
-//        pixel = .{ .blue = 0b11, .green = 0b111 };
-//
-//        pixel.drawRectangle(101, 100, 137, 200);
-//        pixel.drawRectangle(102, 101, 136, 199);
-//        pixel.drawRectangle(103, 102, 135, 198);
-//    }
-//
-//    try UART.writer.print("ready to fence?", .{});
-//    asm volatile ("fence" ::: "memory");
-//
-//    var index: usize = 0;
-//    while (true) : (index += 1) {
-//        measure(logger, pid, syscall0, .{index});
-//    }
-//
-//    while (true) {}
-//}

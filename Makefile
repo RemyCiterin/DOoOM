@@ -54,8 +54,8 @@ svg:
 	$(foreach f, $(DOT_FILES), dot -Tsvg $(f) > $(f:.dot=.svg);)
 
 test:
-	elf_to_hex/elf_to_hex soft/zig-out/bin/zig-unix.elf Mem.hex
-	riscv32-none-elf-objdump soft/zig-out/bin/zig-unix.elf -D \
+	elf_to_hex/elf_to_hex soft/zig-out/bin/bootloader.elf Mem.hex
+	riscv32-none-elf-objdump soft/zig-out/bin/bootloader.elf -D \
 		> soft/firmware.asm
 
 test_coremark:
@@ -83,6 +83,18 @@ sim:
 
 run:
 	./bsim/bsim -m 1000000000
+
+# Load the binary in the SD card
+load:
+	riscv32-none-elf-objcopy -O binary ./soft/zig-out/bin/kernel.elf build/kernel
+	sudo dd if=build/kernel of=/dev/sdf
+	sync
+
+# Load the binary in the SD card
+load_coremark:
+	riscv32-none-elf-objcopy -O binary ./coremark/coremark.bare.riscv build/kernel
+	sudo dd if=build/kernel of=/dev/sdf
+	sync
 
 
 yosys:

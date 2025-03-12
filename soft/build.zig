@@ -5,10 +5,6 @@ const config = @import("src/config.zig").config;
 
 const XLEN = 32;
 
-const start_file = "src/main.zig";
-
-const linker_file = "src/linker.ld";
-
 const Command = struct {
     allocator: std.mem.Allocator,
 
@@ -48,27 +44,44 @@ pub fn build(b: *std.Build) !void {
     const target = std.Target.Query{
         .cpu_arch = Target.Cpu.Arch.riscv32,
         .cpu_model = .{ .explicit = &Target.riscv.cpu.generic_rv32 },
-        .cpu_features_add = Target.riscv.featureSet(&[_]Feature{.m}),
+        .cpu_features_add = Target.riscv.featureSet(&[_]Feature{
+            .m,
+            .zicbom,
+        }),
         .os_tag = .freestanding,
         .abi = .none, // .eabi
     };
 
     const optimize = b.standardOptimizeOption(.{}); // .ReleaseSmall;
+    const optimizeSmall = b.standardOptimizeOption(.{
+        .preferred_optimize_mode = .ReleaseSmall,
+    }); // .ReleaseSmall;
 
     const exe = b.addExecutable(.{
-        .name = "zig-unix.elf",
-        .root_source_file = .{ .path = start_file },
+        .name = "kernel.elf",
+        .root_source_file = .{ .path = "src/main.zig" },
         .target = b.resolveTargetQuery(target),
         .optimize = optimize,
     });
 
+    const bootloader = b.addExecutable(.{
+        .name = "bootloader.elf",
+        .root_source_file = .{ .path = "src/boot.zig" },
+        .target = b.resolveTargetQuery(target),
+        .optimize = optimizeSmall,
+    });
+
     exe.addAssemblyFile(.{ .path = "src/trampoline.s" });
-    exe.addAssemblyFile(.{ .path = "src/bootloader.S" });
-    exe.addAssemblyFile(.{ .path = "src/init.s" });
+    exe.addAssemblyFile(.{ .path = "src/init.S" });
+
+    bootloader.addAssemblyFile(.{ .path = "src/trampoline.s" });
+    bootloader.addAssemblyFile(.{ .path = "src/init.S" });
 
     //exe.code_model = .medium;
 
-    exe.setLinkerScriptPath(.{ .path = linker_file });
+    exe.setLinkerScriptPath(.{ .path = "src/linker_kernel.ld" });
+    bootloader.setLinkerScriptPath(.{ .path = "src/linker_boot.ld" });
 
     b.installArtifact(exe);
+    b.installArtifact(bootloader);
 }

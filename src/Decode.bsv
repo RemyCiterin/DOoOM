@@ -495,9 +495,7 @@ typedef union tagged {
   void SRAI;
   void FENCE;
   void FENCE_I;
-  void CBO_CLEAN;
-  void CBO_FLUSH;
-  void CBO_INVAL;
+  void CBO;
   void ECALL;
   void EBREAK;
   void CSRRW;
@@ -546,9 +544,7 @@ instance FShow#(IOp);
       SRAI : fshow("srai");
       FENCE : fshow("fence");
       FENCE_I : fshow("fence.i");
-      CBO_CLEAN : fshow("cbo.clean");
-      CBO_FLUSH : fshow("cbo.flush");
-      CBO_INVAL : fshow("cbo.inval");
+      CBO : fshow("cbo.flush");
       ECALL : fshow("ecall");
       EBREAK : fshow("ebreak");
       CSRRW : fshow("csrrw");
@@ -598,17 +594,16 @@ function Maybe#(IOp) decodeItype(Itype instr);
 
     7'b0001111 :
       if (immediateBits(instr)[11:8] == 0 &&
-          register1(instr).name == 0 &&
           destination(instr).name == 0)
         return
           case (function3(instr))
-            0 : Valid(FENCE);
-            1 : Valid(FENCE_I);
+            0 : register1(instr).name == 0 ? Valid(FENCE) : Invalid;
+            1 : register1(instr).name == 0 ? Valid(FENCE_I) : Invalid;
             2 : begin
               case (immediateBits(instr)[7:0]) matches
-                1 : Valid(CBO_CLEAN);
-                2 : Valid(CBO_FLUSH);
-                0 : Valid(CBO_INVAL);
+                1 : Valid(CBO);
+                2 : Valid(CBO);
+                0 : Valid(CBO);
               endcase
             end
             default : Invalid;
@@ -753,6 +748,7 @@ function Maybe#(RegName) hasDestination(Instr instr);
       tagged Itype {op: FENCE_I} : Invalid;
       tagged Itype {op: ECALL} : Invalid;
       tagged Itype {op: EBREAK} : Invalid;
+      tagged Itype {op: CBO} : Invalid;
       tagged Itype {op: tagged Ret .val} : Invalid;
       tagged Itype {op: WFI} : Invalid;
       tagged Itype {instr: .instr} : Valid(destination(instr));

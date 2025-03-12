@@ -1,11 +1,13 @@
 import Array :: *;
 import AXI4_Lite_Adapter :: *;
 import AXI4_Lite :: *;
+import AXI4 :: *;
 
 import FIFOF :: *;
 import GetPut :: *;
 import SpecialFIFOs :: *;
 
+import BCache :: *;
 import Decode :: *;
 import Utils :: *;
 import CSR :: *;
@@ -79,21 +81,24 @@ endfunction
 
 // {redirect, trainHit, trainMis} < to_RR
 interface FetchDecode;
-  interface Get#(AXI4_Lite_RRequest#(32)) rrequest;
-
   method Action redirect(Bit#(32) next_pc, Epoch next_epoch);
 
   method Action trainHit(BranchPredTrain infos);
   method Action trainMis(BranchPredTrain infos);
 
-  interface Put#(AXI4_Lite_RResponse#(4)) rresponse;
+  interface RdAXI4_Master#(4, 32, 4) imem;
 
   interface Get#(FromDecode) to_RR;
+
+  // Request an invalidation request from the CPU
+  method Action invalidate(Bit#(32) addr);
+  // Ready if all the invalidation request are acknoledge
+  method Action invalidateEmpty();
 endinterface
 
 (* synthesize *)
 module mkFetchDecode(FetchDecode);
-  Fifo#(1, AXI4_Lite_RRequest#(32)) read_request <- mkBypassFifo;
+  let cache <- mkDefaultBCache();
 
   Ehr#(2, Epoch) epoch <- mkEhr(0);
   Ehr#(2, Bit#(32)) current_pc <- mkEhr(32'h80000000);
@@ -102,8 +107,10 @@ module mkFetchDecode(FetchDecode);
 
   let bpred <- mkBranchPred;
 
-  Fifo#(4, AXI4_Lite_RResponse#(4)) read_response <- mkPipelineFifo;
-  Fifo#(3, Maybe#(FetchToDecode)) fetch_to_decode <- mkPipelineFifo;
+  Fifo#(1, void) invalidateQ <- mkPipelineFifo;
+
+  Fifo#(2, AXI4_Lite_RResponse#(4)) rresponseQ <- mkBypassFifo;
+  Fifo#(2, Maybe#(FetchToDecode)) fetch_to_decode <- mkPipelineFifo;
   Fifo#(1, FromDecode) outputs <- mkBypassFifo;
 
   Reg#(Bit#(32)) misCount <- mkReg(0);
@@ -117,10 +124,24 @@ module mkFetchDecode(FetchDecode);
     end
   endrule
 
+  rule setId0;
+    cache.setID(0);
+  endrule
+
+  rule invalidateAck;
+    cache.invalidateAck();
+    invalidateQ.deq();
+  endrule
+
+  rule enqRResponse;
+    let resp <- cache.cpu_read.response.get();
+    rresponseQ.enq(resp);
+  endrule
+
   rule start;
     let pc = current_pc[1];
     bpred.start(pc, epoch[1]);
-    read_request.enq(AXI4_Lite_RRequest{addr: pc});
+    cache.cpu_read.request.put(AXI4_Lite_RRequest{addr: pc});
   endrule
 
   rule deq_bpred_result if (epoch[0] == bpred.predEpoch);
@@ -143,9 +164,9 @@ module mkFetchDecode(FetchDecode);
   endrule
 
   rule decode_step if (fetch_to_decode.first matches tagged Valid .req);
-    let resp = read_response.first;
-    fetch_to_decode.deq;
-    read_response.deq;
+    let resp = rresponseQ.first;
+    fetch_to_decode.deq();
+    rresponseQ.deq();
 
     outputs.enq(decodeFn(req, resp, inum));
     inum <= inum + 1;
@@ -153,7 +174,7 @@ module mkFetchDecode(FetchDecode);
 
   rule decode_ignore_step if (fetch_to_decode.first == Invalid);
     fetch_to_decode.deq;
-    read_response.deq;
+    rresponseQ.deq();
   endrule
 
   method Action redirect(Bit#(32) next_pc, Epoch next_epoch);
@@ -164,11 +185,17 @@ module mkFetchDecode(FetchDecode);
     endaction
   endmethod
 
-  interface rrequest = toGet(read_request);
+  method Action invalidate(Bit#(32) addr);
+    cache.invalidate(addr);
+    invalidateQ.enq(?);
+  endmethod
+
+  method invalidateEmpty = when(invalidateQ.canEnq, noAction);
+
+  interface imem = cache.mem_read;
 
   method trainMis = bpred.trainMis;
   method trainHit = bpred.trainHit;
 
   interface to_RR = toGet(outputs);
-  interface rresponse = toPut(read_response);
 endmodule

@@ -32,7 +32,7 @@ interface Core_IFC;
   interface WrAXI4_Master#(4, 32, 4) wr_dmem;
   interface RdAXI4_Master#(4, 32, 4) rd_dmem;
 
-  interface RdAXI4_Lite_Master#(32, 4) rd_imem;
+  interface RdAXI4_Master#(4, 32, 4) rd_imem;
 
   method Bit#(64) getTime;
 
@@ -249,7 +249,7 @@ module mkCoreOOO(Core_IFC);
     actionvalue
       case (entry.instr) matches
         tagged Itype {instr: .*, op: ECALL} : begin
-          csr.increment_instret;
+          csr.increment_instret();
           return tagged Error{
             cause: ECALL_FROM_M,
             tval: entry.pc
@@ -263,7 +263,14 @@ module mkCoreOOO(Core_IFC);
         end
         tagged Itype {op: FENCE_I} : begin
           csr.increment_instret;
+          fetch.invalidateEmpty();
           return tagged Ok {flush: True, rd_val: 0, next_pc: entry.pc + 4};
+        end
+        tagged Itype {op: CBO} : begin
+          csr.increment_instret;
+          lsu.invalidate(rs1 + immediateBits(entry.instr));
+          fetch.invalidate(rs1 + immediateBits(entry.instr));
+          return tagged Ok {flush: False, rd_val: 0, next_pc: entry.pc + 4};
         end
         tagged Itype {instr: .instr, op: tagged Ret MRET} : begin
           let pc <- csr.mret;
@@ -401,10 +408,7 @@ module mkCoreOOO(Core_IFC);
     $display("hit bpred: %d  mis bpred: %d", hitpred_instr, mispred_instr);
   endrule
 
-  interface RdAXI4_Lite_Master rd_imem;
-    interface request = fetch.rrequest;
-    interface response = fetch.rresponse;
-  endinterface
+  interface rd_imem = fetch.imem;
 
   interface rd_dmem = lsu.rd_dmem;
   interface wr_dmem = lsu.wr_dmem;

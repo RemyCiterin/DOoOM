@@ -68,7 +68,7 @@ interface Core_IFC;
   interface WrAXI4_Lite_Master#(32, 4) wr_mmio;
   interface RdAXI4_Lite_Master#(32, 4) rd_mmio;
 
-  interface RdAXI4_Lite_Master#(32, 4) rd_imem;
+  interface RdAXI4_Master#(4, 32, 4) rd_imem;
 
   method Bit#(64) getTime;
 
@@ -205,8 +205,20 @@ module mkCore(Core_IFC);
           mispredictFn(Invalid, req.pc+4);
           commitFn(True, 0);
         end
+        tagged Itype {op: CBO} : begin
+          let addr = req.rs1_val + immediateBits(req.instr);
+          csr.increment_instret();
+          fetch.invalidate(addr);
+          dmem.invalidate(addr);
+          commitFn(True, 0);
+
+          if (req.predicted_pc != req.pc + 4)
+            mispredictFn(Invalid, req.pc+4);
+          else hitFn();
+        end
         tagged Itype {op: FENCE_I} : begin
           mispredictFn(Invalid, req.pc+4);
+          fetch.invalidateEmpty();
           csr.increment_instret();
           commitFn(True, 0);
         end
@@ -334,10 +346,7 @@ module mkCore(Core_IFC);
       $display("cycle: %d stall: %d", cycle, stall);
   endrule
 
-  interface RdAXI4_Lite_Master rd_imem;
-    interface request = fetch.rrequest;
-    interface response = fetch.rresponse;
-  endinterface
+  interface rd_imem = fetch.imem;
 
   method getTime = timer;
 
