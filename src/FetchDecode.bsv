@@ -101,8 +101,11 @@ module mkFetchDecode(FetchDecode);
   let cache <- mkDefaultBCache();
 
   Ehr#(2, Epoch) epoch <- mkEhr(0);
+`ifdef BSIM
+  Ehr#(2, Bit#(32)) current_pc <- mkEhr(32'h80010000);
+`else
   Ehr#(2, Bit#(32)) current_pc <- mkEhr(32'h80000000);
-
+`endif
   Reg#(INum) inum <- mkReg(0);
 
   let bpred <- mkBranchPred;

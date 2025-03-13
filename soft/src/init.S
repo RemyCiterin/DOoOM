@@ -69,33 +69,10 @@ _reboot:
   li t1, ' '
   sb t1, 0(t0)
 
-  //PRINT_HEX(
-  //  csrr a1, mepc;
-  //  lw a0, 0(a1);
-  //)
-
-  csrr a1, mepc
-  lw a0, 0(a1)
-  li a1, 0xFF000000
-  and a0, a0, a1
-  srli a0, a0, 24
-  call print_byte
-  csrr a1, mepc
-  lw a0, 0(a1)
-  li a1, 0x00FF0000
-  and a0, a0, a1
-  srli a0, a0, 16
-  call print_byte
-  lw a0, 0(a1)
-  li a1, 0x00FF0000
-  li a1, 0x0000FF00
-  and a0, a0, a1
-  srli a0, a0, 8
-  call print_byte
-  lw a0, 0(a1)
-  li a1, 0x00FF0000
-  andi a0, a0, 0x000000FF
-  call print_byte
+  PRINT_HEX(
+    csrr a1, mepc;
+    lw a0, 0(a1);
+  )
 
   li t2, 0x10000000
   la t0, reboot_message2
@@ -146,7 +123,7 @@ reboot_message2:
   .string "***\n"
 
 .section .bss
-.align 16
+.align 4
   .skip 0x1000
 stack_top:
   .skip 0x4

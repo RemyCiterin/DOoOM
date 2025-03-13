@@ -58,6 +58,11 @@ test:
 	riscv32-none-elf-objdump soft/zig-out/bin/bootloader.elf -D \
 		> soft/firmware.asm
 
+kernel:
+	elf_to_hex/elf_to_hex soft/zig-out/bin/kernel.elf Mem.hex
+	riscv32-none-elf-objdump soft/zig-out/bin/kernel.elf -D \
+		> soft/firmware.asm
+
 test_coremark:
 	elf_to_hex/elf_to_hex ./coremark/coremark.bare.riscv Mem.hex
 

@@ -403,15 +403,11 @@ module mkCsrFile#(
 
     Bool interrupts_enabled = mie_field == 1;
 
-    // format pendingInterrupt value to return
-    Maybe#(CauseInterrupt) ret = Invalid;
     if (ready_interrupts != 0 && interrupts_enabled) begin
       // pack/unpack type conversion:
       // UInt#(TLog#(TAdd#(12,1))) == UInt#(4) -> Bit#(4) -> CauseInterrupt
-      ret = tagged Valid unpack(pack(countZerosLSB(ready_interrupts)));
-    end
-
-    return ret;
+      return Valid(unpack(pack(countZerosLSB(ready_interrupts))));
+    end else return Invalid;
   endfunction
 
   rule incrementCycle;

@@ -72,7 +72,7 @@ pub export fn kernel_main() callconv(.C) void {
 
     SdCard.init();
 
-    const blocks = 10000;
+    const blocks = 2000;
 
     for (0..blocks) |i| {
         if (i % 100 == 0)
@@ -82,8 +82,6 @@ pub export fn kernel_main() callconv(.C) void {
         var buf: [*]u8 = @ptrFromInt(base);
         SdCard.readBlock(i, buf[0..512]) catch unreachable;
 
-        invalidate(buf[0..512]);
-        fence();
         invalidate(buf[0..512]);
         fence();
     }

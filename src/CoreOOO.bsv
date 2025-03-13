@@ -319,33 +319,7 @@ module mkCoreOOO(Core_IFC);
     deqRob(Invalid, Invalid);
   endrule
 
-  (* mutually_exclusive = "commit_interrupt, execute_direct" *)
-  (* preempts = "commit_interrupt, execute_direct" *)
-  rule commit_interrupt if (
-      csr.readyInterrupt matches tagged Valid .cause &&&
-      rob.first_result matches Invalid &&&
-      rob.first.tag != EXEC_TAG_DMEM &&
-      rob.first.epoch == epoch[0]
-    );
-    let index = rob.first_index;
-    let entry = rob.first;
-
-    let trap_pc <- csr.exec_exception(entry.pc, True, pack(cause), 0);
-    //$display("interrupt at %h ", entry.pc, fshow(cause));
-
-    registers.setReady(RegName{name: 0}, 0, Invalid, True);
-    fn_mispredict(trap_pc);
-
-    fetch.trainMis(BranchPredTrain{
-      pc: entry.pc,
-      instr: Invalid,
-      next_pc: trap_pc,
-      state: entry.bpred_state
-    });
-  endrule
-
-  rule commit_dmem if (
-    rob.first_result matches tagged Valid .result);
+  rule commit_dmem if (rob.first_result matches tagged Valid .result);
     let must_commit = rob.first.epoch == epoch[0] && isOk(result);
     let index = rob.first_index;
 
@@ -368,15 +342,27 @@ module mkCoreOOO(Core_IFC);
     let entry = rob.first;
     let pc = entry.pc;
 
-    // The instruction return a mispredicted value according to a previous
-    // load store unit commit
     if (killed[index] == 1) begin
+      // The instruction return a mispredicted value according to a previous
+      // load store unit commit
       deqRob(Invalid, Valid(pc));
       fetch.trainMis(BranchPredTrain{
-        pc: pc,
+        state: entry.bpred_state,
         instr: Invalid,
         next_pc: pc+4,
-        state: entry.bpred_state
+        pc: pc
+      });
+    end else if (csr.readyInterrupt matches tagged Valid .cause &&&
+      entry.tag != EXEC_TAG_DMEM && entry.tag != EXEC_TAG_DIRECT) begin
+      // The instruction is abort due to an interrupt, we can't abort already
+      // "commited" instructions like memory or CSR operations
+      let trap_pc <- csr.exec_exception(pc, True, pack(cause), 0);
+      deqRob(Invalid, Valid(trap_pc));
+      fetch.trainMis(BranchPredTrain{
+        state: entry.bpred_state,
+        next_pc: trap_pc,
+        instr: Invalid,
+        pc: pc
       });
     end else
       doCommit(index, entry, result);

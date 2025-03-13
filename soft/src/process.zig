@@ -131,13 +131,13 @@ pub const Manager = struct {
         self.current = new_pid;
 
         logger.info(
-            "yield syscall from {} to {}",
+            "yield syscall from {x} to {x}",
             .{ self.read(pid, .pc), params.pc },
         );
     }
 
     pub inline fn yield(self: *Self, pid: usize) void {
-        logger.info("yield syscall from {}", .{self.read(pid, .pc)});
+        logger.info("yield syscall from {x}", .{self.read(pid, .pc)});
         self.setOutput(pid, .yield);
         self.next();
     }

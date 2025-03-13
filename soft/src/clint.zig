@@ -1,4 +1,5 @@
 const Config = @import("config.zig");
+const writer = @import("print.zig").writer;
 
 const CLINT = extern struct {
     msip: u32,
