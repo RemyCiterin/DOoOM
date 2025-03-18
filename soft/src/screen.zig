@@ -15,6 +15,8 @@ pub const Pixel = packed struct(u8) {
     const Self = @This();
 
     pub fn write(self: Self, u: usize, v: usize) void {
+        const logger = std.log.scoped(.pixel);
+        logger.info("write at address: 0x{*}", .{&screen[v][u]});
         screen[v][u] = self;
     }
 

@@ -72,7 +72,7 @@ pub export fn kernel_main() callconv(.C) void {
 
     SdCard.init();
 
-    const blocks = 2000;
+    const blocks = 10000;
 
     for (0..blocks) |i| {
         if (i % 100 == 0)

@@ -1,5 +1,6 @@
 import SpecialFIFOs :: *;
 import BlockRam :: *;
+import RegFile :: *;
 import GetPut :: *;
 import FIFOF :: *;
 import Ehr :: *;
@@ -34,43 +35,55 @@ interface VGA;
 endinterface
 
 module mkVGA(VGA);
+  RegFile#(Bit#(8), Bit#(24)) palette <- mkRegFileFullLoad("Palette.hex");
   // project a 8-8-4 color into the Red component
   function Bit#(8) projRed(Bit#(8) color);
-    return case (color[7:5]) matches
-      3'b000 : 8'h00;
-      3'b001 : 8'h24;
-      3'b010 : 8'h49;
-      3'b011 : 8'h6d;
-      3'b100 : 8'h92;
-      3'b101 : 8'hb6;
-      3'b110 : 8'hdb;
-      3'b111 : 8'hff;
-    endcase;
+    return palette.sub(color)[23:16];
   endfunction
 
-  // project a 8-8-4 color into the Green component
   function Bit#(8) projGreen(Bit#(8) color);
-    return case (color[4:2]) matches
-      3'b000 : 8'h00;
-      3'b001 : 8'h24;
-      3'b010 : 8'h49;
-      3'b011 : 8'h6d;
-      3'b100 : 8'h92;
-      3'b101 : 8'hb6;
-      3'b110 : 8'hdb;
-      3'b111 : 8'hff;
-    endcase;
+    return palette.sub(color)[15:8];
   endfunction
 
-  // project a 8-8-4 color into the Blue component
   function Bit#(8) projBlue(Bit#(8) color);
-    return case (color[1:0]) matches
-      2'b00 : 8'h00;
-      2'b01 : 8'h55;
-      2'b10 : 8'haa;
-      2'b11 : 8'hff;
-    endcase;
+    return palette.sub(color)[7:0];
   endfunction
+  // function Bit#(8) projRed(Bit#(8) color);
+  //   return case (color[7:5]) matches
+  //     3'b000 : 8'h00;
+  //     3'b001 : 8'h24;
+  //     3'b010 : 8'h49;
+  //     3'b011 : 8'h6d;
+  //     3'b100 : 8'h92;
+  //     3'b101 : 8'hb6;
+  //     3'b110 : 8'hdb;
+  //     3'b111 : 8'hff;
+  //   endcase;
+  // endfunction
+
+  // // project a 8-8-4 color into the Green component
+  // function Bit#(8) projGreen(Bit#(8) color);
+  //   return case (color[4:2]) matches
+  //     3'b000 : 8'h00;
+  //     3'b001 : 8'h24;
+  //     3'b010 : 8'h49;
+  //     3'b011 : 8'h6d;
+  //     3'b100 : 8'h92;
+  //     3'b101 : 8'hb6;
+  //     3'b110 : 8'hdb;
+  //     3'b111 : 8'hff;
+  //   endcase;
+  // endfunction
+
+  // // project a 8-8-4 color into the Blue component
+  // function Bit#(8) projBlue(Bit#(8) color);
+  //   return case (color[1:0]) matches
+  //     2'b00 : 8'h00;
+  //     2'b01 : 8'h55;
+  //     2'b10 : 8'haa;
+  //     2'b11 : 8'hff;
+  //   endcase;
+  // endfunction
 
 
   // Fabric parameters of the vga interface
@@ -105,17 +118,17 @@ module mkVGA(VGA);
   Reg#(Bool) started <- mkReg(False);
 
   function Bit#(32) getFabricAddr;
-    Bit#(20) h = zeroExtend(hpos) >> 1;
-    Bit#(20) v = zeroExtend(vpos) >> 1;
+    Bit#(20) h = zeroExtend(hpos >> 1);
+    Bit#(20) v = zeroExtend(vpos >> 1);
 
-    Bit#(32) ret = zeroExtend(h + v * fromInteger(xmax) >> 1);
+    Bit#(32) ret = zeroExtend(h + v * fromInteger(xmax / 2));
     return (ret >= fromInteger(xmax * ymax / 4) ? 0 : ret);
   endfunction
 
   function Bit#(8) getFabricResponse;
     let x = bram.response;
 
-    return case (fabric_addr[2:1]) matches
+    return case (fabric_addr[1:0]) matches
       2'b00 : x[7:0];
       2'b01 : x[15:8];
       2'b10 : x[23:16];
@@ -135,6 +148,7 @@ module mkVGA(VGA);
 
   rule enqBramRead;
     let addr = getFabricAddr;
+    $display("hpos: %d vpos: %d addr: %d", hpos, vpos, addr);
     bram.read(zeroExtend(addr[31:2]));
   endrule
 

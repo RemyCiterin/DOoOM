@@ -100,7 +100,7 @@ pub export fn handler(manager: *Manager) callconv(.C) void {
         manager.write(pid, .pc, manager.read(pid, .pc) + 4);
         manager.syscall() catch unreachable;
     } else if (RV.mip.read().MTIP == 1) {
-        try UART.writer.print("timmer interrupt\n", .{});
+        //try UART.writer.print("timmer interrupt\n", .{});
         Clint.setNextTimerInterrupt();
         manager.next();
     } else {
@@ -135,12 +135,12 @@ pub export fn kernel_main() align(16) callconv(.C) void {
     _ = manager.new(@intFromPtr(&user_main), 4096, &malloc) catch unreachable;
 
     RV.mstatus.modify(.{ .MPIE = 1 });
-    RV.mie.modify(.{ .MEIE = 1, .MTIE = 1 });
+    RV.mie.modify(.{ .MEIE = 0, .MTIE = 1 });
 
     Clint.setNextTimerInterrupt();
 
     while (true) {
-        logger.info("run pc={}", .{manager.current});
+        //logger.info("run pc={}", .{manager.current});
         manager.run();
         handler(&manager);
     }
@@ -148,10 +148,44 @@ pub export fn kernel_main() align(16) callconv(.C) void {
     @panic("unreachable");
 }
 
+pub const Position = struct {
+    u: usize = 0,
+    v: usize = 0,
+
+    const logger = std.log.scoped(.pos);
+
+    pub fn left(self: *Position) void {
+        logger.info("left", .{});
+        if (self.u == 0) {
+            self.u = 319;
+        } else self.u -= 1;
+    }
+
+    pub fn right(self: *Position) void {
+        logger.info("right", .{});
+        if (self.u == 319) {
+            self.u = 0;
+        } else self.u += 1;
+    }
+
+    pub fn up(self: *Position) void {
+        logger.info("up", .{});
+        if (self.v == 0) {
+            self.v = 239;
+        } else self.v -= 1;
+    }
+
+    pub fn down(self: *Position) void {
+        logger.info("down", .{});
+        if (self.v == 239) {
+            self.v = 0;
+        } else self.v += 1;
+    }
+};
+
 pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
     const logger = std.log.scoped(.user);
 
-    _ = pid;
     logger.info("Binary Search:", .{});
     //for (1..11) |i| {
     //    const size = 10 * i;
@@ -233,6 +267,10 @@ pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
     //    bench.free();
     //}
 
+    const pixel = Screen.Pixel{ .blue = 0b10, .red = 0b100 };
+    pixel.fillRectangle(100, 0, 100, 240 - 1);
+    pixel.fillRectangle(0, 100, 320 - 1, 100);
+
     //if (pid == 0) {
     //    var pixel = Screen.Pixel{ .red = 0b111 };
     //    pixel.fill();
@@ -247,7 +285,33 @@ pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
     //    pixel.drawRectangle(103, 102, 135, 198);
     //}
 
-    Syscall.exec(@intFromPtr(&user_main), 4096, alloc);
+    //const px = Screen.Pixel{ .blue = 0b10, .red = 0b100 };
+    //px.fill();
 
-    while (true) {}
+    //const btn: *volatile u8 = @ptrFromInt(0x20000000);
+    //var pos = Position{};
+
+    //while (true) {
+    //    switch (btn.*) {
+    //        4 => pos.down(),
+    //        8 => pos.up(),
+    //        32 => pos.right(),
+    //        16 => pos.left(),
+    //        1 => {},
+    //        else => {},
+    //    }
+
+    //    const pixel = Screen.Pixel{ .green = 0b111 };
+    //    pixel.write(pos.u, pos.v);
+
+    //    try UART.writer.print(
+    //        "\rbtn: 0x{x} u: {} v: {}   ",
+    //        .{ btn.*, pos.u, pos.v },
+    //    );
+    //}
+
+    //Syscall.exec(@intFromPtr(&user_main), 4096, alloc);
+    _ = alloc;
+    _ = pid;
+    hang();
 }
