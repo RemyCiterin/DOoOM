@@ -3,21 +3,32 @@ DOoOM Out-Of-Order Machine is a Risc-V CPU with some interresting features:
 - Machine mode
 - M-extension: one cycle multiplication using $18x18$ multipliers, and a 34
     cycles division
-- A D-cache using a modular cache pipeline, for the moment I and D ports are
-    not synchronized
+- D and I-cache using a modular cache pipeline, for the moment I and D ports are
+    not synchronized, except using explicit `zicbom` instructions.
 - HDMI output using a frame-buffer and a 256 color palette
 - A SDRAM support using an AXI4 bridge
 - UART interrupts
 
-This project is for educational purposes only, and DOoOM is most likely not
-suitable for industrial use because it uses too much resources to be an
-efficient microcontroller and not enough to beat out-of-order industrial
-CPUs on benchmarks.
+Of course DOoOM can run DOOM. To do it, run `nix-shell`, then connect
+your SD card to your computer, overwrite `/dev/sd*` by the one of the card in
+`doom_riscv/src/riscv/Makefile`, and run:
 
-A reasonable developer would probably have made better caches, better
-interconnects, drivers or support for the supervisor mode, but it was much
-more fun to make it out of order.
+```
+make -C doom_riscv/src/riscv
+make -C doom_riscv/src/riscv load
+```
 
-The original goal was to run DOOM over or his name but it may take a little
-more time: micro SD card driver + compile DOOM with a suitable firmware/driver,
-probably one day...
+Then connect an `ULX3S` boad with your computer and run:
+
+```
+cd soft
+zig build --release=small
+cd ..
+make test compile yosys nextpnr ecppack fujprog_t
+```
+
+Then use
+- button `1` to fire
+- button `2+up` to select an entry in the menu
+- button `2+down` to open a door
+- the arrows
