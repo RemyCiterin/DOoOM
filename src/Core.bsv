@@ -3,7 +3,7 @@ import Connectable :: *;
 import AXI4_Lite :: *;
 import AXI4 :: *;
 
-import ForwardRegFile :: *;
+import RegFileUtils :: *;
 import FetchDecode :: *;
 import BranchPred :: *;
 import CSR :: *;

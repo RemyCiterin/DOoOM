@@ -1,5 +1,54 @@
 import RegFile :: *;
 
+module mkRegFileFullInit#(a init) (RegFile#(Bit#(n), a)) provisos(Bits#(a, sa));
+  Reg#(Bool) is_init <- mkReg(False);
+  Reg#(Bit#(n)) idx <- mkReg(0);
+
+  RegFile#(Bit#(n), a) rf <- mkRegFileFull;
+
+  rule init_register_file if (!is_init);
+    rf.upd(idx, init);
+
+    if (~idx == 0)
+      is_init <= True;
+    else
+      idx <= idx + 1;
+  endrule
+
+  method a sub(Bit#(n) index) if (is_init);
+    return rf.sub(index);
+  endmethod
+
+  method Action upd(Bit#(n) index, a val) if (is_init);
+    rf.upd(index, val);
+  endmethod
+endmodule
+
+module mkRegFileFullGen#(function a init(Bit#(n) arg))
+  (RegFile#(Bit#(n), a)) provisos(Bits#(a, sa));
+  Reg#(Bool) is_init <- mkReg(False);
+  Reg#(Bit#(n)) idx <- mkReg(0);
+
+  RegFile#(Bit#(n), a) rf <- mkRegFileFull;
+
+  rule init_register_file if (!is_init);
+    rf.upd(idx, init(idx));
+
+    if (~idx == 0)
+      is_init <= True;
+    else
+      idx <= idx + 1;
+  endrule
+
+  method a sub(Bit#(n) index) if (is_init);
+    return rf.sub(index);
+  endmethod
+
+  method Action upd(Bit#(n) index, a val) if (is_init);
+    rf.upd(index, val);
+  endmethod
+endmodule
+
 interface ForwardRegFile#(type k, type v);
   method Action upd(k key, v value);
   method v forward(k key);

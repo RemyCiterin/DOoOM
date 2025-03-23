@@ -3,6 +3,7 @@ import Ehr :: *;
 import Fifo :: *;
 
 import RegFile :: *;
+import RegFileUtils :: *;
 
 // Return a free-list based allocator
 interface FreeList#(numeric type indexW);

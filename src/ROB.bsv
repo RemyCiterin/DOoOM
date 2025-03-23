@@ -1,4 +1,4 @@
-import ForwardRegFile :: *;
+import RegFileUtils :: *;
 import RegFile :: *;
 import Utils :: *;
 import Decode :: *;

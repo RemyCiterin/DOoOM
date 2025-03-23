@@ -1,3 +1,4 @@
+import RegFileUtils :: *;
 import BlockRam :: *;
 import RegFile :: *;
 import Decode :: *;
