@@ -5,6 +5,9 @@ import BRAMCore :: *;
 import Vector :: *;
 import Utils :: *;
 
+import AXI4_Lite :: *;
+import AXI4 :: *;
+
 import Ehr :: *;
 
 
@@ -385,4 +388,58 @@ module mkVectorBramBE#(BramBE#(addrT, dataW) bram) (Vector#(n, BramBE#(addrT, da
   end
 
   return ret;
+endmodule
+
+// Return a vector of BlockRam using a uniq Block of RAM
+module mkVectorBramVec#(BramVec#(addrT, m, dataT) bram)
+  (Vector#(n, BramVec#(addrT, m, dataT)));
+  Ehr#(2, Bit#(TLog#(n))) ehr <- mkEhr(?);
+
+  Vector#(n, BramVec#(addrT, m, dataT)) ret = newVector;
+
+  for (Integer i=0; i < valueOf(n); i = i + 1) begin
+    ret[i] = interface BramVec;
+      method Action read(addrT addr);
+        action
+          ehr[1] <= fromInteger(i);
+          bram.read(addr);
+        endaction
+      endmethod
+
+      method Vector#(m, dataT) response() if (ehr[0] == fromInteger(i));
+        return bram.response();
+      endmethod
+
+      method canDeq = ehr[0] == fromInteger(i) && bram.canDeq();
+
+      method Action deq() if (ehr[0] == fromInteger(i));
+        bram.deq();
+      endmethod
+
+      method write = bram.write;
+    endinterface;
+  end
+
+  return ret;
+endmodule
+
+module mkBramFromBramBE#(BramBE#(addrT, dataW) bram) (Bram#(addrT, Byte#(dataW)));
+  method response = bram.response;
+  method canDeq = bram.canDeq;
+  method read = bram.read;
+  method deq = bram.deq;
+
+  method Action write(addrT addr, Byte#(dataW) data) =
+    bram.write(addr, data, -1);
+endmodule
+
+module mkBramFromBramVec#(BramVec#(addrT, n, dataT) bram)
+  (Bram#(addrT, Vector#(n, dataT)));
+  method response = bram.response;
+  method canDeq = bram.canDeq;
+  method read = bram.read;
+  method deq = bram.deq;
+
+  method Action write(addrT addr, Vector#(n, dataT) data) =
+    bram.write(addr, data, -1);
 endmodule
