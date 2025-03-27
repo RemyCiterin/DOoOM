@@ -111,3 +111,21 @@ module mkEhr#(t init) (Ehr#(n, t)) provisos(Bits#(t, tWidth));
 
   return ifc;
 endmodule
+
+interface FWire#(type t);
+  method Bool valid;
+  method t read;
+endinterface
+
+module mkFWire#(t value) (FWire#(t)) provisos(Bits#(t,tW));
+  Wire#(Bool) present <-mkDWire(False);
+  Wire#(t) val <- mkDWire(?);
+
+  rule ehr_canon;
+    present <= True;
+    val <= value;
+  endrule
+
+  method t read = val;
+  method Bool valid = present;
+endmodule

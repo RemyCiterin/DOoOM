@@ -3,30 +3,6 @@ import Decode :: *;
 import Utils :: *;
 import OOO :: *;
 
-// Store Buffer Size
-typedef 2 StbSize;
-
-// Store Queue Size
-typedef 8 SqSize;
-
-// Load Queue Size
-typedef 8 LqSize;
-
-// Store issue queue size
-typedef 4 SiqSize;
-
-// Load issue queue size
-typedef 4 LiqSize;
-
-// Store Buffer Index
-typedef Bit#(TLog#(StbSize)) StbIndex;
-
-// Store Queue Index
-typedef Bit#(TLog#(SqSize)) SqIndex;
-
-// Load Queue Index
-typedef Bit#(TLog#(LqSize)) LqIndex;
-
 typedef enum {
   Word, Half, Byte
 } Size deriving(Bits, FShow, Eq);
@@ -39,6 +15,7 @@ function Size loadSize(LoadOp ltype);
   return case (ltype) matches
     LB : Byte; LBU : Byte;
     LH : Half; LHU : Half;
+    LFP: Word;
     LW : Word;
   endcase;
 endfunction
@@ -47,12 +24,14 @@ function Signedness loadSignedness(LoadOp ltype);
   return case (ltype) matches
     LB : Signed; LBU : Unsigned;
     LH : Signed; LHU : Unsigned;
+    LFP: Signed;
     LW : Signed;
   endcase;
 endfunction
 
 function Size storeSize(SOp ltype);
   return case (ltype) matches
+    SFP: Word;
     SB : Byte;
     SH : Half;
     SW : Word;
@@ -76,6 +55,9 @@ typedef struct {
 
   // Size of the memory access
   Size size;
+
+  // Physical destination pointer
+  PhysReg pdst;
 } StoreQueueEntry deriving(Bits, FShow, Eq);
 
 typedef struct {
@@ -98,6 +80,9 @@ typedef struct {
 
   // Return if the input operation is signed
   Signedness signedness;
+
+  // Physical destination pointer
+  PhysReg pdst;
 } LoadQueueEntry deriving(Bits, FShow, Eq);
 
 typedef struct {
@@ -114,9 +99,6 @@ typedef struct {
 
 
 typedef union tagged {
-  struct {
-    RobIndex index;
-    ExecOutput result;
-  } Failure; // Tell to the Reorder Buffer that the access is misaligned
+  ExecOutput Failure; // Tell to the Reorder Buffer that the access is misaligned
   AXI4_Lite_RRequest#(32) Success; // Ask a value to the data cache
 } LoadWakeup deriving(Bits, FShow, Eq);

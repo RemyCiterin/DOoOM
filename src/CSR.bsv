@@ -242,6 +242,11 @@ interface CsrFile;
   method Maybe#(CauseInterrupt) readyInterrupt;
   method Bool wakeFromWFI;
 
+  // Floating point functions
+  method Bit#(3) read_frm();
+
+  method Action set_fflags(Bit#(5) fflags);
+
   (* always_ready, always_enabled *)
   method Action set_TIME(Bit#(64) t);
 
@@ -266,6 +271,15 @@ module mkCsrFile#(
 
   // current privilege level
   Reg#(Priv) priv <- mkReg(M);
+
+  Reg#(Bit#(3)) frm_field <- mkPReg0(0);
+  Reg#(Bit#(5)) fflags_field <- mkReg(0);
+
+  Reg#(Bit#(32)) fcsr_csr = concatReg(
+    asReg(fflags_field),
+    asReg(frm_field),
+    asReg(readOnlyReg(24'b0))
+  );
 
   // Counters
   Ehr#(2, Bit#(64)) cycle_counter <- mkEhr(0);
@@ -370,6 +384,7 @@ module mkCsrFile#(
       CSRmcycleh : mcycleh_csr;
       CSRminstret : minstret_csr;
       CSRminstreth : minstreth_csr;
+      CSRfcsr : fcsr_csr;
       default: readOnlyReg(0);
     endcase;
   endfunction
@@ -394,6 +409,7 @@ module mkCsrFile#(
       CSRmcycleh   : True;
       CSRminstret  : True;
       CSRminstreth : True;
+      CSRfcsr      : True;
       default: False;
     endcase;
   endfunction
@@ -478,15 +494,18 @@ module mkCsrFile#(
     endactionvalue
   endmethod
 
-  method ActionValue#(Maybe#(Bit#(32))) exec_csrxx(Itype instr, IOp op, Bit#(32) rs1_val);
+  method read_frm = frm_field;
+  method set_fflags = fflags_field._write;
+
+  method ActionValue#(Maybe#(Bit#(32))) exec_csrxx(Itype itype, IOp op, Bit#(32) rs1_val);
     actionvalue
       //$display(displayInstr(tagged Itype{instr: instr, op: op}));
       //$display("mie: %b mip: %b mstatus[mie]: %b", mie_csr, mip_csr, mie_field);
       //$display("mstatus[mpie]: %b", mpie_field);
-      Bit#(12) csr_addr = immediateBits(instr)[11:0];
+      Bit#(12) csr_addr = immediateBits(itype)[11:0];
       Reg#(Bit#(32)) csr = getCSR(unpack(csr_addr));
-      Bit#(5) rs1 = register1(instr).name;
-      Bit#(5) rd  = destination(instr).name;
+      Bit#(5) rs1 = getRs1(itype.bits);
+      Bit#(5) rd  = getRd(itype.bits);
 
       case (op) matches
         CSRRWI : rs1_val = zeroExtend(rs1);

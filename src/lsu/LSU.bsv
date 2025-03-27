@@ -1,4 +1,3 @@
-import MemIssueQueue :: *;
 import StoreBuffer :: *;
 import StoreQueue :: *;
 import LoadQueue :: *;
@@ -21,13 +20,16 @@ interface LSU;
   method Action invalidate(Bit#(32) addr);
 
   // Add a new entry in the issue queue
-  method Action enq(IssueQueueEntry entry);
+  method ActionValue#(SqIndex) enqStore(IssueQueueInput#(0) entry);
+  method ActionValue#(LqIndex) enqLoad(IssueQueueInput#(0) entry);
 
   // wakeup all the issue queues
-  method Action wakeup(RobIndex index, Bit#(32) value);
+  method ActionValue#(Bool) wakeupLoad(ExecInput#(1) entry);
+  method Action wakeupStoreAddr(ExecInput#(1) entry);
+  method Action wakeupStoreData(ExecInput#(1) entry);
 
   // dequeue the result of the execution of an instruction
-  method ActionValue#(Tuple2#(RobIndex, ExecOutput)) deq;
+  method ActionValue#(ExecOutput) deq;
 
   // return if we can dequeue the result of an instruction
   method Bool canDeq;
@@ -57,9 +59,6 @@ typedef enum {
 
 (* synthesize *)
 module mkLSU(LSU);
-  MemIssueQueue#(SiqSize, SqIndex) storeAddrIQ <- mkStoreIssueQueue;
-  MemIssueQueue#(SiqSize, SqIndex) storeDataIQ <- mkStoreIssueQueue;
-  MemIssueQueue#(LiqSize, LqIndex) loadIQ <- mkLoadIssueQueue;
   StoreQ storeQ <- mkStoreQ;
   LoadQ loadQ <- mkLoadQ;
 
@@ -75,25 +74,14 @@ module mkLSU(LSU);
   Fifo#(4, AXI4_Lite_RResponse#(4)) rresponseQ <- mkPipelineFifo;
   Fifo#(4, AXI4_Lite_WResponse) wresponseQ <- mkPipelineFifo;
 
-  Fifo#(1, Tuple2#(RobIndex, ExecOutput)) loadFailureQ <- mkBypassFifo;
-  Fifo#(1, Tuple2#(RobIndex, ExecOutput)) loadSuccessQ <- mkBypassFifo;
-  Fifo#(1, Tuple2#(RobIndex, ExecOutput)) storeSuccessQ <- mkBypassFifo;
+  Fifo#(1, ExecOutput) loadFailureQ <- mkPipelineFifo;
+  Fifo#(1, ExecOutput) loadSuccessQ <- mkBypassFifo;
+  Fifo#(1, ExecOutput) storeSuccessQ <- mkBypassFifo;
 
   Fifo#(LqSize, LqIndex) pendingDmemLoadsQ <- mkPipelineFifo;
   Fifo#(LqSize, LqIndex) pendingMmioLoadsQ <- mkPipelineFifo;
 
   Fifo#(TAdd#(LqSize, SqSize), LsuTag) tagQ <- mkPipelineFifo;
-
-  // No forwarding for the moment, the loads are just blocked
-  Bit#(32) loadAddr = {loadIQ.issueVal[31:2],2'b00};
-  Bool loadBlocked =
-    stb.search(loadAddr).found ||
-    storeQ.search(loadAddr, loadIQ.issueEpoch, loadIQ.issueAge).found;
-
-  rule invalidateAck;
-    invalidateQ.deq();
-    cache.invalidateAck();
-  endrule
 
   rule enqRdCache if (!isMMIO(rrequestQ.first.addr));
     let req <- toGet(rrequestQ).get;
@@ -116,25 +104,6 @@ module mkLSU(LSU);
     stb.deq;
   endrule
 
-  rule wakeupLoad if (!loadBlocked);
-    loadIQ.issue();
-    let result <- loadQ.wakeupAddr(loadIQ.issueId, loadIQ.issueVal);
-
-    case (result) matches
-      tagged Success .request : begin
-        if (isMMIO(request.addr)) begin
-          pendingMmioLoadsQ.enq(loadIQ.issueId);
-          rrequestQ.enq(request);
-        end else begin
-          pendingDmemLoadsQ.enq(loadIQ.issueId);
-          rrequestQ.enq(request);
-        end
-      end
-      tagged Failure .cause :
-        loadFailureQ.enq(tuple2(cause.index, cause.result));
-    endcase
-  endrule
-
   rule loadResponse;
     AXI4_Lite_RResponse#(4) resp = ?;
     LqIndex idx = ?;
@@ -150,20 +119,45 @@ module mkLSU(LSU);
     loadSuccessQ.enq(loadQ.issue(idx, resp));
   endrule
 
-  rule wakeupStoreAddr;
-    storeAddrIQ.issue();
-    storeQ.wakeupAddr(storeAddrIQ.issueId, storeAddrIQ.issueVal);
-  endrule
-
-  rule wakeupStoreData;
-    storeDataIQ.issue();
-    storeQ.wakeupData(storeDataIQ.issueId, storeDataIQ.issueVal);
-  endrule
-
   rule issueStore;
     let result <- storeQ.issue();
     storeSuccessQ.enq(result);
   endrule
+
+  method ActionValue#(Bool) wakeupLoad(ExecInput#(1) entry);
+    Bit#(32) addr = entry.regs[0] + immediateBits(entry.instr);
+    Bit#(32) aligned_addr = {addr[31:2],2'b00};
+    Bool blocked =
+      stb.search(aligned_addr).found ||
+      storeQ.search(aligned_addr, entry.epoch, entry.age).found;
+
+    if (blocked) return False;
+    else begin
+      let result <- loadQ.wakeupAddr(entry.lindex, addr);
+      case (result) matches
+        tagged Success .request : begin
+          if (isMMIO(request.addr)) begin
+            pendingMmioLoadsQ.enq(entry.lindex);
+            rrequestQ.enq(request);
+          end else begin
+            pendingDmemLoadsQ.enq(entry.lindex);
+            rrequestQ.enq(request);
+          end
+        end
+        tagged Failure .cause :
+          loadFailureQ.enq(cause);
+      endcase
+      return True;
+    end
+  endmethod
+
+  method Action wakeupStoreData(ExecInput#(1) entry);
+    storeQ.wakeupData(entry.sindex, entry.regs[0]);
+  endmethod
+
+  method Action wakeupStoreAddr(ExecInput#(1) entry);
+    storeQ.wakeupAddr(entry.sindex, entry.regs[0] + immediateBits(entry.instr));
+  endmethod
 
   method ActionValue#(CommitOutput) commit(RobIndex index, Bool must_commit);
     tagQ.deq;
@@ -192,50 +186,46 @@ module mkLSU(LSU);
     end
   endmethod
 
-  method Action enq(IssueQueueEntry entry);
-    action
-      case (entry.instr) matches
-        tagged Itype {op: tagged Load .ltype} : begin
-          let index <- loadQ.enq(LoadQueueEntry{
-            signedness: loadSignedness(ltype),
-            size: loadSize(ltype),
-            index: entry.index,
-            epoch: entry.epoch,
-            age: entry.age,
-            pc: entry.pc
-          });
-          loadIQ.enq(index, entry.rs1_val, immediateBits(entry.instr), entry.epoch, entry.age);
-          tagQ.enq(Load);
-        end
-        tagged Stype {op: .stype} : begin
-          let index <- storeQ.enq(StoreQueueEntry{
-            size: storeSize(stype),
-            index: entry.index,
-            epoch: entry.epoch,
-            age: entry.age,
-            pc: entry.pc
-          });
-          storeAddrIQ.enq(index, entry.rs1_val, immediateBits(entry.instr), 0, 0);
-          storeDataIQ.enq(index, entry.rs2_val, 0 ,0, 0);
-          tagQ.enq(Store);
-        end
-      endcase
-    endaction
+  method ActionValue#(LqIndex) enqLoad(IssueQueueInput#(0) entry);
+    case (entry.instr) matches
+      tagged Itype {op: tagged Load .ltype} : begin
+        let index <- loadQ.enq(LoadQueueEntry{
+          signedness: loadSignedness(ltype),
+          size: loadSize(ltype),
+          epoch: entry.epoch,
+          index: entry.index,
+          pdst: entry.pdst,
+          age: entry.age,
+          pc: entry.pc
+        });
+        tagQ.enq(Load);
+        return index;
+      end
+    endcase
   endmethod
 
-  method Action wakeup(RobIndex index, Bit#(32) value);
-    action
-      loadIQ.wakeup(index, value);
-      storeAddrIQ.wakeup(index, value);
-      storeDataIQ.wakeup(index, value);
-    endaction
+  method ActionValue#(SqIndex) enqStore(IssueQueueInput#(0) entry);
+    case (entry.instr) matches
+      tagged Stype {op: .stype} : begin
+        let index <- storeQ.enq(StoreQueueEntry{
+          size: storeSize(stype),
+          epoch: entry.epoch,
+          index: entry.index,
+          pdst: entry.pdst,
+          age: entry.age,
+          pc: entry.pc
+        });
+        tagQ.enq(Store);
+        return index;
+      end
+    endcase
   endmethod
 
   method Bool canDeq;
     return loadSuccessQ.canDeq || loadFailureQ.canDeq || storeSuccessQ.canDeq;
   endmethod
 
-  method ActionValue#(Tuple2#(RobIndex, ExecOutput)) deq();
+  method ActionValue#(ExecOutput) deq();
     if (loadSuccessQ.canDeq) begin
       loadSuccessQ.deq;
       return loadSuccessQ.first;

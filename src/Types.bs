@@ -61,7 +61,7 @@ struct Decode_to_RR =
 
 
 struct RR_to_WB =
-  { exec_tag :: Exec_Tag
+  { exec_tag :: ExecTag
   ; exception :: Bool
   ; cause :: CauseException
   ; tval :: Bit 32
@@ -72,15 +72,18 @@ struct RR_to_WB =
   ; predicted_pc :: Bit 32
   ; rs1_val :: Bit 32 -- for CSRxx
   ; rs2_val :: Bit 32 -- for CSRxx
+  ; rs3_val :: Bit 32 -- for CSRxx
   } deriving(Bits, Eq, FShow)
 
 -- Message from Register Read to the pipeline (DMEM, ALU, Control...)
 struct RR_to_Pipeline =
   { pc :: Bit 32
+  ; frm :: Bit 3
   ; epoch :: Epoch
   ; instr :: Instr
   ; rs1_val :: Bit 32
   ; rs2_val :: Bit 32
+  ; rs3_val :: Bit 32
   } deriving(Bits, FShow, Eq)
 
 struct WB_to_Fetch =
@@ -94,15 +97,15 @@ struct Pipeline_to_WB =
   { exception :: Bool
   ; cause :: CauseException
   ; tval :: Bit 32
-  -- ; instr :: Instr
   ; next_pc :: Bit 32
   ; result :: Bit 32
   ; epoch :: Epoch
+  ; fflags :: Maybe (Bit 5)
   } deriving(Bits, FShow, Eq)
 
 
 struct WB_to_RR =
-  { rd :: RegName
+  { rd :: ArchReg
   ; commit :: Bool -- if true, update the value, otherwise just release scoreboard reservation
   ; val :: Bit 32
   } deriving(Bits, FShow, Eq)

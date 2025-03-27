@@ -18,6 +18,7 @@ import STB :: *;
 
 import Ehr :: *;
 import Fifo :: *;
+import FPoint :: *;
 
 interface Pipeline;
   interface Put#(RR_to_Pipeline) from_RR;
@@ -96,7 +97,8 @@ module mkDMEM(DMEM_IFC);
       tval: ?,
       epoch: req.epoch,
       next_pc: req.pc+4,
-      result: result
+      result: result,
+      fflags: Invalid
     });
   endrule
 
@@ -113,12 +115,14 @@ module mkDMEM(DMEM_IFC);
           SB : Byte;
           SH : Half;
           SW : Word;
+          SFP: Word;
         endcase;
 
         Bit#(4) mask = case (op) matches
           SB : 4'b0001;
           SH : 4'b0011;
           SW : 4'b1111;
+          SFP: 4'b1111;
         endcase;
 
         let aligned = isAligned(addr, size);
@@ -138,6 +142,7 @@ module mkDMEM(DMEM_IFC);
             tval: ?,
             epoch: req.epoch,
             next_pc: req.pc+4,
+            fflags: Invalid,
             result: ?
           });
         end else begin
@@ -146,6 +151,7 @@ module mkDMEM(DMEM_IFC);
             epoch: req.epoch,
             exception: True,
             cause: STORE_AMO_ADDRESS_MISALIGNED,
+            fflags: Invalid,
             tval: addr,
             next_pc: ?,
             result: ?
@@ -158,6 +164,7 @@ module mkDMEM(DMEM_IFC);
           LB : Tuple2{fst: Byte, snd: True};
           LH : Tuple2{fst: Half, snd: True};
           LW : Tuple2{fst: Word, snd: True};
+          LFP: Tuple2{fst: Word, snd: True};
           LBU : Tuple2{fst: Byte, snd: False};
           LHU : Tuple2{fst: Half, snd: False};
         endcase;
@@ -178,6 +185,7 @@ module mkDMEM(DMEM_IFC);
             epoch: req.epoch,
             exception: True,
             cause: LOAD_ADDRESS_MISALIGNED,
+            fflags: Invalid,
             tval: addr,
             next_pc: ?,
             result: ?
@@ -245,8 +253,8 @@ function Pipeline_to_WB execALU(RR_to_Pipeline request);
     cause: ?,
     tval: ?,
     epoch: request.epoch,
-    //instr: request.instr,
     next_pc: request.pc+4,
+    fflags: Invalid,
     result: result
   };
 endfunction
@@ -374,7 +382,7 @@ function Pipeline_to_WB controlFlow(RR_to_Pipeline request);
         cause: INSTRUCTION_ADDRESS_MISALIGNED,
         tval: next_pc,
         epoch: request.epoch,
-        //instr: request.instr,
+        fflags: Invalid,
         next_pc: next_pc,
         result: 0
       };
@@ -387,7 +395,7 @@ function Pipeline_to_WB controlFlow(RR_to_Pipeline request);
         cause: INSTRUCTION_ADDRESS_MISALIGNED,
         tval: next_pc,
         epoch: request.epoch,
-        //instr: request.instr,
+        fflags: Invalid,
         next_pc: next_pc,
         result: request.pc+4
       };
@@ -401,7 +409,7 @@ function Pipeline_to_WB controlFlow(RR_to_Pipeline request);
         cause: INSTRUCTION_ADDRESS_MISALIGNED,
         tval: next_pc,
         epoch: request.epoch,
-        //instr: request.instr,
+        fflags: Invalid,
         next_pc: next_pc,
         result: request.pc+4
       };
@@ -421,4 +429,92 @@ module mkControlPipeline(Pipeline);
 
   interface from_RR = toPut(rr_to_control);
   interface to_WB = toGet(control_to_wb);
+endmodule
+
+(* synthesize *)
+module mkFloatPipeline(Pipeline);
+  FIFOF#(RR_to_Pipeline) rr_to_fpu <- mkPipelineFIFOF;
+  FIFOF#(Pipeline_to_WB) fpu_to_wb <- mkBypassFIFOF;
+
+  Fifo#(4, Bit#(2)) requestIdQ <- mkPipelineFifo;
+  Fifo#(4, RR_to_Pipeline) requestQ <- mkPipelineFifo;
+  FPointPipeline#(Bit#(2)) fpu <- mkFPointPipeline(False);
+
+  // Response buffer
+  RegFile#(Bit#(2), FpuResponse#(Bit#(2))) buffer <- mkRegFileFull();
+  Ehr#(2, Bit#(4)) valid <- mkEhr(0);
+  Ehr#(2, Bit#(4)) rdy <- mkEhr(0);
+
+  rule receive_rop if (
+      rr_to_fpu.first.instr matches tagged Rtype {op: tagged FloatOp .op, instr: .instr} &&&
+      firstOneFrom(~valid[1],0) matches tagged Valid .id
+    );
+
+    let req <- toGet(rr_to_fpu).get;
+    requestIdQ.enq(id);
+    requestQ.enq(req);
+    valid[1][id] <= 1;
+
+    let frm = getFunct3(instr.bits) == 3'b111 ?
+      req.frm : getFunct3(instr.bits);
+
+    fpu.request.enq(FpuRequest{
+        rs1: unpack(req.rs1_val),
+        rs2: unpack(req.rs2_val),
+        rs3: unpack(req.rs3_val),
+        op: Rop(op),
+        frm: frm,
+        id: id
+    });
+  endrule
+
+  rule receive_r4op if (
+      rr_to_fpu.first.instr matches tagged R4type {op: .op, instr: .instr} &&&
+      firstOneFrom(~valid[1],0) matches tagged Valid .id
+    );
+
+    let req <- toGet(rr_to_fpu).get;
+    requestIdQ.enq(id);
+    requestQ.enq(req);
+    valid[1][id] <= 1;
+
+    let frm = getFunct3(instr.bits) == 3'b111 ?
+      req.frm : getFunct3(instr.bits);
+
+    fpu.request.enq(FpuRequest{
+        rs1: unpack(req.rs1_val),
+        rs2: unpack(req.rs2_val),
+        rs3: unpack(req.rs3_val),
+        op: Fma(op),
+        frm: frm,
+        id: id
+    });
+  endrule
+
+  rule deq_fpu;
+    let resp <- toGet(fpu.response).get();
+    buffer.upd(resp.id, resp);
+    rdy[1][resp.id] <= 1;
+  endrule
+
+  rule connect if (rdy[0][requestIdQ.first] == 1);
+    let resp = buffer.sub(requestIdQ.first);
+    let req <- toGet(requestQ).get();
+    valid[0][requestIdQ.first] <= 0;
+    rdy[0][requestIdQ.first] <= 0;
+    requestIdQ.deq();
+
+    fpu_to_wb.enq(Pipeline_to_WB{
+      fflags: Valid(resp.fflags),
+      result: pack(resp.result),
+      next_pc: req.pc+4,
+      epoch: req.epoch,
+      exception: False,
+      cause: ?,
+      tval: ?
+    });
+  endrule
+
+  interface from_RR = toPut(rr_to_fpu);
+  interface to_WB = toGet(fpu_to_wb);
 endmodule

@@ -17,6 +17,7 @@ LIB = \
 			$(BLUESPECDIR)/Verilog/FIFO2.v \
 			$(BLUESPECDIR)/Verilog/FIFO20.v \
 			$(BLUESPECDIR)/Verilog/FIFO10.v \
+			$(BLUESPECDIR)/Verilog/FIFOL1.v \
 			$(BLUESPECDIR)/Verilog/BRAM1.v \
 			$(BLUESPECDIR)/Verilog/BRAM1BELoad.v \
 			$(BLUESPECDIR)/Verilog/BRAM2.v \
@@ -32,10 +33,11 @@ VGA_LIB = \
 			src/fake_differential.v \
 			src/vga2dvid.v
 
-BSC_FLAGS = -show-schedule -show-range-conflict -keep-fires -aggressive-conditions \
-						-check-assert -no-warn-action-shadowing -sched-dot
+BSC_FLAGS = -keep-fires -aggressive-conditions \
+						-check-assert -no-warn-action-shadowing
 
-SYNTH_FLAGS = -bdir $(BUILD) -vdir $(RTL) -simdir $(BUILD) \
+SYNTH_FLAGS = -show-schedule -sched-dot -bdir $(BUILD) \
+							-vdir $(RTL) -simdir $(BUILD) \
 							-info-dir $(BUILD) -fdir $(BUILD) #-D BSIM
 
 BSIM_FLAGS = -bdir $(BSIM) -vdir $(BSIM) -simdir $(BSIM) \
@@ -46,6 +48,8 @@ DOT_FILES = $(shell ls ./build/*_combined_full.dot) \
 
 svg:
 	$(foreach f, $(DOT_FILES), sed -i '/_init_register_file/d' $(f);)
+	$(foreach f, $(DOT_FILES), sed -i '/_fifo_enqueue/d' $(f);)
+	$(foreach f, $(DOT_FILES), sed -i '/_fifo_dequeue/d' $(f);)
 	$(foreach f, $(DOT_FILES), sed -i '/_update_register_file/d' $(f);)
 	$(foreach f, $(DOT_FILES), sed -i '/_ehr_canon/d' $(f);)
 	$(foreach f, $(DOT_FILES), sed -i '/_block_ram_apply_read/d' $(f);)

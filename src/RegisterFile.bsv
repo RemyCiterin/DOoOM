@@ -20,57 +20,66 @@ interface RegisterFileOOO;
   // into a register and allocate a new entry in the issue queue, then
   // the issue queue get the new retired value of the register and avoid deadlock
   // If clear is true the all the registers of the register file must be set to ready
-  method Action setReady(RegName r, RobIndex index, Maybe#(Bit#(32)) value, Bool clear);
+  method Action setReady(ArchReg r, RobIndex index, Maybe#(Bit#(32)) value, Bool clear);
 
   // read into a register
-  method RegVal rs1(RegName r);
+  method RegVal rs1(ArchReg r);
 
   // read into a register
-  method RegVal rs2(RegName r);
+  method RegVal rs2(ArchReg r);
+
+  // read into a register
+  method RegVal rs3(ArchReg r);
 
   // set a register as busy
-  method Action setBusy(RegName r, RobIndex index);
+  method Action setBusy(ArchReg r, RobIndex index);
 endinterface
 
 (* synthesize *)
 module mkRegisterFileOOO(RegisterFileOOO);
   // Register file with commited writes and forwarding logic
-  ForwardRegFile#(Bit#(5), Bit#(32)) registers <- mkForwardRegFileFullInit(0);
+  ForwardRegFile#(Bit#(6), Bit#(32)) registers <- mkForwardRegFileFullInit(0);
 
   // Index of the physical registers in the Reodrer Buffer
-  RegFile#(Bit#(5), RobIndex) physicalRegs <- mkRegFileFull;
+  RegFile#(Bit#(6), RobIndex) physicalRegs <- mkRegFileFull;
   // Return is an entry of the physical register remaping is valid
-  Ehr#(2, Bit#(32)) scoreboard <- mkEhr(0);
+  Ehr#(2, Bit#(64)) scoreboard <- mkEhr(0);
 
-  method Action setReady(RegName r, RobIndex index, Maybe#(Bit#(32)) value, Bool clear);
+  method Action setReady(ArchReg r, RobIndex index, Maybe#(Bit#(32)) value, Bool clear);
     action
-      if (value matches tagged Valid .v &&& r.name != 0) begin
-        registers.upd(r.name, v);
+      if (value matches tagged Valid .v &&& r != zeroReg) begin
+        registers.upd(pack(r), v);
       end
 
       if (clear)
         scoreboard[0] <= 0;
-      else if (scoreboard[0][r.name] == 1 && physicalRegs.sub(r.name) == index)
-        scoreboard[0][r.name] <= 0;
+      else if (scoreboard[0][pack(r)] == 1 && physicalRegs.sub(pack(r)) == index)
+        scoreboard[0][pack(r)] <= 0;
     endaction
   endmethod
 
-  method RegVal rs1(RegName r);
-    return scoreboard[1][r.name] == 1 ?
-      tagged Wait physicalRegs.sub(r.name) :
-      tagged Value registers.forward(r.name);
+  method RegVal rs1(ArchReg r);
+    return scoreboard[1][pack(r)] == 1 ?
+      tagged Wait physicalRegs.sub(pack(r)) :
+      tagged Value registers.forward(pack(r));
   endmethod
 
-  method RegVal rs2(RegName r);
-    return scoreboard[1][r.name] == 1 ?
-      tagged Wait physicalRegs.sub(r.name) :
-      tagged Value registers.forward(r.name);
+  method RegVal rs2(ArchReg r);
+    return scoreboard[1][pack(r)] == 1 ?
+      tagged Wait physicalRegs.sub(pack(r)) :
+      tagged Value registers.forward(pack(r));
   endmethod
 
-  method Action setBusy(RegName r, RobIndex index);
-    if (r.name != 0) begin
-      scoreboard[1][r.name] <= 1;
-      physicalRegs.upd(r.name, index);
+  method RegVal rs3(ArchReg r);
+    return scoreboard[1][pack(r)] == 1 ?
+      tagged Wait physicalRegs.sub(pack(r)) :
+      tagged Value registers.forward(pack(r));
+  endmethod
+
+  method Action setBusy(ArchReg r, RobIndex index);
+    if (r != zeroReg) begin
+      scoreboard[1][pack(r)] <= 1;
+      physicalRegs.upd(pack(r), index);
     end
   endmethod
 endmodule

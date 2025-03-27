@@ -1,3 +1,4 @@
+import RevertingVirtualReg :: *;
 import RegFile :: *;
 
 module mkRegFileFullInit#(a init) (RegFile#(Bit#(n), a)) provisos(Bits#(a, sa));
@@ -55,8 +56,10 @@ interface ForwardRegFile#(type k, type v);
   method v sub(k key);
 endinterface
 
+/* sub < write < forward */
 module mkForwardRegFileFull(ForwardRegFile#(k,v))
   provisos(Bits#(k,sk),Bounded#(k),Bits#(v,sv),Eq#(k));
+  Reg#(Bool) order <- mkRevertingVirtualReg(True);
   RegFile#(k,v) regFile <- mkRegFileFull;
   RWire#(k) forwardKey <- mkRWire;
   RWire#(v) forwardVal <- mkRWire;
@@ -73,6 +76,7 @@ module mkForwardRegFileFull(ForwardRegFile#(k,v))
     action
       forwardKey.wset(key);
       forwardVal.wset(val);
+      order <= False;
     endaction
   endmethod
 
@@ -82,7 +86,7 @@ module mkForwardRegFileFull(ForwardRegFile#(k,v))
     else return regFile.sub(key);
   endmethod
 
-  method sub = regFile.sub;
+  method sub = when(order, regFile.sub);
 endmodule
 
 
@@ -95,10 +99,8 @@ module mkForwardRegFileFullInit#(a init) (ForwardRegFile#(Bit#(n), a)) provisos(
   rule init_register_file if (!is_init);
     rf.upd(idx, init);
 
-    if (~idx == 0)
-      is_init <= True;
-    else
-      idx <= idx + 1;
+    if (~idx == 0) is_init <= True;
+    else idx <= idx + 1;
   endrule
 
   method a sub(Bit#(n) index) if (is_init);

@@ -148,7 +148,6 @@ module mkVGA(VGA);
 
   rule enqBramRead;
     let addr = getFabricAddr;
-    $display("hpos: %d vpos: %d addr: %d", hpos, vpos, addr);
     bram.read(zeroExtend(addr[31:2]));
   endrule
 
@@ -165,7 +164,6 @@ module mkVGA(VGA);
   endrule
 
   method Action write(Bit#(32) addr, Bit#(32) data, Bit#(4) mask) if (started);
-    $fdisplay(file, "%d %d %d", addr, data, mask);
     bram.write(addr, data, mask);
   endmethod
 

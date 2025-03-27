@@ -67,6 +67,8 @@ modules = [
     Module(["cpu.core.lsu.storeQ"]),
     Module(["cpu.core.lsu.loadQ"]),
     Module(["cpu.core.lsu.stb"]),
+    Module(["cpu.core.fpu_fu"]),
+    Module(["cpu.core.fpu_issue_queue"]),
     Module(["cpu.core.registers"]),
     Module(["cpu.core.master"]),
     Module(["cpu.core.fetch", "cpu.core.CASE_fetch"]),
