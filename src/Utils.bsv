@@ -27,12 +27,18 @@ typedef enum {
 } Priv deriving(Bits, FShow, Eq);
 
 typedef enum {
-  EXEC_TAG_DIRECT, EXEC_TAG_CONTROL, EXEC_TAG_EXEC, EXEC_TAG_DMEM
+  EXEC_TAG_DIRECT,
+  EXEC_TAG_CONTROL,
+  EXEC_TAG_EXEC,
+  EXEC_TAG_DMEM,
+  EXEC_TAG_FLOAT
 } Exec_Tag deriving(Bits, FShow, Eq);
 
 function Exec_Tag tagOfInstr(Instr instr);
   case (instr) matches
     tagged Btype .* : return EXEC_TAG_CONTROL;
+    tagged R4type .* : return EXEC_TAG_FLOAT;
+    tagged Rtype {op: tagged FloatOp .*} : return EXEC_TAG_FLOAT;
     tagged Rtype .* : return EXEC_TAG_EXEC;
     tagged Utype {op: AUIPC} : return EXEC_TAG_EXEC;
     tagged Utype {op: LUI} : return EXEC_TAG_EXEC;

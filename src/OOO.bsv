@@ -6,10 +6,10 @@ import CSR :: *;
 import BranchPred :: *;
 
 // The number of slots in the reorder buffer
-typedef 6 RobSize;
+typedef 16 RobSize;
 typedef Bit#(TLog#(RobSize)) RobIndex;
 
-typedef 2 IqSize;
+typedef 8 IqSize;
 
 // The execution of an instruction return either
 // an exception with a cause and a mtval value,
@@ -97,6 +97,13 @@ function Bit#(32) getRegValue(RegVal r);
   endcase;
 endfunction
 
+function Bool isValue(RegVal r);
+  return case (r) matches
+    tagged Value .* : True;
+    default: False;
+  endcase;
+endfunction
+
 
 // data needed to execute an instruction in a functional unit
 // (except for loads and stores)
@@ -106,8 +113,6 @@ typedef struct {
   Instr instr;
   RegVal rs1_val;
   RegVal rs2_val;
-  Age age;
-
-  // Store queue forward the stores values only if the epochs matches
   Epoch epoch;
-} IssueQueueEntry deriving(Bits, FShow, Eq);
+  Age age;
+} IssueQueueInput deriving(Bits, FShow, Eq);

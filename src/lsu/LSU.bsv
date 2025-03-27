@@ -18,7 +18,7 @@ import Vector :: *;
 
 interface LSU;
   // Add a new entry in the issue queue
-  method Action enq(IssueQueueEntry entry);
+  method Action enq(IssueQueueInput entry);
 
   // wakeup all the issue queues
   method Action wakeup(RobIndex index, Bit#(32) value);
@@ -182,7 +182,7 @@ module mkLSU(LSU);
     end
   endmethod
 
-  method Action enq(IssueQueueEntry entry);
+  method Action enq(IssueQueueInput entry);
     action
       case (entry.instr) matches
         tagged Itype {op: tagged Load .ltype} : begin

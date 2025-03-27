@@ -77,6 +77,7 @@ struct RR_to_WB =
 -- Message from Register Read to the pipeline (DMEM, ALU, Control...)
 struct RR_to_Pipeline =
   { pc :: Bit 32
+  ; frm :: Bit 3
   ; epoch :: Epoch
   ; instr :: Instr
   ; rs1_val :: Bit 32
@@ -94,10 +95,10 @@ struct Pipeline_to_WB =
   { exception :: Bool
   ; cause :: CauseException
   ; tval :: Bit 32
-  -- ; instr :: Instr
   ; next_pc :: Bit 32
   ; result :: Bit 32
   ; epoch :: Epoch
+  ; fflags :: Maybe (Bit 5)
   } deriving(Bits, FShow, Eq)
 
 

@@ -30,7 +30,7 @@ module mkMemIssueQueue(MemIssueQueue#(size, reqId)) provisos(Bits#(reqId, reqIdW
 
   Bit#(size) rdy = 0;
   for (Integer i=0; i < valueOf(size); i = i + 1) begin
-    if (values[i][0] matches tagged Value .* &&& valid[0][i] == 1)
+    if (isValue(values[i][0]) && valid[0][i] == 1)
       rdy[i] = 1;
   end
 

@@ -107,7 +107,7 @@ module mkCoreOOO(Core_IFC);
       let entry = rob.first;
       let index = rob.first_index;
 
-      if (value matches tagged Valid .val &&& destination(entry.instr).name != 0 &&& verbose)
+      if (value matches tagged Valid .val &&& destination(entry.instr) != zeroReg &&& verbose)
         $display("       ", fshow(destination(entry.instr)), " := %h", val);
 
       registers.setReady(destination(entry.instr), index, value, next_pc != Invalid);
@@ -164,7 +164,7 @@ module mkCoreOOO(Core_IFC);
 
       registers.setBusy(destination(decoded.instr), index);
 
-      IssueQueueEntry iq_entry = IssueQueueEntry{
+      IssueQueueInput iq_entry = IssueQueueInput{
         index: index,
         pc: decoded.pc,
         instr: decoded.instr,
@@ -326,7 +326,7 @@ module mkCoreOOO(Core_IFC);
     let trap_pc <- csr.exec_exception(entry.pc, True, pack(cause), 0);
     //$display("interrupt at %h ", entry.pc, fshow(cause));
 
-    registers.setReady(RegName{name: 0}, 0, Invalid, True);
+    registers.setReady(zeroReg, 0, Invalid, True);
     fn_mispredict(trap_pc);
 
     fetch.trainMis(BranchPredTrain{

@@ -14,7 +14,7 @@ function InstrKind instrKind(Instr instr);
   return case (instr) matches
     tagged Btype .* : Branch;
     tagged Itype {instr: .itype, op: JALR} :
-      case (tuple2(destination(itype).name, register1(itype).name)) matches
+      case (tuple2(destination(instr).name, register1(instr).name)) matches
         Tuple2 {fst: 1, snd: 5} : Call;
         Tuple2 {fst: 5, snd: 1} : Call;
         Tuple2 {fst: 5, snd: .*} : Call;

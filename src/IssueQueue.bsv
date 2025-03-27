@@ -8,7 +8,7 @@ import OOO :: *;
 // The module must have issue < wakeup < enq
 interface IssueQueue#(numeric type size);
   // Add a new entry in the issue queue
-  method Action enq(IssueQueueEntry entry);
+  method Action enq(IssueQueueInput entry);
 
   // signal that we found the value of a register
   method Action wakeup(RobIndex index, Bit#(32) value);
@@ -20,32 +20,41 @@ endinterface
 
 // generate an issue queue of a given size
 module mkIssueQueue(IssueQueue#(size));
-  Vector#(size, Ehr#(2, IssueQueueEntry)) queue <- replicateM(mkEhr(?));
+  Vector#(size, Ehr#(2, IssueQueueInput)) queue <- replicateM(mkEhr(?));
   Reg#(Bit#(TLog#(size))) lastIssue <- mkReg(0);
   Ehr#(2, Bit#(size)) valid <- mkEhr(0);
 
+  Bit#(size) rdy = 0;
+  for (Integer i=0; i < valueOf(size); i = i + 1) if (valid[0][i] == 1) begin
+    if (isValue(queue[i][0].rs1_val) && isValue(queue[i][0].rs2_val))
+      rdy[i] = 1;
+  end
+
   function Maybe#(Bit#(TLog#(size))) getReadyIndex;
-    Bit#(size) mask = 0;
+    Bit#(TLog#(size)) index = ?;
+    Bool empty = True;
+    Age age = ?;
 
     for (Integer i=0; i < valueOf(size); i = i + 1) begin
-      if (valid[0][i] == 1) begin
-        let rs1_val = queue[i][0].rs1_val;
-        let rs2_val = queue[i][0].rs2_val;
-        if (rs1_val matches tagged Value .* &&& rs2_val matches tagged Value .*) begin
-          mask[i] = 1;
-        end
+      if (rdy[i] == 1 && (empty || isBefore(queue[i][0].age, age))) begin
+        index = fromInteger(i);
+        age = queue[i][0].age;
+        empty = False;
       end
     end
 
-    return firstOneFrom(mask, lastIssue);
+    return empty ? Invalid : Valid(index);
   endfunction
+
+  function Bit#(TLog#(size)) next(Bit#(TLog#(size)) idx) =
+    idx == fromInteger(valueOf(size)-1) ? 0 : idx + 1;
 
   method ActionValue#(ExecInput) issue
     if (getReadyIndex matches tagged Valid .idx);
     valid[0][idx] <= 0;
     lastIssue <= idx+1;
 
-    IssueQueueEntry entry = queue[idx][0];
+    IssueQueueInput entry = queue[idx][0];
     return ExecInput {
       pc: entry.pc,
       instr: entry.instr,
@@ -57,7 +66,7 @@ module mkIssueQueue(IssueQueue#(size));
 
   method Action wakeup(RobIndex index, Bit#(32) value);
     for (Integer i=0; i < valueOf(size); i = i + 1) begin
-      IssueQueueEntry entry = queue[i][0];
+      IssueQueueInput entry = queue[i][0];
 
       if (entry.rs1_val matches tagged Wait .idx &&& idx == index)
         entry.rs1_val = tagged Value value;
@@ -69,7 +78,7 @@ module mkIssueQueue(IssueQueue#(size));
     end
   endmethod
 
-  method Action enq(IssueQueueEntry entry)
+  method Action enq(IssueQueueInput entry)
     if (firstOneFrom(~valid[1],0) matches tagged Valid .idx);
     queue[idx][1] <= entry;
     valid[1][idx] <= 1;
@@ -83,7 +92,7 @@ module mkDefaultIssueQueue(IssueQueue#(IqSize));
 endmodule
 
 module mkOrderedIssueQueue(IssueQueue#(size));
-  Vector#(size, Ehr#(2, IssueQueueEntry)) queue <- replicateM(mkEhr(?));
+  Vector#(size, Ehr#(2, IssueQueueInput)) queue <- replicateM(mkEhr(?));
   Reg#(Bit#(TLog#(size))) head <- mkReg(0);
   Reg#(Bit#(TLog#(size))) tail <- mkReg(0);
   Ehr#(2, Bit#(size)) valid <- mkEhr(0);
@@ -96,7 +105,7 @@ module mkOrderedIssueQueue(IssueQueue#(size));
     head <= head == fromInteger(valueOf(size)-1) ? 0 : head + 1;
     valid[0][head] <= 0;
 
-    IssueQueueEntry entry = queue[head][0];
+    IssueQueueInput entry = queue[head][0];
     return ExecInput {
       pc: entry.pc,
       instr: entry.instr,
@@ -108,7 +117,7 @@ module mkOrderedIssueQueue(IssueQueue#(size));
 
   method Action wakeup(RobIndex index, Bit#(32) value);
     for (Integer i=0; i < valueOf(size); i = i + 1) begin
-      IssueQueueEntry entry = queue[i][0];
+      IssueQueueInput entry = queue[i][0];
 
       if (entry.rs1_val matches tagged Wait .idx &&& idx == index)
         entry.rs1_val = tagged Value value;
@@ -120,7 +129,7 @@ module mkOrderedIssueQueue(IssueQueue#(size));
     end
   endmethod
 
-  method Action enq(IssueQueueEntry entry) if (valid[1][tail] == 0);
+  method Action enq(IssueQueueInput entry) if (valid[1][tail] == 0);
     tail <= tail == fromInteger(valueOf(size)-1) ? 0 : tail + 1;
     queue[tail][1] <= entry;
     valid[1][tail] <= 1;

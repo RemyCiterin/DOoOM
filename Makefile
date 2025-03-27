@@ -32,7 +32,7 @@ VGA_LIB = \
 			src/fake_differential.v \
 			src/vga2dvid.v
 
-BSC_FLAGS = -show-schedule -show-range-conflict -keep-fires -aggressive-conditions \
+BSC_FLAGS = -show-schedule -keep-fires -aggressive-conditions \
 						-check-assert -no-warn-action-shadowing -sched-dot
 
 SYNTH_FLAGS = -bdir $(BUILD) -vdir $(RTL) -simdir $(BUILD) \

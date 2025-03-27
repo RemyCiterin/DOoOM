@@ -4,19 +4,19 @@ import Utils :: *;
 import OOO :: *;
 
 // Store Buffer Size
-typedef 4 StbSize;
+typedef 2 StbSize;
 
 // Store Queue Size
-typedef 4 SqSize;
+typedef 8 SqSize;
 
 // Load Queue Size
-typedef 4 LqSize;
+typedef 8 LqSize;
 
 // Store issue queue size
-typedef 2 SiqSize;
+typedef 6 SiqSize;
 
 // Load issue queue size
-typedef 2 LiqSize;
+typedef 6 LiqSize;
 
 // Store Buffer Index
 typedef Bit#(TLog#(StbSize)) StbIndex;
@@ -39,6 +39,7 @@ function Size loadSize(LoadOp ltype);
   return case (ltype) matches
     LB : Byte; LBU : Byte;
     LH : Half; LHU : Half;
+    LFP: Word;
     LW : Word;
   endcase;
 endfunction
@@ -47,12 +48,14 @@ function Signedness loadSignedness(LoadOp ltype);
   return case (ltype) matches
     LB : Signed; LBU : Unsigned;
     LH : Signed; LHU : Unsigned;
+    LFP: Signed;
     LW : Signed;
   endcase;
 endfunction
 
 function Size storeSize(SOp ltype);
   return case (ltype) matches
+    SFP: Word;
     SB : Byte;
     SH : Half;
     SW : Word;
