@@ -433,18 +433,76 @@ module mkFloatPipeline(Pipeline);
   FIFOF#(RR_to_Pipeline) rr_to_fpu <- mkPipelineFIFOF;
   FIFOF#(Pipeline_to_WB) fpu_to_wb <- mkBypassFIFOF;
 
-  rule connect;
-    let req = rr_to_fpu.first;
-    rr_to_fpu.deq;
+  Fifo#(4, Bit#(2)) requestIdQ <- mkPipelineFifo;
+  Fifo#(4, RR_to_Pipeline) requestQ <- mkPipelineFifo;
+  FPointPipeline#(Bit#(2)) fpu <- mkFPointPipeline;
+
+  // Response buffer
+  RegFile#(Bit#(2), FpuResponse#(Bit#(2))) buffer <- mkRegFileFull();
+  Ehr#(2, Bit#(4)) valid <- mkEhr(0);
+  Ehr#(2, Bit#(4)) rdy <- mkEhr(0);
+
+  rule receive_rop if (
+      rr_to_fpu.first.instr matches tagged Rtype {op: tagged FloatOp .op} &&&
+      firstOneFrom(~valid[1],0) matches tagged Valid .id
+    );
+
+    let req <- toGet(rr_to_fpu).get;
+    requestIdQ.enq(id);
+    requestQ.enq(req);
+    valid[1][id] <= 1;
+
+    fpu.request.enq(FpuRequest{
+        rs1: unpack(req.rs1_val),
+        rs2: unpack(req.rs2_val),
+        rs3: unpack(req.rs3_val),
+        frm: req.frm,
+        op: Rop(op),
+        id: id
+    });
+  endrule
+
+  rule receive_r4op if (
+      rr_to_fpu.first.instr matches tagged R4type {op: .op} &&&
+      firstOneFrom(~valid[1],0) matches tagged Valid .id
+    );
+
+    let req <- toGet(rr_to_fpu).get;
+    requestIdQ.enq(id);
+    requestQ.enq(req);
+    valid[1][id] <= 1;
+
+    fpu.request.enq(FpuRequest{
+        rs1: unpack(req.rs1_val),
+        rs2: unpack(req.rs2_val),
+        rs3: unpack(req.rs3_val),
+        frm: req.frm,
+        op: Fma(op),
+        id: id
+    });
+  endrule
+
+  rule deq_fpu;
+    let resp <- toGet(fpu.response).get();
+    buffer.upd(resp.id, resp);
+    rdy[1][resp.id] <= 1;
+  endrule
+
+  rule connect if (rdy[0][requestIdQ.first] == 1);
+    let resp = buffer.sub(requestIdQ.first);
+    let req <- toGet(requestQ).get();
+    valid[0][requestIdQ.first] <= 0;
+    rdy[0][requestIdQ.first] <= 0;
+    requestIdQ.deq();
 
     fpu_to_wb.enq(Pipeline_to_WB{
+      fflags: Valid(resp.fflags),
+      result: pack(resp.result),
+      next_pc: req.pc+4,
+      epoch: req.epoch,
       exception: False,
       cause: ?,
-      tval: ?,
-      epoch: req.epoch,
-      next_pc: req.pc+4,
-      fflags: Invalid,
-      result: 0
+      tval: ?
     });
   endrule
 

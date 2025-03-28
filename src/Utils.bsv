@@ -92,6 +92,37 @@ function Bool isAfter(Epoch a, Epoch b);
   return !isBefore(a, b);
 endfunction
 
+function Maybe#(Bit#(TLog#(n))) findYoungest(Vector#(n, Age) ages, Bit#(n) mask);
+  Bit#(TLog#(n)) idx = ?;
+  Bool empty = True;
+  Age age = ?;
+
+  for (Integer i=0; i < valueOf(n); i = i + 1) begin
+    if (mask[i] == 1 && (empty || isBefore(age, ages[i]))) begin
+      idx = fromInteger(i);
+      age = ages[i];
+      empty = False;
+    end
+  end
+
+  return empty ? Invalid : Valid(idx);
+endfunction
+
+function Maybe#(Bit#(TLog#(n))) findOldest(Vector#(n, Age) ages, Bit#(n) mask);
+  Bit#(TLog#(n)) idx = ?;
+  Bool empty = True;
+  Age age = ?;
+
+  for (Integer i=0; i < valueOf(n); i = i + 1) begin
+    if (mask[i] == 1 && (empty || isBefore(ages[i], age))) begin
+      idx = fromInteger(i);
+      age = ages[i];
+      empty = False;
+    end
+  end
+
+  return empty ? Invalid : Valid(idx);
+endfunction
 
 interface EpochManager;
   method Epoch read;

@@ -80,9 +80,13 @@ pub var kalloc: Allocator = undefined;
 pub var malloc: Allocator = undefined;
 
 pub export fn handler(manager: *Manager) callconv(.C) void {
+    const logger = std.log.scoped(.handler);
     const pid = manager.current;
 
     if (RV.mcause.read().INTERRUPT == 0) {
+        logger.info("cause: {}", .{RV.mcause.read()});
+        logger.info("mepc: {x}", .{manager.read(pid, .pc)});
+
         manager.write(pid, .pc, manager.read(pid, .pc) + 4);
         manager.syscall() catch unreachable;
     } else if (RV.mip.read().MTIP == 1) {
@@ -159,10 +163,20 @@ pub fn syscall0(index: usize) void {
     Syscall.exec(@intFromPtr(&user_main), 512, null);
 }
 
+pub noinline fn foo(x: f32, y: f32) f32 {
+    return x + y;
+}
+
 pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
     const logger = std.log.scoped(.user);
 
     measureLock.lock();
+    logger.info("fpoint test", .{});
+
+    const x: f32 = 2.0;
+    const y: f32 = 43.0;
+    logger.info("{} * {} = {}", .{ x, y, foo(x, y) });
+
     logger.info("Binary Search:", .{});
     for (1..11) |i| {
         const size = 10 * i;

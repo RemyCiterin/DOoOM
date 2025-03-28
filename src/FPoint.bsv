@@ -9,7 +9,7 @@ import Divide :: *;
 import Fifo :: *;
 import Ehr :: *;
 
-typedef FloatingPoint#(8, 23) FSingle;
+typedef FloatingPoint#(8, 23) F32;
 
 typedef union tagged {
   FloatOp Rop;
@@ -20,20 +20,20 @@ typedef union tagged {
 typedef struct {
   reqId id;
   FpuOp op;
-  FSingle rs1;
-  FSingle rs2;
-  FSingle rs3;
+  F32 rs1;
+  F32 rs2;
+  F32 rs3;
   Bit#(3) frm;
 } FpuRequest#(type reqId) deriving(Bits, FShow, Eq);
 
 // Out-of-order Fpu response
 typedef struct {
   reqId id;
-  FSingle result;
+  F32 result;
   Bit#(5) fflags;
 } FpuResponse#(type reqId) deriving(Bits, FShow, Eq);
 
-Bit#(32) canonicalNan = 32'h7fc00000;
+Bit#(32) canonicalNaN = 32'h7fc00000;
 
 function RoundMode getRoundMode(Bit#(3) frm);
   return case (frm)
@@ -68,35 +68,20 @@ module mkFPointPipeline
 
   Server#(Tuple2#(UInt#(56), UInt#(28)), Tuple2#(UInt#(28), UInt#(28)))
     divider <- mkDivider(1);
-  Server#(Tuple3#(FSingle, FSingle, RoundMode), Tuple2#(FSingle, Exception))
+  Server#(Tuple3#(F32, F32, RoundMode), Tuple2#(F32, Exception))
     fp_divider <- mkFloatingPointDivider(divider);
   Fifo#(1, reqId) id_divider <- mkPipelineFifo;
 
   Server#(UInt#(60), Tuple2#(UInt#(60), Bool))
     sqrt <- mkNonPipelinedSquareRooter(2);
-  Server#(Tuple2#(FSingle, RoundMode), Tuple2#(FSingle, Exception))
+  Server#(Tuple2#(F32, RoundMode), Tuple2#(F32, Exception))
     fp_sqrt <- mkFloatingPointSquareRooter(sqrt);
   Fifo#(1, reqId) id_sqrt <- mkPipelineFifo;
 
-  Server#(Tuple4#(Maybe#(FSingle), FSingle, FSingle, RoundMode), Tuple2#(FSingle, Exception))
+  Server#(Tuple4#(Maybe#(F32), F32, F32, RoundMode), Tuple2#(F32, Exception))
     fp_fma <- mkFloatingPointFusedMultiplyAccumulate;
   Fifo#(1, Bool) negate_fma <- mkPipelineFifo;
   Fifo#(1, reqId) id_fma <- mkPipelineFifo;
-
-  // FloatOp:
-  //  FMIN_S, // rd = min(rs1, rs2)
-  //  FMAX_S, // rd = max(rs1, rs2)
-
-  //  FEQ_S, // rd = rs1 == rs2 ? 1 : 0
-  //  FLT_S, // rd = rs1 < rs2 ? 1 : 0
-  //  FLE_S, // rd = rs1 <= rs2 ? 1 : 0
-
-  //  FCLASS_S,
-
-  //  FCVT_W_S,  // rd = (int32_t) rs1
-  //  FCVT_WU_S, // rd = (uint32_t) rs1
-  //  FCVT_S_W,  // rd = (float) rs1
-  //  FCVT_S_WU, // rd = (float) rs1
 
   rule startFMA if (inputQ.first.op matches tagged Fma .op);
     let req = inputQ.first;
@@ -202,7 +187,7 @@ module mkFPointPipeline
     let req <- toGet(inputQ).get();
 
     outputQ.enq(FpuResponse{
-      result: FSingle{sign: req.rs2.sign, exp: req.rs1.exp, sfd: req.rs1.sfd},
+      result: F32{sign: req.rs2.sign, exp: req.rs1.exp, sfd: req.rs1.sfd},
       id: req.id,
       fflags: 0
     });
@@ -212,7 +197,7 @@ module mkFPointPipeline
     let req <- toGet(inputQ).get();
 
     outputQ.enq(FpuResponse{
-      result: FSingle{sign: !req.rs2.sign, exp: req.rs1.exp, sfd: req.rs1.sfd},
+      result: F32{sign: !req.rs2.sign, exp: req.rs1.exp, sfd: req.rs1.sfd},
       id: req.id,
       fflags: 0
     });
@@ -223,7 +208,7 @@ module mkFPointPipeline
 
     let sign = req.rs1.sign != req.rs2.sign;
     outputQ.enq(FpuResponse{
-      result: FSingle{sign: sign, exp: req.rs1.exp, sfd: req.rs1.sfd},
+      result: F32{sign: sign, exp: req.rs1.exp, sfd: req.rs1.sfd},
       id: req.id,
       fflags: 0
     });
@@ -249,13 +234,199 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFMIN_S if (inputQ.first.op matches tagged Rop FMIN_S);
+  rule doFCLASS_S if (inputQ.first.op matches tagged Rop FCLASS_S);
     let req <- toGet(inputQ).get();
+    F32 rs1 = req.rs1;
+    Bit#(32) res = 1;
+
+    if (isNaN(rs1)) res = isQNaN(rs1) ? res << 9 : res << 8;
+    else if (isInfinity(rs1)) res = rs1.sign ? res : res << 7;
+    else if (isZero(rs1)) res = rs1.sign ? res << 3 : res << 4;
+    else if (isSubNormal(rs1)) res = rs1.sign ? res << 2 : res << 5;
+    else res = rs1.sign ? res << 1 : res << 6;
 
     outputQ.enq(FpuResponse{
-      result: req.rs1,
+      result: unpack(res),
       id: req.id,
       fflags: 0
+    });
+  endrule
+
+  rule doFMIN_S if (inputQ.first.op matches tagged Rop FMIN_S);
+    let req <- toGet(inputQ).get();
+    F32 rs1 = req.rs1;
+    F32 rs2 = req.rs2;
+
+    F32 res = compareFP(rs1,rs2) == LT ? rs1 : rs2;
+
+    if (isSNaN(rs1) && isSNaN(rs2)) res = unpack(canonicalNaN);
+    else if (isSNaN(rs1)) res = rs2;
+    else if (isSNaN(rs2)) res = rs1;
+
+    else if (isQNaN(rs1) && isQNaN(rs2)) res = unpack(canonicalNaN);
+    else if (isQNaN(rs1)) res = rs2;
+    else if (isQNaN(rs2)) res = rs1;
+
+    else if (isZero(rs1) && !rs1.sign && isZero(rs2) && rs2.sign) res = rs2;
+    else if (isZero(rs1) && rs1.sign && isZero(rs2) && !rs2.sign) res = rs1;
+
+    Exception exn = defaultValue;
+    if (isSNaN(rs1) || isSNaN(rs2)) exn.invalid_op = True;
+
+    outputQ.enq(FpuResponse{
+      fflags: getFlags(exn),
+      result: res,
+      id: req.id
+    });
+  endrule
+
+  rule doFMAX_S if (inputQ.first.op matches tagged Rop FMIN_S);
+    let req <- toGet(inputQ).get();
+    F32 rs1 = req.rs1;
+    F32 rs2 = req.rs2;
+
+    F32 res = compareFP(rs1,rs2) == LT ? rs2 : rs1;
+
+    if (isSNaN(rs1) && isSNaN(rs2)) res = unpack(canonicalNaN);
+    else if (isSNaN(rs1)) res = rs2;
+    else if (isSNaN(rs2)) res = rs1;
+
+    else if (isQNaN(rs1) && isQNaN(rs2)) res = unpack(canonicalNaN);
+    else if (isQNaN(rs1)) res = rs2;
+    else if (isQNaN(rs2)) res = rs1;
+
+    else if (isZero(rs1) && !rs1.sign && isZero(rs2) && rs2.sign) res = rs1;
+    else if (isZero(rs1) && rs1.sign && isZero(rs2) && !rs2.sign) res = rs2;
+
+    Exception exn = defaultValue;
+    if (isSNaN(rs1) || isSNaN(rs2)) exn.invalid_op = True;
+
+    outputQ.enq(FpuResponse{
+      fflags: getFlags(exn),
+      result: res,
+      id: req.id
+    });
+  endrule
+
+  rule doFEQ_S if (inputQ.first.op matches tagged Rop FEQ_S);
+    let req <- toGet(inputQ).get();
+    F32 rs1 = req.rs1;
+    F32 rs2 = req.rs2;
+
+    Bit#(32) res = compareFP(rs1, rs2) == EQ ? 1 : 0;
+
+    if (isSNaN(rs1) || isSNaN(rs2)) res = 0;
+    else if (isQNaN(rs1) || isQNaN(rs2)) res = 0;
+
+    Exception exn = defaultValue;
+    if (isSNaN(rs1) || isSNaN(rs2)) exn.invalid_op = True;
+
+    outputQ.enq(FpuResponse{
+      fflags: getFlags(exn),
+      result: unpack(res),
+      id: req.id
+    });
+  endrule
+
+  rule doFLT_S if (inputQ.first.op matches tagged Rop FLT_S);
+    let req <- toGet(inputQ).get();
+    F32 rs1 = req.rs1;
+    F32 rs2 = req.rs2;
+
+    Bit#(32) res = compareFP(rs1, rs2) == LT ? 1 : 0;
+
+    if (isSNaN(rs1) || isSNaN(rs2)) res = 0;
+    else if (isQNaN(rs1) || isQNaN(rs2)) res = 0;
+
+    Exception exn = defaultValue;
+    if (isSNaN(rs1) || isSNaN(rs2)) exn.invalid_op = True;
+
+    outputQ.enq(FpuResponse{
+      fflags: getFlags(exn),
+      result: unpack(res),
+      id: req.id
+    });
+  endrule
+
+  rule doFLE_S if (inputQ.first.op matches tagged Rop FLE_S);
+    let req <- toGet(inputQ).get();
+    F32 rs1 = req.rs1;
+    F32 rs2 = req.rs2;
+
+    Bit#(32) res =
+      compareFP(rs1, rs2) == LT ? 1 :
+      compareFP(rs1, rs2) == EQ ? 1 : 0;
+
+    if (isSNaN(rs1) || isSNaN(rs2)) res = 0;
+    else if (isQNaN(rs1) || isQNaN(rs2)) res = 0;
+
+    Exception exn = defaultValue;
+    if (isSNaN(rs1) || isSNaN(rs2)) exn.invalid_op = True;
+
+    outputQ.enq(FpuResponse{
+      fflags: getFlags(exn),
+      result: unpack(res),
+      id: req.id
+    });
+  endrule
+
+  rule doFCVT_S_W if (inputQ.first.op matches tagged Rop FCVT_S_W);
+    let req <- toGet(inputQ).get();
+    Int#(32) rs1 = unpack(pack(req.rs1));
+    match {.res, .exn} =
+      Tuple2#(F32, Exception)'(vFixedToFloat(rs1, 6'd0, getRoundMode(req.frm)));
+
+    outputQ.enq(FpuResponse{
+      fflags: getFlags(exn),
+      result: res,
+      id: req.id
+    });
+  endrule
+
+  rule doFCVT_S_WU if (inputQ.first.op matches tagged Rop FCVT_S_WU);
+    let req <- toGet(inputQ).get();
+    UInt#(32) rs1 = unpack(pack(req.rs1));
+    match {.res, .exn} =
+      Tuple2#(F32, Exception)'(vFixedToFloat(rs1, 6'd0, getRoundMode(req.frm)));
+
+    outputQ.enq(FpuResponse{
+      fflags: getFlags(exn),
+      result: res,
+      id: req.id
+    });
+  endrule
+
+  rule doFCVT_W_S if (inputQ.first.op matches tagged Rop FCVT_W_S);
+    let req <- toGet(inputQ).get();
+    match {.res, .exn} =
+      Tuple2#(Int#(32), Exception)'(vFloatToFixed(6'd0, req.rs1, getRoundMode(req.frm)));
+
+    outputQ.enq(FpuResponse{
+      fflags: getFlags(exn),
+      result: unpack(pack(res)),
+      id: req.id
+    });
+  endrule
+
+  rule doFCVT_WU_S if (inputQ.first.op matches tagged Rop FCVT_WU_S);
+    let req <- toGet(inputQ).get();
+    F32 arg = F32{sfd: req.rs1.sfd, exp: req.rs1.exp, sign: False};
+
+    match {.res, .exn} =
+      Tuple2#(UInt#(32), Exception)'(vFloatToFixed(6'd0, arg, getRoundMode(req.frm)));
+
+    if (req.rs1.sign) begin
+      if (pack(exn) != 0) exn.invalid_op = True;
+      res = 0;
+    end else if (isInfinity(req.rs1))
+      res = 32'hffffffff;
+    else if (isNaN(req.rs1))
+      res = 32'hffffffff;
+
+    outputQ.enq(FpuResponse{
+      result: unpack(pack(res)),
+      fflags: getFlags(exn),
+      id: req.id
     });
   endrule
 

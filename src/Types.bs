@@ -72,6 +72,7 @@ struct RR_to_WB =
   ; predicted_pc :: Bit 32
   ; rs1_val :: Bit 32 -- for CSRxx
   ; rs2_val :: Bit 32 -- for CSRxx
+  ; rs3_val :: Bit 32 -- for CSRxx
   } deriving(Bits, Eq, FShow)
 
 -- Message from Register Read to the pipeline (DMEM, ALU, Control...)
@@ -82,6 +83,7 @@ struct RR_to_Pipeline =
   ; instr :: Instr
   ; rs1_val :: Bit 32
   ; rs2_val :: Bit 32
+  ; rs3_val :: Bit 32
   } deriving(Bits, FShow, Eq)
 
 struct WB_to_Fetch =

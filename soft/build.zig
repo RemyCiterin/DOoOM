@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) !void {
     const target = std.Target.Query{
         .cpu_arch = Target.Cpu.Arch.riscv32,
         .cpu_model = .{ .explicit = &Target.riscv.cpu.generic_rv32 },
-        .cpu_features_add = Target.riscv.featureSet(&[_]Feature{.m}),
+        .cpu_features_add = Target.riscv.featureSet(&[_]Feature{ .m, .f }),
         .os_tag = .freestanding,
         .abi = .none, // .eabi
     };

@@ -30,20 +30,11 @@ module mkIssueQueue(IssueQueue#(size));
       rdy[i] = 1;
   end
 
+  Vector#(size, Age) ages = ?;
+  for (Integer i=0; i < valueOf(size); i = i + 1) ages[i] = queue[i][0].age;
+
   function Maybe#(Bit#(TLog#(size))) getReadyIndex;
-    Bit#(TLog#(size)) index = ?;
-    Bool empty = True;
-    Age age = ?;
-
-    for (Integer i=0; i < valueOf(size); i = i + 1) begin
-      if (rdy[i] == 1 && (empty || isBefore(queue[i][0].age, age))) begin
-        index = fromInteger(i);
-        age = queue[i][0].age;
-        empty = False;
-      end
-    end
-
-    return empty ? Invalid : Valid(index);
+    return findOldest(ages, rdy);
   endfunction
 
   function Bit#(TLog#(size)) next(Bit#(TLog#(size)) idx) =

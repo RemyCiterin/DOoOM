@@ -26,7 +26,7 @@ interface RegisterFile;
   method Bit#(32) read2(RegName r);
   method Bit#(32) read3(RegName r);
   method Action setReady(RegName r, Bit#(32) value, Bool commit);
-  method Bool isReady(RegName rd, RegName rs1, RegName rs2);
+  method Bool isReady(RegName rd, RegName rs1, RegName rs2, RegName rs3);
 endinterface
 
 (* synthesize *)
@@ -34,10 +34,11 @@ module mkRegisterFile(RegisterFile);
   Ehr#(2, Bit#(64)) scoreboard <- mkEhr(0);
   ForwardRegFile#(Bit#(6), Bit#(32)) registers <- mkForwardRegFileFullInit(0);
 
-  method Bool isReady(RegName rd, RegName rs1, RegName rs2);
+  method Bool isReady(RegName rd, RegName rs1, RegName rs2, RegName rs3);
     return scoreboard[1][pack(rd)] == 0 &&
       scoreboard[1][pack(rs1)] == 0 &&
-      scoreboard[1][pack(rs2)] == 0;
+      scoreboard[1][pack(rs2)] == 0 &&
+      scoreboard[1][pack(rs3)] == 0;
   endmethod
 
   method Action setBusy(RegName r);
@@ -114,12 +115,14 @@ module mkCore(Core_IFC);
       let rd = req.exception ? zeroReg : destination(req.instr);
       let rs1 = req.exception ? zeroReg : register1(req.instr);
       let rs2 = req.exception ? zeroReg : register2(req.instr);
+      let rs3 = req.exception ? zeroReg : register3(req.instr);
 
-      when(registers.isReady(rd, rs1, rs2), registers.setBusy(rd));
+      when(registers.isReady(rd, rs1, rs2, rs3), registers.setBusy(rd));
       decoded.deq();
 
       let rs1_val = registers.read1(rs1);
       let rs2_val = registers.read2(rs2);
+      let rs3_val = registers.read3(rs3);
 
       bpred_states.enq(req.bpred_state);
       window.enq(RR_to_WB{
@@ -133,7 +136,8 @@ module mkCore(Core_IFC);
         instr: req.instr,
         predicted_pc: req.pred_pc,
         rs1_val: rs1_val,
-        rs2_val: rs2_val
+        rs2_val: rs2_val,
+        rs3_val: rs3_val
       });
 
       let msg = RR_to_Pipeline{
@@ -141,6 +145,7 @@ module mkCore(Core_IFC);
         instr: req.instr,
         rs1_val: rs1_val,
         rs2_val: rs2_val,
+        rs3_val: rs3_val,
         frm: csr.read_frm,
         pc: req.pc
       };
@@ -336,8 +341,9 @@ module mkCore(Core_IFC);
     let rd = req.exception ? zeroReg : destination(req.instr);
     let rs1 = req.exception ? zeroReg : register1(req.instr);
     let rs2 = req.exception ? zeroReg : register2(req.instr);
+    let rs3 = req.exception ? zeroReg : register3(req.instr);
 
-    if (!registers.isReady(rd, rs1, rs2)) stall <= stall + 1;
+    if (!registers.isReady(rd, rs1, rs2, rs3)) stall <= stall + 1;
   endrule
 
   rule countCycle;

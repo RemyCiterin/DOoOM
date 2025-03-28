@@ -534,29 +534,30 @@ function Maybe#(ROp) decodeFloatOp(Rtype instr);
 endfunction
 
 function Maybe#(ROp) decodeRtype(Rtype instr);
-  return case (tuple2(function7(instr), function3(instr))) matches
-    {7'b0000000, 3'b000} : Valid(ADD);  // add
-    {7'b0100000, 3'b000} : Valid(SUB);  // sub
-    {7'b0000000, 3'b001} : Valid(SLL);  // shift left logic
-    {7'b0000000, 3'b010} : Valid(SLT);  // less than
-    {7'b0000000, 3'b011} : Valid(SLTU); // less than unsigned
-    {7'b0000000, 3'b100} : Valid(XOR);  // xor
-    {7'b0000000, 3'b101} : Valid(SRL);  // shift right logic
-    {7'b0100000, 3'b101} : Valid(SRA);  // shift right arithmetic
-    {7'b0000000, 3'b110} : Valid(OR);   // or
-    {7'b0000000, 3'b111} : Valid(AND);  // and
+  return opcode(instr) == 7'b1010011 ?
+    decodeFloatOp(instr) :
+    case (tuple2(function7(instr), function3(instr))) matches
+      {7'b0000000, 3'b000} : Valid(ADD);  // add
+      {7'b0100000, 3'b000} : Valid(SUB);  // sub
+      {7'b0000000, 3'b001} : Valid(SLL);  // shift left logic
+      {7'b0000000, 3'b010} : Valid(SLT);  // less than
+      {7'b0000000, 3'b011} : Valid(SLTU); // less than unsigned
+      {7'b0000000, 3'b100} : Valid(XOR);  // xor
+      {7'b0000000, 3'b101} : Valid(SRL);  // shift right logic
+      {7'b0100000, 3'b101} : Valid(SRA);  // shift right arithmetic
+      {7'b0000000, 3'b110} : Valid(OR);   // or
+      {7'b0000000, 3'b111} : Valid(AND);  // and
 
-    {7'b0000001, 3'b000} : Valid(MUL);
-    {7'b0000001, 3'b001} : Valid(MULH);
-    {7'b0000001, 3'b010} : Valid(MULHSU);
-    {7'b0000001, 3'b011} : Valid(MULHU);
-    {7'b0000001, 3'b100} : Valid(DIV);
-    {7'b0000001, 3'b101} : Valid(DIVU);
-    {7'b0000001, 3'b110} : Valid(REM);
-    {7'b0000001, 3'b111} : Valid(REMU);
-    {7'b1010011, .*} : decodeFloatOp(instr);
-    default : Invalid;
-  endcase;
+      {7'b0000001, 3'b000} : Valid(MUL);
+      {7'b0000001, 3'b001} : Valid(MULH);
+      {7'b0000001, 3'b010} : Valid(MULHSU);
+      {7'b0000001, 3'b011} : Valid(MULHU);
+      {7'b0000001, 3'b100} : Valid(DIV);
+      {7'b0000001, 3'b101} : Valid(DIVU);
+      {7'b0000001, 3'b110} : Valid(REM);
+      {7'b0000001, 3'b111} : Valid(REMU);
+      default : Invalid;
+    endcase;
 endfunction
 
 typedef enum {
