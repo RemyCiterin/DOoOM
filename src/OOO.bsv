@@ -6,10 +6,10 @@ import CSR :: *;
 import BranchPred :: *;
 
 // The number of slots in the reorder buffer
-typedef 6 RobSize;
+typedef 32 RobSize;
 typedef Bit#(TLog#(RobSize)) RobIndex;
 
-typedef 2 IqSize;
+typedef 4 IqSize;
 
 // The execution of an instruction return either
 // an exception with a cause and a mtval value,

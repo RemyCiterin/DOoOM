@@ -20,9 +20,9 @@ pkgs.mkShell {
     pkgs.verilog
     pkgs.gtkwave
     pkgs.openfpgaloader
-    #pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
+    pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
     #pkgsCross.buildPackages.binutils
-    pkgsCross.buildPackages.gcc
+    #pkgsCross.buildPackages.gcc
     #pkgs.sail-riscv-rv64
     pkgs.qemu
 

@@ -30,46 +30,46 @@ module mkTop (
 
   parameter C_ddr = 1'b1;
 
-  //wire [7:0] led;
+  ////wire [7:0] led;
 
-  wire awvalid;
-  wire awready;
-  wire [31:0] awaddr;
-  wire [7:0] awlen;
-  wire [1:0] awburst;
-  wire [3:0] awid;
+  //wire awvalid;
+  //wire awready;
+  //wire [31:0] awaddr;
+  //wire [7:0] awlen;
+  //wire [1:0] awburst;
+  //wire [3:0] awid;
 
-  wire wready;
-  wire wvalid;
-  wire [31:0] wdata;
-  wire [3:0] wstrb;
-  wire wlast;
+  //wire wready;
+  //wire wvalid;
+  //wire [31:0] wdata;
+  //wire [3:0] wstrb;
+  //wire wlast;
 
-  wire bready;
-  wire bvalid;
-  wire [1:0] bresp;
-  wire [3:0] bid;
+  //wire bready;
+  //wire bvalid;
+  //wire [1:0] bresp;
+  //wire [3:0] bid;
 
-  wire arready;
-  wire arvalid;
-  wire [31:0] araddr;
-  wire [1:0] arburst;
-  wire [7:0] arlen;
-  wire [3:0] arid;
+  //wire arready;
+  //wire arvalid;
+  //wire [31:0] araddr;
+  //wire [1:0] arburst;
+  //wire [7:0] arlen;
+  //wire [3:0] arid;
 
-  wire rready;
-  wire rvalid;
-  wire [31:0] rdata;
-  wire [1:0] rresp;
-  wire rlast;
-  wire [3:0] rid;
+  //wire rready;
+  //wire rvalid;
+  //wire [31:0] rdata;
+  //wire [1:0] rresp;
+  //wire rlast;
+  //wire [3:0] rid;
 
   wire [15:0] sdram_d_in;
   wire [15:0] sdram_d_out;
-  wire sdram_d_out_en;
+  wire sdram_d_en;
 
   assign sdram_d_in = sdram_d;
-  assign sdram_d = sdram_d_out_en ? sdram_d_out : 16'hzzzz;
+  assign sdram_d = sdram_d_en ? sdram_d_out : 16'hzzzz;
   //genvar i;
   //for (i=0; i < 16; i = i + 1)
   //begin
@@ -183,88 +183,102 @@ module mkTop (
 
 
 
-  sdram_axi #(.SDRAM_ADDR_W(24), .SDRAM_MHZ(25)) sdram (
-    .clk_i(CLK),
-    .rst_i(!RST_N),
+  //sdram_axi #(.SDRAM_ADDR_W(24), .SDRAM_MHZ(25)) sdram (
+  //  .clk_i(CLK),
+  //  .rst_i(!RST_N),
 
-    // AXI port
-    .inport_awvalid_i(awvalid),
-    .inport_awaddr_i(awaddr),
-    .inport_awid_i(awid),
-    .inport_awlen_i(awlen),
-    .inport_awburst_i(awburst),
-    .inport_wvalid_i(wvalid),
-    .inport_wdata_i(wdata),
-    .inport_wstrb_i(wstrb),
-    .inport_wlast_i(wlast),
-    .inport_bready_i(bready),
-    .inport_arvalid_i(arvalid),
-    .inport_araddr_i(araddr),
-    .inport_arid_i(arid),
-    .inport_arlen_i(arlen),
-    .inport_arburst_i(arburst),
-    .inport_rready_i(rready),
-    .inport_awready_o(awready),
-    .inport_wready_o(wready),
-    .inport_bvalid_o(bvalid),
-    .inport_bresp_o(bresp),
-    .inport_bid_o(bid),
-    .inport_arready_o(arready),
-    .inport_rvalid_o(rvalid),
-    .inport_rdata_o(rdata),
-    .inport_rresp_o(rresp),
-    .inport_rid_o(rid),
-    .inport_rlast_o(rlast),
+  //  // AXI port
+  //  .inport_awvalid_i(awvalid),
+  //  .inport_awaddr_i(awaddr),
+  //  .inport_awid_i(awid),
+  //  .inport_awlen_i(awlen),
+  //  .inport_awburst_i(awburst),
+  //  .inport_wvalid_i(wvalid),
+  //  .inport_wdata_i(wdata),
+  //  .inport_wstrb_i(wstrb),
+  //  .inport_wlast_i(wlast),
+  //  .inport_bready_i(bready),
+  //  .inport_arvalid_i(arvalid),
+  //  .inport_araddr_i(araddr),
+  //  .inport_arid_i(arid),
+  //  .inport_arlen_i(arlen),
+  //  .inport_arburst_i(arburst),
+  //  .inport_rready_i(rready),
+  //  .inport_awready_o(awready),
+  //  .inport_wready_o(wready),
+  //  .inport_bvalid_o(bvalid),
+  //  .inport_bresp_o(bresp),
+  //  .inport_bid_o(bid),
+  //  .inport_arready_o(arready),
+  //  .inport_rvalid_o(rvalid),
+  //  .inport_rdata_o(rdata),
+  //  .inport_rresp_o(rresp),
+  //  .inport_rid_o(rid),
+  //  .inport_rlast_o(rlast),
 
-    // SDRAM Interface
-    .sdram_clk_o(sdram_clk),
-    .sdram_cke_o(sdram_cke),
-    .sdram_cs_o(sdram_csn),
-    .sdram_ras_o(sdram_rasn),
-    .sdram_cas_o(sdram_casn),
-    .sdram_we_o(sdram_wen),
-    .sdram_dqm_o(sdram_dqm),
-    .sdram_addr_o(sdram_a),
-    .sdram_ba_o(sdram_ba),
-    .sdram_data_input_i(sdram_d_in),
-    .sdram_data_output_o(sdram_d_out),
-    .sdram_data_out_en_o(sdram_d_out_en)
-  );
+  //  // SDRAM Interface
+  //  .sdram_clk_o(sdram_clk),
+  //  .sdram_cke_o(sdram_cke),
+  //  .sdram_cs_o(sdram_csn),
+  //  .sdram_ras_o(sdram_rasn),
+  //  .sdram_cas_o(sdram_casn),
+  //  .sdram_we_o(sdram_wen),
+  //  .sdram_dqm_o(sdram_dqm),
+  //  .sdram_addr_o(sdram_a),
+  //  .sdram_ba_o(sdram_ba),
+  //  .sdram_data_input_i(sdram_d_in),
+  //  .sdram_data_output_o(sdram_d_out),
+  //  .sdram_data_out_en_o(sdram_d_out_en)
+  //);
+  //
+  wire sdram_nclk;
+  assign sdram_clk = ~sdram_nclk;
 
   mkCPU cpu(
     .CLK(CLK),
     .RST_N(RST_N),
-    .awvalid(awvalid),
-    .awready(awready),
-    .awaddr(awaddr),
-    .awlength(awlen),
-    .awburst(awburst),
-    .awid(awid),
+    //.awvalid(awvalid),
+    //.awready(awready),
+    //.awaddr(awaddr),
+    //.awlength(awlen),
+    //.awburst(awburst),
+    //.awid(awid),
 
-    .wready(wready),
-    .wvalid(wvalid),
-    .wdata(wdata),
-    .wstrb(wstrb),
-    .wlast(wlast),
+    //.wready(wready),
+    //.wvalid(wvalid),
+    //.wdata(wdata),
+    //.wstrb(wstrb),
+    //.wlast(wlast),
 
-    .bready(bready),
-    .bvalid(bvalid),
-    .bresp(bresp),
-    .bid(bid),
+    //.bready(bready),
+    //.bvalid(bvalid),
+    //.bresp(bresp),
+    //.bid(bid),
 
-    .arready(arready),
-    .arvalid(arvalid),
-    .araddr(araddr),
-    .arburst(arburst),
-    .arlength(arlen),
-    .arid(arid),
+    //.arready(arready),
+    //.arvalid(arvalid),
+    //.araddr(araddr),
+    //.arburst(arburst),
+    //.arlength(arlen),
+    //.arid(arid),
 
-    .rready(rready),
-    .rvalid(rvalid),
-    .rdata(rdata),
-    .rresp(rresp),
-    .rlast(rlast),
-    .rid(rid),
+    //.rready(rready),
+    //.rvalid(rvalid),
+    //.rdata(rdata),
+    //.rresp(rresp),
+    //.rlast(rlast),
+    //.rid(rid),
+    .sdram_d_in(sdram_d_in),
+    .sdram_d_en(sdram_d_en),
+    .sdram_d_out(sdram_d_out),
+    .sdram_csn(sdram_csn),
+    .sdram_casn(sdram_casn),
+    .sdram_rasn(sdram_rasn),
+    .sdram_wen(sdram_wen),
+    .sdram_a(sdram_a),
+    .sdram_ba(sdram_ba),
+    .sdram_dqm(sdram_dqm),
+    .CLK_sdram_nclk(sdram_nclk),
 
     .led(led),
     .ftdi_rxd(ftdi_rxd),

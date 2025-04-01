@@ -83,7 +83,7 @@ link:
 sim:
 	bsc $(BSC_FLAGS) $(BSIM_FLAGS) -p $(PACKAGES) -sim -u -g $(BSIM_MODULE) $(TOP)
 	bsc $(BSC_FLAGS) $(BSIM_FLAGS) -sim -e $(BSIM_MODULE) -o \
-		$(BSIM)/bsim $(BSIM)/*.ba
+		$(BSIM)/bsim $(BSIM)/*.ba src/simulation.c
 	./bsim/bsim -m 1000000000
 
 run:

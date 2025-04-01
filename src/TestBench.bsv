@@ -10,6 +10,7 @@ import UART :: *;
 import Ehr :: *;
 import Screen :: *;
 import SdCard :: *;
+import SDRAM :: *;
 
 interface AXI4_Slave#(numeric type idBits, numeric type addrBits, numeric type dataBytes);
   interface RdAXI4_Slave#(idBits, addrBits, dataBytes) read;
@@ -453,5 +454,113 @@ module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
     interface awrequest = toPut(awrequest);
     interface wrequest = toPut(wrequest);
     interface response = toGet(wresponse);
+  endinterface
+endmodule
+
+interface SdramAXI4;
+  (* prefix = "" *)
+  interface PinsSDRAM memory;
+
+  interface AXI4_Slave#(4, 32, 4) slave;
+endinterface
+
+module mkSdramAXI4#(Bit#(32) start) (SdramAXI4);
+  let sdram <- mkSDRAM(25);
+
+  FIFOF#(AXI4_RRequest#(4, 32)) rrequest <- mkBypassFIFOF;
+  FIFOF#(AXI4_RResponse#(4, 4)) rresponse <- mkPipelineFIFOF;
+
+  FIFOF#(AXI4_WRequest#(4)) wrequest <- mkBypassFIFOF;
+  FIFOF#(AXI4_AWRequest#(4, 32)) awrequest <- mkBypassFIFOF;
+  FIFOF#(AXI4_WResponse#(4)) wresponse <- mkPipelineFIFOF;
+
+  FIFOF#(void) readQ <- mkPipelineFIFOF;
+
+  Ehr#(2, RomState) state <- mkEhr(IDLE);
+
+  Reg#(Bit#(32)) cycle <- mkReg(0);
+
+  function Bit#(32) getAddr(Bit#(32) addr);
+    return (addr - start) >> 2;
+  endfunction
+
+  function Bool inBounds(Bit#(32) addr);
+    return (addr - start) <= 32 * 1024 * 1024;
+  endfunction
+
+  rule readReq if (state[1] matches tagged Read {req: .req});
+    sdram.user.request(getAddr(req.addr), ?, 0);
+    readQ.enq(?);
+  endrule
+
+  rule stepRead
+    if (state[0] matches tagged Read {req: .req, init_length: .length});
+    let response <- sdram.user.response();
+
+    rresponse.enq(AXI4_RResponse{
+      last: req.length == 0,
+      bytes: response,
+      id: req.id,
+      resp: OKAY
+    });
+
+    readQ.deq();
+
+    //$display("read at cycle: %d", cycle);
+
+    Bit#(32) next_addr = axi4NextAddr(4, req.addr, req.burst, length);
+    state[0] <= (req.length == 0 ? IDLE : tagged Read {init_length: length, req: AXI4_RRequest{
+      length: req.length - 1,
+      burst: req.burst,
+      addr: next_addr,
+      id: req.id
+    }});
+  endrule
+
+  rule stepWrite
+    if (state[0] matches tagged Write {req: .awreq, init_length: .length});
+    let wreq = wrequest.first;
+    wrequest.deq;
+
+    if (inBounds(awreq.addr) && wreq.strb != 0)
+      sdram.user.request(getAddr(awreq.addr), wreq.bytes, wreq.strb);
+
+    if (awreq.length == 0)
+      wresponse.enq(AXI4_WResponse{resp: OKAY, id: awreq.id});
+
+    //$display("write at cycle: %d", cycle);
+
+    Bit#(32) next_addr = axi4NextAddr(4, awreq.addr, awreq.burst, length);
+    state[0] <= (awreq.length == 0 ? IDLE : tagged Write {init_length: length, req: AXI4_AWRequest{
+      length: awreq.length - 1,
+      burst: awreq.burst,
+      addr: next_addr,
+      id: awreq.id
+    }});
+  endrule
+
+  rule enq if (state[1] == IDLE);
+    if (rrequest.notEmpty) begin
+      state[1] <= tagged Read {req: rrequest.first, init_length: rrequest.first.length};
+      rrequest.deq;
+    end else begin
+      state[1] <= tagged Write {req: awrequest.first, init_length: awrequest.first.length};
+      awrequest.deq;
+    end
+  endrule
+
+  interface memory = sdram.pins;
+
+  interface AXI4_Slave slave;
+    interface RdAXI4_Slave read;
+      interface request = toPut(rrequest);
+      interface response = toGet(rresponse);
+    endinterface
+
+    interface WrAXI4_Slave write;
+      interface awrequest = toPut(awrequest);
+      interface wrequest = toPut(wrequest);
+      interface response = toGet(wresponse);
+    endinterface
   endinterface
 endmodule

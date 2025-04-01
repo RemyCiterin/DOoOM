@@ -59,28 +59,28 @@ pub fn build(b: *std.Build) !void {
 
     const exe = b.addExecutable(.{
         .name = "kernel.elf",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = .{ .cwd_relative = "src/main.zig" },
         .target = b.resolveTargetQuery(target),
         .optimize = optimize,
     });
 
     const bootloader = b.addExecutable(.{
         .name = "bootloader.elf",
-        .root_source_file = .{ .path = "src/boot.zig" },
+        .root_source_file = .{ .cwd_relative = "src/boot.zig" },
         .target = b.resolveTargetQuery(target),
         .optimize = optimizeSmall,
     });
 
-    exe.addAssemblyFile(.{ .path = "src/trampoline.s" });
-    exe.addAssemblyFile(.{ .path = "src/init.S" });
+    exe.addAssemblyFile(.{ .cwd_relative = "src/trampoline.s" });
+    exe.addAssemblyFile(.{ .cwd_relative = "src/init.S" });
 
-    bootloader.addAssemblyFile(.{ .path = "src/trampoline.s" });
-    bootloader.addAssemblyFile(.{ .path = "src/init.S" });
+    bootloader.addAssemblyFile(.{ .cwd_relative = "src/trampoline.s" });
+    bootloader.addAssemblyFile(.{ .cwd_relative = "src/init.S" });
 
     //exe.code_model = .medium;
 
-    exe.setLinkerScriptPath(.{ .path = "src/linker_kernel.ld" });
-    bootloader.setLinkerScriptPath(.{ .path = "src/linker_boot.ld" });
+    exe.setLinkerScriptPath(.{ .cwd_relative = "src/linker_kernel.ld" });
+    bootloader.setLinkerScriptPath(.{ .cwd_relative = "src/linker_boot.ld" });
 
     b.installArtifact(exe);
     b.installArtifact(bootloader);

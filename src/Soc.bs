@@ -23,12 +23,10 @@ import Clint
 import LSU
 import BCache
 import BranchPred
+import SDRAM
 
 interface CPU_IFC =
-  -- write SDRAM port using AXI4 protocol
-  wr_axi4 :: WrAXI4_Master_Fab 4 32 4 {-# prefix="" #-}
-  -- read SDRAM port using AXI4 protocol
-  rd_axi4 :: RdAXI4_Master_Fab 4 32 4 {-# prefix="" #-}
+  memory :: PinsSDRAM {-# prefix="" #-}
   led :: Bit 8 {-# always_ready, always_enabled #-}
   ftdi_rxd :: Bit 1 {-# always_ready, always_enabled #-}
   ftdi_txd :: Bit 1 -> Action {-# always_ready, always_enabled, arg_names= [ftdi_txd], prefix="" #-}
@@ -39,8 +37,11 @@ interface CPU_IFC =
 {-# verilog mkCPU #-}
 mkCPU :: Module CPU_IFC
 mkCPU = module
-  wr_port <- mkWrAXI4_Master Pipeline
-  rd_port <- mkRdAXI4_Master Pipeline
+  sdram <- mkSdramAXI4 32'h80000000
+  let wr_port = sdram.slave.write
+  let rd_port = sdram.slave.read
+  -- wr_port <- mkWrAXI4_Master Pipeline
+  -- rd_port <- mkRdAXI4_Master Pipeline
 
   core <- mkCoreOOO
   let core_i_rd = core.rd_imem
@@ -88,8 +89,8 @@ mkCPU = module
   let rd_masters :: Vector 2 (RdAXI4_Master 4 32 4) = core.rd_dmem :> core_i_rd :> nil
   let wr_masters :: Vector 1 (WrAXI4_Master 4 32 4) = core.wr_dmem :> nil
 
-  let rd_slaves :: Vector 2 (RdAXI4_Slave 4 32 4) = rom.read :> rd_port.server :> nil
-  let wr_slaves :: Vector 2 (WrAXI4_Slave 4 32 4) = rom.write :> wr_port.server :> nil
+  let rd_slaves :: Vector 2 (RdAXI4_Slave 4 32 4) = rom.read :> rd_port :> nil
+  let wr_slaves :: Vector 2 (WrAXI4_Slave 4 32 4) = rom.write :> wr_port :> nil
 
   let rdReqDispatch :: AXI4_RRequest 4 32 -> Bit 1 =
         \ req -> if req.addr < offset || req.addr >= offset + fromInteger alloc_size then 1 else 0
@@ -115,9 +116,10 @@ mkCPU = module
       core.set_msip(clint.software_interrupt)
 
   interface
+    memory = sdram.memory
     sdcard_fab = sdcard.fabric
-    wr_axi4 = wr_port.fabric
-    rd_axi4 = rd_port.fabric
+    -- wr_axi4 = wr_port.fabric
+    -- rd_axi4 = rd_port.fabric
     ftdi_rxd = uart.transmit
     ftdi_txd = uart.receive
     vga_out = vga.fabric
