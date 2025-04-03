@@ -1,9 +1,17 @@
 import LsuTypes :: *;
 import Utils :: *;
+import Fifo :: *;
 import OOO :: *;
 import Ehr :: *;
 
 import Vector :: *;
+
+typedef struct {
+  reqId id;
+  Bit#(32) value;
+  Epoch epoch;
+  Age age;
+} MemIssueQueueOutput#(type reqId) deriving(Bits, FShow, Eq);
 
 // An interface of issue queue specialized for the memory operations
 interface MemIssueQueue#(numeric type size, type reqId);
@@ -11,13 +19,7 @@ interface MemIssueQueue#(numeric type size, type reqId);
 
   method Action wakeup(RobIndex index, Bit#(32) value);
 
-  // Issue port: the issue queue propose a value using a round-robin order
-  // and the LSU call the issue method to select it
-  method reqId issueId;
-  method Bit#(32) issueVal;
-  method Epoch issueEpoch;
-  method Age issueAge;
-  method Action issue();
+  interface FifoO#(MemIssueQueueOutput#(reqId)) issue;
 endinterface
 
 module mkMemIssueQueue(MemIssueQueue#(size, reqId)) provisos(Bits#(reqId, reqIdW));
@@ -61,33 +63,27 @@ module mkMemIssueQueue(MemIssueQueue#(size, reqId)) provisos(Bits#(reqId, reqIdW
     endaction
   endmethod
 
-  method reqId issueId()
-    if (firstOneFrom(rdy,issueIdx[1]) matches tagged Valid .idx);
-    return requests[idx];
-  endmethod
+  interface FifoO issue;
+    method Bool canDeq = rdy != 0;
 
-  method Epoch issueEpoch()
-    if (firstOneFrom(rdy,issueIdx[1]) matches tagged Valid .idx);
-    return epochs[idx];
-  endmethod
+    method Action deq()
+      if (firstOneFrom(rdy,issueIdx[1]) matches tagged Valid .idx);
+      action
+        valid[0][idx] <= 0;
+        issueIdx[1] <= idx;
+      endaction
+    endmethod
 
-  method Age issueAge()
-    if (firstOneFrom(rdy,issueIdx[1]) matches tagged Valid .idx);
-    return ages[idx];
-  endmethod
-
-  method Bit#(32) issueVal()
-    if (firstOneFrom(rdy,issueIdx[1]) matches tagged Valid .idx);
-    return getRegValue(values[idx][0]) + offsets[idx];
-  endmethod
-
-  method Action issue()
-    if (firstOneFrom(rdy,issueIdx[1]) matches tagged Valid .idx);
-    action
-      valid[0][idx] <= 0;
-      issueIdx[1] <= idx;
-    endaction
-  endmethod
+    method MemIssueQueueOutput#(reqId) first
+      if (firstOneFrom(rdy,issueIdx[1]) matches tagged Valid .idx);
+      return MemIssueQueueOutput{
+        value: getRegValue(values[idx][0]) + offsets[idx],
+        epoch: epochs[idx],
+        id: requests[idx],
+        age: ages[idx]
+      };
+    endmethod
+  endinterface
 endmodule
 
 (* synthesize *)

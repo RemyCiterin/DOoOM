@@ -1,6 +1,7 @@
 import Utils :: *;
 import Decode :: *;
 import Vector :: *;
+import Fifo :: *;
 import Ehr :: *;
 import CSR :: *;
 import OOO :: *;
@@ -15,7 +16,8 @@ interface IssueQueue#(numeric type size, numeric type numReg);
 
   // dequeue a ready instruction from it's queue and send
   // it to the functional units
-    method ActionValue#(ExecInput#(numReg)) issue;
+  // method ActionValue#(ExecInput#(numReg)) issue;
+  interface FifoO#(ExecInput#(numReg)) issue;
 endinterface
 
 // generate an issue queue of a given size
@@ -39,20 +41,29 @@ module mkIssueQueue(IssueQueue#(size, numReg));
   function Bit#(TLog#(size)) next(Bit#(TLog#(size)) idx) =
     idx == fromInteger(valueOf(size)-1) ? 0 : idx + 1;
 
-    method ActionValue#(ExecInput#(numReg)) issue
-    if (getReadyIndex matches tagged Valid .idx);
-    valid[0][idx] <= 0;
-    lastIssue <= idx+1;
+  interface FifoO issue;
+    method Action deq()
+      if (getReadyIndex matches tagged Valid .idx);
+      action
+        valid[0][idx] <= 0;
+        lastIssue <= idx+1;
+      endaction
+    endmethod
 
-    IssueQueueInput#(numReg) entry = queue[idx][0];
-    return ExecInput {
-      pc: entry.pc,
-      frm: entry.frm,
-      instr: entry.instr,
-      index: entry.index,
-      regs: Vector::map(getRegValue, entry.regs)
-    };
-  endmethod
+    method ExecInput#(numReg) first
+      if (getReadyIndex matches tagged Valid .idx);
+      IssueQueueInput#(numReg) entry = queue[idx][0];
+      return ExecInput {
+        pc: entry.pc,
+        frm: entry.frm,
+        instr: entry.instr,
+        index: entry.index,
+        regs: Vector::map(getRegValue, entry.regs)
+      };
+    endmethod
+
+    method Bool canDeq = isJust(getReadyIndex);
+  endinterface
 
   method Action wakeup(RobIndex index, Bit#(32) value);
     for (Integer i=0; i < valueOf(size); i = i + 1) begin
@@ -92,21 +103,30 @@ module mkOrderedIssueQueue(IssueQueue#(size, numReg));
   Reg#(Bit#(TLog#(size))) tail <- mkReg(0);
   Ehr#(2, Bit#(size)) valid <- mkEhr(0);
 
-  method ActionValue#(ExecInput#(numReg)) issue()
-    if (Vector::all(isValue, queue[head][0].regs) && valid[0][head] == 1);
+  interface FifoO issue;
+    method Action deq()
+      if (Vector::all(isValue, queue[head][0].regs) && valid[0][head] == 1);
+      action
+        head <= head == fromInteger(valueOf(size)-1) ? 0 : head + 1;
+        valid[0][head] <= 0;
+      endaction
+    endmethod
 
-    head <= head == fromInteger(valueOf(size)-1) ? 0 : head + 1;
-    valid[0][head] <= 0;
+    method ExecInput#(numReg) first
+      if (Vector::all(isValue, queue[head][0].regs) && valid[0][head] == 1);
+      IssueQueueInput#(numReg) entry = queue[head][0];
+      return ExecInput {
+        pc: entry.pc,
+        frm: entry.frm,
+        instr: entry.instr,
+        index: entry.index,
+        regs: Vector::map(getRegValue, entry.regs)
+      };
+    endmethod
 
-    IssueQueueInput#(numReg) entry = queue[head][0];
-    return ExecInput {
-      pc: entry.pc,
-      frm: entry.frm,
-      instr: entry.instr,
-      index: entry.index,
-      regs: Vector::map(getRegValue, entry.regs)
-    };
-  endmethod
+    method Bool canDeq =
+      Vector::all(isValue, queue[head][0].regs) && valid[0][head] == 1;
+  endinterface
 
   method Action wakeup(RobIndex index, Bit#(32) value);
     for (Integer i=0; i < valueOf(size); i = i + 1) begin

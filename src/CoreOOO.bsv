@@ -3,6 +3,7 @@ import AXI4 :: *;
 
 import FIFOF :: *;
 import SpecialFIFOs :: *;
+import Fifo :: *;
 import GetPut :: *;
 
 import Decode :: *;
@@ -23,6 +24,8 @@ import Ehr :: *;
 import BranchPred :: *;
 
 import LSU :: *;
+import LsuTypes :: *;
+import MemIssueQueue :: *;
 
 import FetchDecode :: *;
 
@@ -68,6 +71,9 @@ module mkCoreOOO(Core_IFC);
   FunctionalUnit#(3) fpu_fu <- mkFpuFU;
 
   LSU lsu <- mkLSU;
+  let store_addr_issue_queue <- mkStoreIssueQueue;
+  let store_data_issue_queue <- mkStoreIssueQueue;
+  let load_issue_queue <- mkLoadIssueQueue;
 
   // indicate if a load is killed by the load store unit
   // because it return a bad value
@@ -136,7 +142,9 @@ module mkCoreOOO(Core_IFC);
       direct_issue_queue.wakeup(index, rd_val);
       alu_issue_queue.wakeup(index, rd_val);
       fpu_issue_queue.wakeup(index, rd_val);
-      lsu.wakeup(index, rd_val);
+      load_issue_queue.wakeup(index, rd_val);
+      store_data_issue_queue.wakeup(index, rd_val);
+      store_addr_issue_queue.wakeup(index, rd_val);
     endaction
   endfunction
 
@@ -161,6 +169,7 @@ module mkCoreOOO(Core_IFC);
       let rs1_val = registers.rs1(register1(decoded.instr));
       let rs2_val = registers.rs2(register2(decoded.instr));
       let rs3_val = registers.rs3(register3(decoded.instr));
+      let imm = immediateBits(decoded.instr);
 
       if (rs1_val matches tagged Wait .idx &&& rob.read1(idx) matches tagged Valid .res)
         rs1_val = tagged Value getRdVal(res);
@@ -195,8 +204,13 @@ module mkCoreOOO(Core_IFC);
         EXEC_TAG_CONTROL: begin
           control_issue_queue.enq(iq_entry2);
         end
-        EXEC_TAG_DMEM: begin
-          lsu.enq(iq_entry2);
+        EXEC_TAG_DMEM: if (isStore(decoded.instr)) begin
+          let sq_idx <- lsu.enqStore(index, decoded.instr, decoded.pc, decoded.epoch, current_age);
+          store_addr_issue_queue.enq(sq_idx, rs1_val, imm, decoded.epoch, current_age);
+          store_data_issue_queue.enq(sq_idx, rs2_val, 0, decoded.epoch, current_age);
+        end else begin
+          let lq_idx <- lsu.enqLoad(index, decoded.instr, decoded.pc, decoded.epoch, current_age);
+          load_issue_queue.enq(lq_idx, rs1_val, imm, decoded.epoch, current_age);
         end
         EXEC_TAG_DIRECT: if (!decoded.exception) begin
           direct_issue_queue.enq(iq_entry2);
@@ -302,18 +316,33 @@ module mkCoreOOO(Core_IFC);
   endfunction
 
   rule connectALU;
-    let request <- alu_issue_queue.issue;
-    alu_fu.enq(request);
+    alu_issue_queue.issue.deq();
+    alu_fu.enq(alu_issue_queue.issue.first);
   endrule
 
   rule connectControl;
-    let request <- control_issue_queue.issue;
-    control_fu.enq(request);
+    control_issue_queue.issue.deq();
+    control_fu.enq(control_issue_queue.issue.first);
   endrule
 
   rule connectFpu;
-    let request <- fpu_issue_queue.issue;
-    fpu_fu.enq(request);
+    fpu_issue_queue.issue.deq;
+    fpu_fu.enq(fpu_issue_queue.issue.first);
+  endrule
+
+  rule connectLoad;
+    let succede <- lsu.wakeupLoad(load_issue_queue.issue.first);
+    if (succede) load_issue_queue.issue.deq();
+  endrule
+
+  rule connectStoreData;
+    let succede <- lsu.wakeupStoreData(store_data_issue_queue.issue.first);
+    if (succede) store_data_issue_queue.issue.deq();
+  endrule
+
+  rule connectStoreAddr;
+    let succede <- lsu.wakeupStoreAddr(store_addr_issue_queue.issue.first);
+    if (succede) store_addr_issue_queue.issue.deq();
   endrule
 
   //(* descending_urgency = "commit_interrupt, execute_direct, write_back" *)
@@ -400,7 +429,8 @@ module mkCoreOOO(Core_IFC);
   rule execute_direct if (
       rob.first.tag == EXEC_TAG_DIRECT &&&
       rob.first_result matches Invalid);
-    ExecInput#(2) request <- direct_issue_queue.issue();
+    ExecInput#(2) request = direct_issue_queue.issue.first;
+    direct_issue_queue.issue.deq();
 
     ExecOutput result = ?;
 

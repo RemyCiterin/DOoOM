@@ -987,6 +987,20 @@ instance HasDestination#(Instr);
   endfunction
 endinstance
 
+function Bool isLoad(Instr instr);
+  return case (instr) matches
+    tagged Itype {op: tagged Load .*} : True;
+    default : False;
+  endcase;
+endfunction
+
+function Bool isStore(Instr instr);
+  return case (instr) matches
+    tagged Stype .* : True;
+    default : False;
+  endcase;
+endfunction
+
 function Fmt displayInstr(Instr instr);
   return case (instr) matches
     tagged Rtype {op: .op, instr: .*} :

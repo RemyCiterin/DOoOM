@@ -18,10 +18,13 @@ import Vector :: *;
 
 interface LSU;
   // Add a new entry in the issue queue
-  method Action enq(IssueQueueInput#(2) entry);
+  method ActionValue#(SqIndex) enqStore(RobIndex index, Instr instr, Bit#(32) pc, Epoch epoch, Age age);
+  method ActionValue#(LqIndex) enqLoad(RobIndex index, Instr instr, Bit#(32) pc, Epoch epoch, Age age);
 
   // wakeup all the issue queues
-  method Action wakeup(RobIndex index, Bit#(32) value);
+  method ActionValue#(Bool) wakeupLoad(MemIssueQueueOutput#(LqIndex) entry);
+  method ActionValue#(Bool) wakeupStoreAddr(MemIssueQueueOutput#(SqIndex) entry);
+  method ActionValue#(Bool) wakeupStoreData(MemIssueQueueOutput#(SqIndex) entry);
 
   // dequeue the result of the execution of an instruction
   method ActionValue#(Tuple2#(RobIndex, ExecOutput)) deq;
@@ -54,9 +57,6 @@ typedef enum {
 
 (* synthesize *)
 module mkLSU(LSU);
-  MemIssueQueue#(SiqSize, SqIndex) storeAddrIQ <- mkStoreIssueQueue;
-  MemIssueQueue#(SiqSize, SqIndex) storeDataIQ <- mkStoreIssueQueue;
-  MemIssueQueue#(LiqSize, LqIndex) loadIQ <- mkLoadIssueQueue;
   StoreQ storeQ <- mkStoreQ;
   LoadQ loadQ <- mkLoadQ;
 
@@ -79,12 +79,6 @@ module mkLSU(LSU);
 
   Fifo#(TAdd#(LqSize, SqSize), LsuTag) tagQ <- mkPipelineFifo;
 
-  // No forwarding for the moment, the loads are just blocked
-  Bit#(32) loadAddr = {loadIQ.issueVal[31:2],2'b00};
-  Bool loadBlocked =
-    stb.search(loadAddr).found ||
-    storeQ.search(loadAddr, loadIQ.issueEpoch, loadIQ.issueAge).found;
-
   rule enqRdCache if (!isMMIO(rrequestQ.first.addr));
     let req <- toGet(rrequestQ).get;
     cache.cpu_read.request.put(req);
@@ -106,25 +100,6 @@ module mkLSU(LSU);
     stb.deq;
   endrule
 
-  rule wakeupLoad if (!loadBlocked);
-    loadIQ.issue();
-    let result <- loadQ.wakeupAddr(loadIQ.issueId, loadIQ.issueVal);
-
-    case (result) matches
-      tagged Success .request : begin
-        if (isMMIO(request.addr)) begin
-          pendingMmioLoadsQ.enq(loadIQ.issueId);
-          rrequestQ.enq(request);
-        end else begin
-          pendingDmemLoadsQ.enq(loadIQ.issueId);
-          rrequestQ.enq(request);
-        end
-      end
-      tagged Failure .cause :
-        loadFailureQ.enq(tuple2(cause.index, cause.result));
-    endcase
-  endrule
-
   rule loadResponse;
     AXI4_Lite_RResponse#(4) resp = ?;
     LqIndex idx = ?;
@@ -140,20 +115,46 @@ module mkLSU(LSU);
     loadSuccessQ.enq(loadQ.issue(idx, resp));
   endrule
 
-  rule wakeupStoreAddr;
-    storeAddrIQ.issue();
-    storeQ.wakeupAddr(storeAddrIQ.issueId, storeAddrIQ.issueVal);
-  endrule
-
-  rule wakeupStoreData;
-    storeDataIQ.issue();
-    storeQ.wakeupData(storeDataIQ.issueId, storeDataIQ.issueVal);
-  endrule
-
   rule issueStore;
     let result <- storeQ.issue();
     storeSuccessQ.enq(result);
   endrule
+
+  method ActionValue#(Bool) wakeupLoad(MemIssueQueueOutput#(LqIndex) entry);
+    Bit#(32) loadAddr = {entry.value[31:2],2'b00};
+    Bool loadBlocked =
+      stb.search(loadAddr).found ||
+      storeQ.search(loadAddr, entry.epoch, entry.age).found;
+
+    if (loadBlocked) return False;
+    else begin
+      let result <- loadQ.wakeupAddr(entry.id, entry.value);
+      case (result) matches
+        tagged Success .request : begin
+          if (isMMIO(request.addr)) begin
+            pendingMmioLoadsQ.enq(entry.id);
+            rrequestQ.enq(request);
+          end else begin
+            pendingDmemLoadsQ.enq(entry.id);
+            rrequestQ.enq(request);
+          end
+        end
+        tagged Failure .cause :
+          loadFailureQ.enq(tuple2(cause.index, cause.result));
+      endcase
+      return True;
+    end
+  endmethod
+
+  method ActionValue#(Bool) wakeupStoreData(MemIssueQueueOutput#(LqIndex) entry);
+    storeQ.wakeupData(entry.id, entry.value);
+    return True;
+  endmethod
+
+  method ActionValue#(Bool) wakeupStoreAddr(MemIssueQueueOutput#(LqIndex) entry);
+    storeQ.wakeupAddr(entry.id, entry.value);
+    return True;
+  endmethod
 
   method ActionValue#(CommitOutput) commit(RobIndex index, Bool must_commit);
     tagQ.deq;
@@ -182,43 +183,37 @@ module mkLSU(LSU);
     end
   endmethod
 
-  method Action enq(IssueQueueInput#(2) entry);
-    action
-      case (entry.instr) matches
-        tagged Itype {op: tagged Load .ltype} : begin
-          let index <- loadQ.enq(LoadQueueEntry{
-            signedness: loadSignedness(ltype),
-            size: loadSize(ltype),
-            index: entry.index,
-            epoch: entry.epoch,
-            age: entry.age,
-            pc: entry.pc
-          });
-          loadIQ.enq(index, entry.regs[0], immediateBits(entry.instr), entry.epoch, entry.age);
-          tagQ.enq(Load);
-        end
-        tagged Stype {op: .stype} : begin
-          let index <- storeQ.enq(StoreQueueEntry{
-            size: storeSize(stype),
-            index: entry.index,
-            epoch: entry.epoch,
-            age: entry.age,
-            pc: entry.pc
-          });
-          storeAddrIQ.enq(index, entry.regs[0], immediateBits(entry.instr), 0, 0);
-          storeDataIQ.enq(index, entry.regs[1], 0 ,0, 0);
-          tagQ.enq(Store);
-        end
-      endcase
-    endaction
+  method ActionValue#(LqIndex) enqLoad(RobIndex idx, Instr instr, Bit#(32) pc, Epoch epoch, Age age);
+    case (instr) matches
+      tagged Itype {op: tagged Load .ltype} : begin
+        let index <- loadQ.enq(LoadQueueEntry{
+          signedness: loadSignedness(ltype),
+          size: loadSize(ltype),
+          epoch: epoch,
+          index: idx,
+          age: age,
+          pc: pc
+        });
+        tagQ.enq(Load);
+        return index;
+      end
+    endcase
   endmethod
 
-  method Action wakeup(RobIndex index, Bit#(32) value);
-    action
-      loadIQ.wakeup(index, value);
-      storeAddrIQ.wakeup(index, value);
-      storeDataIQ.wakeup(index, value);
-    endaction
+  method ActionValue#(SqIndex) enqStore(RobIndex idx, Instr instr, Bit#(32) pc, Epoch epoch, Age age);
+    case (instr) matches
+      tagged Stype {op: .stype} : begin
+        let index <- storeQ.enq(StoreQueueEntry{
+          size: storeSize(stype),
+          epoch: epoch,
+          index: idx,
+          age: age,
+          pc: pc
+        });
+        tagQ.enq(Store);
+        return index;
+      end
+    endcase
   endmethod
 
   method Bool canDeq;
