@@ -17,6 +17,9 @@ interface ROB;
   // read an entry from the rob
   method Maybe#(ExecOutput) read2(RobIndex index);
 
+  // read an entry from the rob
+  method Maybe#(ExecOutput) read3(RobIndex index);
+
   // enqueue a new entry in the reorder buffer
   method ActionValue#(RobIndex) enq(RobEntry entry);
 
@@ -114,6 +117,11 @@ module mkROB(ROB);
   endmethod
 
   method Maybe#(ExecOutput) read2(RobIndex index);
+    return resultValid[2][index] == 1 ?
+      Valid(results.forward(index)) : Invalid;
+  endmethod
+
+  method Maybe#(ExecOutput) read3(RobIndex index);
     return resultValid[2][index] == 1 ?
       Valid(results.forward(index)) : Invalid;
   endmethod

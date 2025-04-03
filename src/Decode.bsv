@@ -937,7 +937,7 @@ endfunction
 instance HasRegister2#(Instr);
   function RegName register2(Instr instr);
     return case (hasRegister2(instr)) matches
-      tagged Valid .r : RegName{name: r, fpoint: hasFloatRd(instr)};
+      tagged Valid .r : RegName{name: r, fpoint: hasFloatRs2(instr)};
       default : zeroReg;
     endcase;
   endfunction

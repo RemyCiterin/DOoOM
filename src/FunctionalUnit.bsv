@@ -6,6 +6,8 @@ import GetPut :: *;
 import SpecialFIFOs :: *;
 import ClientServer :: *;
 import MulDiv :: *;
+import FPoint :: *;
+import Fifo :: *;
 import ALU :: *;
 import Ehr :: *;
 import CSR :: *;
@@ -14,9 +16,9 @@ import OOO :: *;
 
 // Describe a purely functional unit
 // The module must have enq < finish
-interface FunctionalUnit;
+interface FunctionalUnit#(numeric type numReg);
   // start executing an instruction
-  method Action enq(ExecInput arg);
+  method Action enq(ExecInput#(numReg) arg);
 
   // finish executing an instruction
   method ActionValue#(Tuple2#(RobIndex, ExecOutput)) deq;
@@ -25,27 +27,28 @@ interface FunctionalUnit;
   method Bool canDeq;
 endinterface
 
-function ExecOutput execALU(ExecInput request);
+function ExecOutput execALU(ExecInput#(2) request);
   let result = case (request.instr) matches
     tagged Utype {op: LUI} : immediateBits(request.instr);
     tagged Utype {op: AUIPC} : request.pc + immediateBits(request.instr);
     default :
-      fn_ALU(ALU_Query{instr: request.instr, rs1: request.rs1_val, rs2: request.rs2_val});
+      fn_ALU(ALU_Query{instr: request.instr, rs1: request.regs[0], rs2: request.regs[1]});
   endcase;
 
   return tagged Ok {
     next_pc: request.pc + 4,
+    fflags: Invalid,
     flush: False,
     rd_val: result
   };
 endfunction
 
 (* synthesize *)
-module mkALU_FU(FunctionalUnit);
-  FIFOF#(ExecInput) to_alu <- mkPipelineFIFOF;
+module mkALU_FU(FunctionalUnit#(2));
+  FIFOF#(ExecInput#(2)) to_alu <- mkPipelineFIFOF;
 
-  FIFOF#(ExecInput) to_mul <- mkPipelineFIFOF;
-  FIFOF#(ExecInput) to_div <- mkPipelineFIFOF;
+  FIFOF#(ExecInput#(2)) to_mul <- mkPipelineFIFOF;
+  FIFOF#(ExecInput#(2)) to_div <- mkPipelineFIFOF;
 
   FIFOF#(Tuple2#(RobIndex, ExecOutput)) to_wb <- mkBypassFIFOF;
 
@@ -63,6 +66,7 @@ module mkALU_FU(FunctionalUnit);
         tagged Ok {
           rd_val: res,
           flush: False,
+          fflags: Invalid,
           next_pc: req.pc + 4
         }
       ));
@@ -73,68 +77,69 @@ module mkALU_FU(FunctionalUnit);
         tagged Ok {
           rd_val: res,
           flush: False,
+          fflags: Invalid,
           next_pc: req.pc + 4
         }
       ));
     end
   endrule
 
-  method Action enq(ExecInput req);
+  method Action enq(ExecInput#(2) req);
     action
       case (req.instr) matches
         tagged Rtype {op: MUL} : begin
           to_mul.enq(req);
           multiplier.request.put(MulRequest{
-            x1: req.rs1_val, x2: req.rs2_val,
+            x1: req.regs[0], x2: req.regs[1],
             x1Signed: True, x2Signed: True, high: False
           });
         end
         tagged Rtype {op: MULH} : begin
           to_mul.enq(req);
           multiplier.request.put(MulRequest{
-            x1: req.rs1_val, x2: req.rs2_val,
+            x1: req.regs[0], x2: req.regs[1],
             x1Signed: True, x2Signed: True, high: True
           });
         end
         tagged Rtype {op: MULHSU} : begin
           to_mul.enq(req);
           multiplier.request.put(MulRequest{
-            x1: req.rs1_val, x2: req.rs2_val,
+            x1: req.regs[0], x2: req.regs[1],
             x1Signed: True, x2Signed: False, high: True
           });
         end
         tagged Rtype {op: MULHU} : begin
           to_mul.enq(req);
           multiplier.request.put(MulRequest{
-            x1: req.rs1_val, x2: req.rs2_val,
+            x1: req.regs[0], x2: req.regs[1],
             x1Signed: False, x2Signed: False, high: True
           });
         end
         tagged Rtype {op: DIV} : begin
           to_div.enq(req);
           diviser.request.put(DivRequest{
-            x1: req.rs1_val, x2: req.rs2_val,
+            x1: req.regs[0], x2: req.regs[1],
             isSigned: True, rem: False
           });
         end
         tagged Rtype {op: DIVU} : begin
           to_div.enq(req);
           diviser.request.put(DivRequest{
-            x1: req.rs1_val, x2: req.rs2_val,
+            x1: req.regs[0], x2: req.regs[1],
             isSigned: False, rem: False
           });
         end
         tagged Rtype {op: REM} : begin
           to_div.enq(req);
           diviser.request.put(DivRequest{
-            x1: req.rs1_val, x2: req.rs2_val,
+            x1: req.regs[0], x2: req.regs[1],
             isSigned: True, rem: True
           });
         end
         tagged Rtype {op: REMU} : begin
           to_div.enq(req);
           diviser.request.put(DivRequest{
-            x1: req.rs1_val, x2: req.rs2_val,
+            x1: req.regs[0], x2: req.regs[1],
             isSigned: False, rem: True
           });
         end
@@ -149,9 +154,9 @@ module mkALU_FU(FunctionalUnit);
 endmodule
 
 
-function ExecOutput controlFlow(ExecInput request);
-  Bit#(32) rs1 = request.rs1_val;
-  Bit#(32) rs2 = request.rs2_val;
+function ExecOutput controlFlow(ExecInput#(2) request);
+  Bit#(32) rs1 = request.regs[0];
+  Bit#(32) rs2 = request.regs[1];
   Int#(32) rs1_int = unpack(rs1);
   Int#(32) rs2_int = unpack(rs2);
 
@@ -180,6 +185,7 @@ function ExecOutput controlFlow(ExecInput request);
       else
         return tagged Ok {
           next_pc: next_pc,
+          fflags: Invalid,
           flush: False,
           rd_val: 0
         };
@@ -194,6 +200,7 @@ function ExecOutput controlFlow(ExecInput request);
       else
         return tagged Ok {
           flush: False,
+          fflags: Invalid,
           next_pc: next_pc,
           rd_val: request.pc+4
         };
@@ -208,6 +215,7 @@ function ExecOutput controlFlow(ExecInput request);
       else
         return tagged Ok {
           flush: False,
+          fflags: Invalid,
           next_pc: next_pc,
           rd_val: request.pc+4
         };
@@ -216,8 +224,8 @@ function ExecOutput controlFlow(ExecInput request);
 endfunction
 
 (* synthesize *)
-module mkControlFU(FunctionalUnit);
-  FIFOF#(ExecInput) to_control <- mkPipelineFIFOF;
+module mkControlFU(FunctionalUnit#(2));
+  FIFOF#(ExecInput#(2)) to_control <- mkPipelineFIFOF;
   FIFOF#(Tuple2#(RobIndex, ExecOutput)) to_wb <- mkBypassFIFOF;
 
   rule compute;
@@ -232,4 +240,60 @@ module mkControlFU(FunctionalUnit);
   method deq = toGet(to_wb).get;
 
   method canDeq = to_wb.notEmpty;
+endmodule
+
+(*synthesize *)
+module mkFpuFU(FunctionalUnit#(3));
+  Fifo#(1, ExecInput#(3)) inputQ <- mkPipelineFifo;
+  Fifo#(1, Tuple2#(RobIndex, ExecOutput)) outputQ <- mkBypassFifo;
+
+  FPointPipeline#(Tuple2#(RobIndex, Bit#(32))) fpu <- mkFPointPipeline(False);
+
+  rule enqFma
+    if (inputQ.first.instr matches tagged R4type {op: .op, instr: .instr});
+    let req <- toGet(inputQ).get();
+
+    let frm = getFunct3(instr.bits) == 3'b111 ?
+      req.frm : getFunct3(instr.bits);
+
+    fpu.request.enq(FpuRequest{
+        id: tuple2(req.index, req.pc),
+        rs1: unpack(req.regs[0]),
+        rs2: unpack(req.regs[1]),
+        rs3: unpack(req.regs[2]),
+        op: Fma(op),
+        frm: frm
+    });
+  endrule
+
+  rule enqRop
+    if (inputQ.first.instr matches tagged Rtype {op: tagged FloatOp .op, instr: .instr});
+    let req <- toGet(inputQ).get();
+
+    let frm = getFunct3(instr.bits) == 3'b111 ?
+      req.frm : getFunct3(instr.bits);
+
+    fpu.request.enq(FpuRequest{
+        id: tuple2(req.index, req.pc),
+        rs1: unpack(req.regs[0]),
+        rs2: unpack(req.regs[1]),
+        rs3: unpack(req.regs[2]),
+        op: Rop(op),
+        frm: frm
+    });
+  endrule
+
+  rule deqFpu;
+    let resp <- toGet(fpu.response).get;
+    outputQ.enq(tuple2(resp.id.fst, tagged Ok {
+      fflags: Valid(resp.fflags),
+      rd_val: pack(resp.result),
+      next_pc: resp.id.snd+4,
+      flush: False
+    }));
+  endrule
+
+  method enq = inputQ.enq;
+  method deq = toGet(outputQ).get;
+  method canDeq = outputQ.canDeq;
 endmodule

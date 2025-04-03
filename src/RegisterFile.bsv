@@ -28,6 +28,9 @@ interface RegisterFileOOO;
   // read into a register
   method RegVal rs2(RegName r);
 
+  // read into a register
+  method RegVal rs3(RegName r);
+
   // set a register as busy
   method Action setBusy(RegName r, RobIndex index);
 endinterface
@@ -62,6 +65,12 @@ module mkRegisterFileOOO(RegisterFileOOO);
   endmethod
 
   method RegVal rs2(RegName r);
+    return scoreboard[1][pack(r)] == 1 ?
+      tagged Wait physicalRegs.sub(pack(r)) :
+      tagged Value registers.forward(pack(r));
+  endmethod
+
+  method RegVal rs3(RegName r);
     return scoreboard[1][pack(r)] == 1 ?
       tagged Wait physicalRegs.sub(pack(r)) :
       tagged Value registers.forward(pack(r));

@@ -56,13 +56,16 @@ module mkCoreOOO(Core_IFC);
 
   ROB rob <- mkROB;
 
-  IssueQueue#(IqSize) alu_issue_queue <- mkDefaultIssueQueue;
-  FunctionalUnit alu_fu <- mkALU_FU;
+  IssueQueue#(IqSize, 2) alu_issue_queue <- mkDefaultIssueQueue;
+  FunctionalUnit#(2) alu_fu <- mkALU_FU;
 
-  IssueQueue#(IqSize) control_issue_queue <- mkDefaultIssueQueue;
-  FunctionalUnit control_fu <- mkControlFU;
+  IssueQueue#(IqSize, 2) control_issue_queue <- mkDefaultIssueQueue;
+  FunctionalUnit#(2) control_fu <- mkControlFU;
 
-  IssueQueue#(IqSize) direct_issue_queue <- mkDefaultOrderedIssueQueue;
+  IssueQueue#(IqSize, 2) direct_issue_queue <- mkDefaultOrderedIssueQueue;
+
+  IssueQueue#(IqSize, 3) fpu_issue_queue <- mkDefaultFloatIssueQueue;
+  FunctionalUnit#(3) fpu_fu <- mkFpuFU;
 
   LSU lsu <- mkLSU;
 
@@ -73,8 +76,8 @@ module mkCoreOOO(Core_IFC);
   FIFOF#(Tuple2#(RobIndex, ExecOutput)) decodeFail <- mkPipelineFIFOF;
 
   let toWB <- mkGetScheduler(
-    vec(decodeFail.notEmpty, alu_fu.canDeq, control_fu.canDeq, lsu.canDeq),
-    vec(toGet(decodeFail).get, alu_fu.deq, control_fu.deq, lsu.deq)
+    vec(decodeFail.notEmpty, alu_fu.canDeq, control_fu.canDeq, lsu.canDeq, fpu_fu.canDeq),
+    vec(toGet(decodeFail).get, alu_fu.deq, control_fu.deq, lsu.deq, fpu_fu.deq)
   );
 
   RegisterFileOOO registers <- mkRegisterFileOOO;
@@ -101,11 +104,14 @@ module mkCoreOOO(Core_IFC);
   //   invalid
   function Action deqRob(
       Maybe#(Bit#(32)) value,
+      Maybe#(Bit#(5)) fflags,
       Maybe#(Bit#(32)) next_pc
     );
     action
       let entry = rob.first;
       let index = rob.first_index;
+
+      if (fflags matches tagged Valid .f) csr.set_fflags(f);
 
       if (value matches tagged Valid .val &&& destination(entry.instr) != zeroReg &&& verbose)
         $display("       ", fshow(destination(entry.instr)), " := %h", val);
@@ -129,6 +135,7 @@ module mkCoreOOO(Core_IFC);
       control_issue_queue.wakeup(index, rd_val);
       direct_issue_queue.wakeup(index, rd_val);
       alu_issue_queue.wakeup(index, rd_val);
+      fpu_issue_queue.wakeup(index, rd_val);
       lsu.wakeup(index, rd_val);
     endaction
   endfunction
@@ -153,39 +160,49 @@ module mkCoreOOO(Core_IFC);
       let index <- rob.enq(rob_entry);
       let rs1_val = registers.rs1(register1(decoded.instr));
       let rs2_val = registers.rs2(register2(decoded.instr));
+      let rs3_val = registers.rs3(register3(decoded.instr));
 
       if (rs1_val matches tagged Wait .idx &&& rob.read1(idx) matches tagged Valid .res)
         rs1_val = tagged Value getRdVal(res);
       if (rs2_val matches tagged Wait .idx &&& rob.read2(idx) matches tagged Valid .res)
         rs2_val = tagged Value getRdVal(res);
+      if (rs3_val matches tagged Wait .idx &&& rob.read3(idx) matches tagged Valid .res)
+        rs3_val = tagged Value getRdVal(res);
 
       if (decoded.exception)
         decodeFail.enq(tuple2(index, tagged Error{cause: decoded.cause, tval: decoded.tval}));
 
       registers.setBusy(destination(decoded.instr), index);
 
-      IssueQueueInput iq_entry = IssueQueueInput{
-        index: index,
-        pc: decoded.pc,
-        instr: decoded.instr,
-        rs1_val: rs1_val,
-        rs2_val: rs2_val,
-        epoch: decoded.epoch,
-        age: current_age
+      IssueQueueInput#(2) iq_entry2 = IssueQueueInput{
+        epoch: decoded.epoch, age: current_age,
+        pc: decoded.pc, instr: decoded.instr,
+        index: index, frm: csr.read_frm,
+        regs: vec(rs1_val, rs2_val)
+      };
+
+      IssueQueueInput#(3) iq_entry3 = IssueQueueInput{
+        epoch: decoded.epoch, age: current_age,
+        pc: decoded.pc, instr: decoded.instr,
+        regs: vec(rs1_val, rs2_val, rs3_val),
+        index: index, frm: csr.read_frm
       };
 
       case (tag) matches
         EXEC_TAG_EXEC: begin
-          alu_issue_queue.enq(iq_entry);
+          alu_issue_queue.enq(iq_entry2);
         end
         EXEC_TAG_CONTROL: begin
-          control_issue_queue.enq(iq_entry);
+          control_issue_queue.enq(iq_entry2);
         end
         EXEC_TAG_DMEM: begin
-          lsu.enq(iq_entry);
+          lsu.enq(iq_entry2);
         end
         EXEC_TAG_DIRECT: if (!decoded.exception) begin
-          direct_issue_queue.enq(iq_entry);
+          direct_issue_queue.enq(iq_entry2);
+        end
+        EXEC_TAG_FLOAT: begin
+          fpu_issue_queue.enq(iq_entry3);
         end
         default:
           noAction;
@@ -203,9 +220,9 @@ module mkCoreOOO(Core_IFC);
         csr.increment_instret;
 
       case (result) matches
-        tagged Ok {next_pc: .next_pc, rd_val: .rd_val} : begin
+        tagged Ok {next_pc: .next_pc, rd_val: .rd_val, fflags: .fflags} : begin
           deqRob(
-            Valid(rd_val),
+            Valid(rd_val), fflags,
             next_pc != entry.pred_pc ? Valid(next_pc) : Invalid
           );
 
@@ -230,7 +247,7 @@ module mkCoreOOO(Core_IFC);
           //$display("%d %h  ", index, entry.pc, displayInstr(entry.instr));
           //$display("exception from %h ", entry.pc, fshow(cause));
           Bit#(32) trap_pc <- csr.exec_exception(entry.pc, False, pack(cause), tval);
-          deqRob(Invalid, Valid(trap_pc));
+          deqRob(Invalid, Invalid, Valid(trap_pc));
 
           fetch.trainMis(BranchPredTrain{
             pc: entry.pc,
@@ -259,22 +276,22 @@ module mkCoreOOO(Core_IFC);
           csr.increment_instret;
           lsu.emptySTB();
 
-          return tagged Ok {flush: True, rd_val: 0, next_pc: entry.pc + 4};
+          return tagged Ok {fflags: Invalid, flush: True, rd_val: 0, next_pc: entry.pc + 4};
         end
         tagged Itype {op: FENCE_I} : begin
           csr.increment_instret;
-          return tagged Ok {flush: True, rd_val: 0, next_pc: entry.pc + 4};
+          return tagged Ok {fflags: Invalid, flush: True, rd_val: 0, next_pc: entry.pc + 4};
         end
         tagged Itype {instr: .instr, op: tagged Ret MRET} : begin
           let pc <- csr.mret;
           csr.increment_instret;
-          return tagged Ok { flush: False, rd_val: 0, next_pc: pc };
+          return tagged Ok { fflags: Invalid, flush: False, rd_val: 0, next_pc: pc };
         end
         tagged Itype {instr: .instr, op: .op} : begin
           Maybe#(Bit#(32)) val <- csr.exec_csrxx(instr, op, rs1);
 
           if (val matches tagged Valid .v)
-            return tagged Ok {flush: False, rd_val: v, next_pc: entry.pc+4};
+            return tagged Ok {fflags: Invalid, flush: False, rd_val: v, next_pc: entry.pc+4};
           else
             return tagged Error {cause: ILLEGAL_INSTRUCTION, tval: entry.pc};
         end
@@ -294,6 +311,11 @@ module mkCoreOOO(Core_IFC);
     control_fu.enq(request);
   endrule
 
+  rule connectFpu;
+    let request <- fpu_issue_queue.issue;
+    fpu_fu.enq(request);
+  endrule
+
   //(* descending_urgency = "commit_interrupt, execute_direct, write_back" *)
   rule write_back;
     let response <- toWB.get;
@@ -309,7 +331,7 @@ module mkCoreOOO(Core_IFC);
   rule discard_instruction
     if (rob.first.epoch != epoch[0] &&& rob.first_result matches tagged Valid .*);
     mispred_instr <= mispred_instr + 1;
-    deqRob(Invalid, Invalid);
+    deqRob(Invalid, Invalid, Invalid);
   endrule
 
   (* mutually_exclusive = "commit_interrupt, execute_direct" *)
@@ -364,7 +386,7 @@ module mkCoreOOO(Core_IFC);
     // The instruction return a mispredicted value according to a previous
     // load store unit commit
     if (killed[index] == 1) begin
-      deqRob(Invalid, Valid(pc));
+      deqRob(Invalid, Invalid, Valid(pc));
       fetch.trainMis(BranchPredTrain{
         pc: pc,
         instr: Invalid,
@@ -378,12 +400,12 @@ module mkCoreOOO(Core_IFC);
   rule execute_direct if (
       rob.first.tag == EXEC_TAG_DIRECT &&&
       rob.first_result matches Invalid);
-    ExecInput request <- direct_issue_queue.issue();
+    ExecInput#(2) request <- direct_issue_queue.issue();
 
     ExecOutput result = ?;
 
     if (rob.first.epoch == epoch[0]) result <-
-      execDirect(rob.first_index, rob.first, request.rs1_val, request.rs2_val);
+      execDirect(rob.first_index, rob.first, request.regs[0], request.regs[1]);
 
     rob.writeBack(rob.first_index, result);
     wakeupFn(rob.first_index, result);

@@ -242,6 +242,100 @@ pub const BandwidthALU = struct {
     }
 };
 
+pub const LatencyFPU = struct {
+    N: usize,
+
+    const Self = @This();
+
+    pub fn init(N: usize) Self {
+        return .{ .N = N };
+    }
+
+    // The time of execution is expected to be
+    // around 100 * self.N * Latency
+    // with Latency the latency of the ALU
+    pub noinline fn call(self: Self) f32 {
+        @setRuntimeSafety(false);
+
+        var x: f32 = 0.0;
+
+        // 100 add instructions
+        for (0..self.N) |_| {
+            asm volatile ("fadd.s %[x], %[x], %[x];" ** 100
+                : [x] "+fr" (x),
+            );
+        }
+
+        return x;
+    }
+};
+
+pub const BandwidthFPU = struct {
+    N: usize,
+
+    const Self = @This();
+
+    pub const Instr = enum { sqrt, div, mul, add };
+
+    pub fn init(N: usize) Self {
+        return .{ .N = N };
+    }
+
+    pub fn buildInstr(comptime instr: Instr, comptime reg: []const u8) []const u8 {
+        return switch (instr) {
+            .sqrt => "fsqrt.s %[" ++ reg ++ "], %[" ++ reg ++ "];",
+            .div => "fdiv.s %[" ++ reg ++ "], %[" ++ reg ++ "], %[" ++ reg ++ "];",
+            .mul => "fmul.s %[" ++ reg ++ "], %[" ++ reg ++ "], %[" ++ reg ++ "];",
+            .add => "fadd.s %[" ++ reg ++ "], %[" ++ reg ++ "], %[" ++ reg ++ "];",
+        };
+    }
+
+    // The time of execution is expected to be
+    // around 100 * self.N * Latency
+    // with Latency the latency of the ALU
+    pub noinline fn call(self: Self) void {
+        @setRuntimeSafety(false);
+
+        var x0: f32 = 10.0;
+        var x1: f32 = 10.0;
+        var x2: f32 = 10.0;
+        var x3: f32 = 10.0;
+        var x4: f32 = 10.0;
+        var x5: f32 = 10.0;
+        var x6: f32 = 10.0;
+        var x7: f32 = 10.0;
+        var x8: f32 = 10.0;
+        var x9: f32 = 10.0;
+        // 100 instructions
+        const instr: Instr = .add;
+        for (0..self.N) |_| {
+            inline for (0..10) |_| {
+                asm volatile (buildInstr(instr, "x0") ++
+                        buildInstr(instr, "x1") ++
+                        buildInstr(instr, "x2") ++
+                        buildInstr(instr, "x3") ++
+                        buildInstr(instr, "x4") ++
+                        buildInstr(instr, "x5") ++
+                        buildInstr(instr, "x6") ++
+                        buildInstr(instr, "x7") ++
+                        buildInstr(instr, "x8") ++
+                        buildInstr(instr, "x9")
+                    : [x0] "+fr" (x0),
+                      [x1] "+fr" (x1),
+                      [x2] "+fr" (x2),
+                      [x3] "+fr" (x3),
+                      [x4] "+fr" (x4),
+                      [x5] "+fr" (x5),
+                      [x6] "+fr" (x6),
+                      [x7] "+fr" (x7),
+                      [x8] "+fr" (x8),
+                      [x9] "+fr" (x9),
+                );
+            }
+        }
+    }
+};
+
 pub const BandwidthLSU = struct {
     N: usize,
 

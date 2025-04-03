@@ -57,18 +57,18 @@ pub fn build(b: *std.Build) !void {
 
     const exe = b.addExecutable(.{
         .name = "zig-unix.elf",
-        .root_source_file = .{ .path = start_file },
+        .root_source_file = .{ .cwd_relative = start_file },
         .target = b.resolveTargetQuery(target),
         .optimize = optimize,
     });
 
-    exe.addAssemblyFile(.{ .path = "src/trampoline.s" });
-    //exe.addAssemblyFile(.{ .path = "src/bootloader.S" });
-    exe.addAssemblyFile(.{ .path = "src/init.s" });
+    exe.addAssemblyFile(.{ .cwd_relative = "src/trampoline.s" });
+    //exe.addAssemblyFile(.{ .cwd_relative = "src/bootloader.S" });
+    exe.addAssemblyFile(.{ .cwd_relative = "src/init.s" });
 
     //exe.code_model = .medium;
 
-    exe.setLinkerScriptPath(.{ .path = linker_file });
+    exe.setLinkerScriptPath(.{ .cwd_relative = linker_file });
 
     b.installArtifact(exe);
 }

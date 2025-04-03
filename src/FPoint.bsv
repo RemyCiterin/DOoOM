@@ -60,8 +60,34 @@ interface FPointPipeline#(type reqId);
   interface FifoO#(FpuResponse#(reqId)) response;
 endinterface
 
-module mkFPointPipeline
-  (FPointPipeline#(reqId)) provisos(Bits#(reqId,reqIdW), Eq#(reqId));
+typedef enum {FMA, ADD, DIV, SQRT, IDLE} FPointTag deriving(Bits, FShow, Eq);
+
+module mkFPointPipeline#(Bool pipelined)
+  (FPointPipeline#(reqId)) provisos(Bits#(reqId,reqIdW));
+
+  Fifo#(1, FPointTag) tagQ <- mkPipelineFifo;
+
+  function Action enqTag(FPointTag tag);
+    action
+      if (pipelined) tagQ.enq(tag);
+    endaction
+  endfunction
+
+  function Action deqTag();
+    action
+      if (pipelined) tagQ.deq();
+    endaction
+  endfunction
+
+  function Bool eqTag(FPointTag tag);
+    if (pipelined) begin
+      case (tag) matches
+        IDLE : return !tagQ.canDeq;
+        default : return tag == tagQ.first;
+      endcase
+    end else
+      return True;
+  endfunction
 
   Fifo#(1, FpuRequest#(reqId)) inputQ <- mkPipelineFifo;
   Fifo#(1, FpuResponse#(reqId)) outputQ <- mkBypassFifo;
@@ -83,6 +109,10 @@ module mkFPointPipeline
   Fifo#(1, Bool) negate_fma <- mkPipelineFifo;
   Fifo#(1, reqId) id_fma <- mkPipelineFifo;
 
+  Server#(Tuple3#(F32, F32, RoundMode), Tuple2#(F32, Exception))
+    fp_add <- mkFloatingPointAdder;
+  Fifo#(1, reqId) id_add <- mkPipelineFifo;
+
   rule startFMA if (inputQ.first.op matches tagged Fma .op);
     let req = inputQ.first;
 
@@ -98,6 +128,7 @@ module mkFPointPipeline
       default: req.rs3;
     endcase;
 
+    enqTag(FMA);
     inputQ.deq();
     negate_fma.enq(n);
     id_fma.enq(req.id);
@@ -107,42 +138,24 @@ module mkFPointPipeline
     );
   endrule
 
-  rule startADD if (inputQ.first.op matches tagged Rop FADD_S);
-    let req <- toGet(inputQ).get();
-    fp_fma.request.put(tuple4(
-        Valid(req.rs1), req.rs2, one(False),
-        getRoundMode(req.frm)
-    ));
-    negate_fma.enq(False);
-    id_fma.enq(req.id);
-  endrule
-
-  rule startSUB if (inputQ.first.op matches tagged Rop FSUB_S);
-    let req <- toGet(inputQ).get();
-    fp_fma.request.put(tuple4(
-        Valid(req.rs1), negate(req.rs2), one(False),
-        getRoundMode(req.frm)
-    ));
-    negate_fma.enq(False);
-    id_fma.enq(req.id);
-  endrule
-
   rule startMUL if (inputQ.first.op matches tagged Rop FMUL_S);
     let req <- toGet(inputQ).get();
     fp_fma.request.put(tuple4(
         Invalid, req.rs1, req.rs2,
         getRoundMode(req.frm)
     ));
+    enqTag(FMA);
     negate_fma.enq(False);
     id_fma.enq(req.id);
   endrule
 
-  rule endFMA;
+  rule endFMA if (eqTag(FMA));
     match {.res, .exn} <- fp_fma.response.get();
     let n = negate_fma.first;
     let id = id_fma.first;
     negate_fma.deq();
     id_fma.deq();
+    deqTag();
 
     outputQ.enq(FpuResponse{
       result: n ? negate(res) : res,
@@ -155,9 +168,10 @@ module mkFPointPipeline
     let req <- toGet(inputQ).get();
     fp_sqrt.request.put(tuple2(req.rs1, getRoundMode(req.frm)));
     id_sqrt.enq(req.id);
+    enqTag(SQRT);
   endrule
 
-  rule endSQRT;
+  rule endSQRT if (eqTag(SQRT));
     match {.res, .exn} <- fp_sqrt.response.get();
     let id <- toGet(id_sqrt).get();
     outputQ.enq(FpuResponse{
@@ -165,15 +179,17 @@ module mkFPointPipeline
       result: res,
       id: id
     });
+    deqTag();
   endrule
 
   rule startDIV if (inputQ.first.op matches tagged Rop FDIV_S);
     let req <- toGet(inputQ).get();
     fp_divider.request.put(tuple3(req.rs1, req.rs2, getRoundMode(req.frm)));
     id_divider.enq(req.id);
+    enqTag(DIV);
   endrule
 
-  rule endDIV;
+  rule endDIV if (eqTag(DIV));
     match {.res, .exn} <- fp_divider.response.get();
     let id <- toGet(id_divider).get();
     outputQ.enq(FpuResponse{
@@ -181,9 +197,35 @@ module mkFPointPipeline
       result: res,
       id: id
     });
+    deqTag();
   endrule
 
-  rule doFSGNJ_S if (inputQ.first.op matches tagged Rop FSGNJ_S);
+  rule startADD if (inputQ.first.op matches tagged Rop FADD_S);
+    let req <- toGet(inputQ).get();
+    fp_add.request.put(tuple3(req.rs1, req.rs2, getRoundMode(req.frm)));
+    id_add.enq(req.id);
+    enqTag(ADD);
+  endrule
+
+  rule startSUB if (inputQ.first.op matches tagged Rop FSUB_S);
+    let req <- toGet(inputQ).get();
+    fp_add.request.put(tuple3(req.rs1, negate(req.rs2), getRoundMode(req.frm)));
+    id_add.enq(req.id);
+    enqTag(ADD);
+  endrule
+
+  rule endADD if (eqTag(ADD));
+    match {.res, .exn} <- fp_add.response.get();
+    let id <- toGet(id_add).get();
+    outputQ.enq(FpuResponse{
+      fflags: getFlags(exn),
+      result: res,
+      id: id
+    });
+    deqTag();
+  endrule
+
+  rule doFSGNJ_S if (inputQ.first.op matches tagged Rop FSGNJ_S &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
 
     outputQ.enq(FpuResponse{
@@ -193,7 +235,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFSGNJN_S if (inputQ.first.op matches tagged Rop FSGNJN_S);
+  rule doFSGNJN_S if (inputQ.first.op matches tagged Rop FSGNJN_S &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
 
     outputQ.enq(FpuResponse{
@@ -203,7 +245,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFSGNJX_S if (inputQ.first.op matches tagged Rop FSGNJX_S);
+  rule doFSGNJX_S if (inputQ.first.op matches tagged Rop FSGNJX_S &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
 
     let sign = req.rs1.sign != req.rs2.sign;
@@ -214,7 +256,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFMV_X_W if (inputQ.first.op matches tagged Rop FMV_X_W);
+  rule doFMV_X_W if (inputQ.first.op matches tagged Rop FMV_X_W &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
 
     outputQ.enq(FpuResponse{
@@ -224,7 +266,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFMV_W_X if (inputQ.first.op matches tagged Rop FMV_W_X);
+  rule doFMV_W_X if (inputQ.first.op matches tagged Rop FMV_W_X &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
 
     outputQ.enq(FpuResponse{
@@ -234,7 +276,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFCLASS_S if (inputQ.first.op matches tagged Rop FCLASS_S);
+  rule doFCLASS_S if (inputQ.first.op matches tagged Rop FCLASS_S &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
     F32 rs1 = req.rs1;
     Bit#(32) res = 1;
@@ -252,7 +294,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFMIN_S if (inputQ.first.op matches tagged Rop FMIN_S);
+  rule doFMIN_S if (inputQ.first.op matches tagged Rop FMIN_S &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
     F32 rs1 = req.rs1;
     F32 rs2 = req.rs2;
@@ -280,7 +322,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFMAX_S if (inputQ.first.op matches tagged Rop FMIN_S);
+  rule doFMAX_S if (inputQ.first.op matches tagged Rop FMIN_S &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
     F32 rs1 = req.rs1;
     F32 rs2 = req.rs2;
@@ -308,7 +350,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFEQ_S if (inputQ.first.op matches tagged Rop FEQ_S);
+  rule doFEQ_S if (inputQ.first.op matches tagged Rop FEQ_S &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
     F32 rs1 = req.rs1;
     F32 rs2 = req.rs2;
@@ -328,7 +370,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFLT_S if (inputQ.first.op matches tagged Rop FLT_S);
+  rule doFLT_S if (inputQ.first.op matches tagged Rop FLT_S &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
     F32 rs1 = req.rs1;
     F32 rs2 = req.rs2;
@@ -348,7 +390,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFLE_S if (inputQ.first.op matches tagged Rop FLE_S);
+  rule doFLE_S if (inputQ.first.op matches tagged Rop FLE_S &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
     F32 rs1 = req.rs1;
     F32 rs2 = req.rs2;
@@ -370,7 +412,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFCVT_S_W if (inputQ.first.op matches tagged Rop FCVT_S_W);
+  rule doFCVT_S_W if (inputQ.first.op matches tagged Rop FCVT_S_W &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
     Int#(32) rs1 = unpack(pack(req.rs1));
     match {.res, .exn} =
@@ -383,7 +425,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFCVT_S_WU if (inputQ.first.op matches tagged Rop FCVT_S_WU);
+  rule doFCVT_S_WU if (inputQ.first.op matches tagged Rop FCVT_S_WU &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
     UInt#(32) rs1 = unpack(pack(req.rs1));
     match {.res, .exn} =
@@ -396,7 +438,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFCVT_W_S if (inputQ.first.op matches tagged Rop FCVT_W_S);
+  rule doFCVT_W_S if (inputQ.first.op matches tagged Rop FCVT_W_S &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
     match {.res, .exn} =
       Tuple2#(Int#(32), Exception)'(vFloatToFixed(6'd0, req.rs1, getRoundMode(req.frm)));
@@ -408,7 +450,7 @@ module mkFPointPipeline
     });
   endrule
 
-  rule doFCVT_WU_S if (inputQ.first.op matches tagged Rop FCVT_WU_S);
+  rule doFCVT_WU_S if (inputQ.first.op matches tagged Rop FCVT_WU_S &&& eqTag(IDLE));
     let req <- toGet(inputQ).get();
     F32 arg = F32{sfd: req.rs1.sfd, exp: req.rs1.exp, sign: False};
 

@@ -435,7 +435,7 @@ module mkFloatPipeline(Pipeline);
 
   Fifo#(4, Bit#(2)) requestIdQ <- mkPipelineFifo;
   Fifo#(4, RR_to_Pipeline) requestQ <- mkPipelineFifo;
-  FPointPipeline#(Bit#(2)) fpu <- mkFPointPipeline;
+  FPointPipeline#(Bit#(2)) fpu <- mkFPointPipeline(False);
 
   // Response buffer
   RegFile#(Bit#(2), FpuResponse#(Bit#(2))) buffer <- mkRegFileFull();
@@ -443,7 +443,7 @@ module mkFloatPipeline(Pipeline);
   Ehr#(2, Bit#(4)) rdy <- mkEhr(0);
 
   rule receive_rop if (
-      rr_to_fpu.first.instr matches tagged Rtype {op: tagged FloatOp .op} &&&
+      rr_to_fpu.first.instr matches tagged Rtype {op: tagged FloatOp .op, instr: .instr} &&&
       firstOneFrom(~valid[1],0) matches tagged Valid .id
     );
 
@@ -452,18 +452,21 @@ module mkFloatPipeline(Pipeline);
     requestQ.enq(req);
     valid[1][id] <= 1;
 
+    let frm = getFunct3(instr.bits) == 3'b111 ?
+      req.frm : getFunct3(instr.bits);
+
     fpu.request.enq(FpuRequest{
         rs1: unpack(req.rs1_val),
         rs2: unpack(req.rs2_val),
         rs3: unpack(req.rs3_val),
-        frm: req.frm,
         op: Rop(op),
+        frm: frm,
         id: id
     });
   endrule
 
   rule receive_r4op if (
-      rr_to_fpu.first.instr matches tagged R4type {op: .op} &&&
+      rr_to_fpu.first.instr matches tagged R4type {op: .op, instr: .instr} &&&
       firstOneFrom(~valid[1],0) matches tagged Valid .id
     );
 
@@ -472,12 +475,15 @@ module mkFloatPipeline(Pipeline);
     requestQ.enq(req);
     valid[1][id] <= 1;
 
+    let frm = getFunct3(instr.bits) == 3'b111 ?
+      req.frm : getFunct3(instr.bits);
+
     fpu.request.enq(FpuRequest{
         rs1: unpack(req.rs1_val),
         rs2: unpack(req.rs2_val),
         rs3: unpack(req.rs3_val),
-        frm: req.frm,
         op: Fma(op),
+        frm: frm,
         id: id
     });
   endrule

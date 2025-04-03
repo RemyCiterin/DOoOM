@@ -18,7 +18,7 @@ import Vector :: *;
 
 interface LSU;
   // Add a new entry in the issue queue
-  method Action enq(IssueQueueInput entry);
+  method Action enq(IssueQueueInput#(2) entry);
 
   // wakeup all the issue queues
   method Action wakeup(RobIndex index, Bit#(32) value);
@@ -182,7 +182,7 @@ module mkLSU(LSU);
     end
   endmethod
 
-  method Action enq(IssueQueueInput entry);
+  method Action enq(IssueQueueInput#(2) entry);
     action
       case (entry.instr) matches
         tagged Itype {op: tagged Load .ltype} : begin
@@ -194,7 +194,7 @@ module mkLSU(LSU);
             age: entry.age,
             pc: entry.pc
           });
-          loadIQ.enq(index, entry.rs1_val, immediateBits(entry.instr), entry.epoch, entry.age);
+          loadIQ.enq(index, entry.regs[0], immediateBits(entry.instr), entry.epoch, entry.age);
           tagQ.enq(Load);
         end
         tagged Stype {op: .stype} : begin
@@ -205,8 +205,8 @@ module mkLSU(LSU);
             age: entry.age,
             pc: entry.pc
           });
-          storeAddrIQ.enq(index, entry.rs1_val, immediateBits(entry.instr), 0, 0);
-          storeDataIQ.enq(index, entry.rs2_val, 0 ,0, 0);
+          storeAddrIQ.enq(index, entry.regs[0], immediateBits(entry.instr), 0, 0);
+          storeDataIQ.enq(index, entry.regs[1], 0 ,0, 0);
           tagQ.enq(Store);
         end
       endcase

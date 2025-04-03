@@ -6,10 +6,10 @@ import CSR :: *;
 import BranchPred :: *;
 
 // The number of slots in the reorder buffer
-typedef 6 RobSize;
+typedef 16 RobSize;
 typedef Bit#(TLog#(RobSize)) RobIndex;
 
-typedef 2 IqSize;
+typedef 4 IqSize;
 
 // The execution of an instruction return either
 // an exception with a cause and a mtval value,
@@ -25,6 +25,7 @@ typedef union tagged {
     Bool flush;
     Bit#(32) rd_val;
     Bit#(32) next_pc;
+    Maybe#(Bit#(5)) fflags;
   } Ok;
 } ExecOutput deriving(Bits, FShow, Eq);
 
@@ -56,9 +57,9 @@ typedef struct {
   RobIndex index;
   Bit#(32) pc;
   Instr instr;
-  Bit#(32) rs1_val;
-  Bit#(32) rs2_val;
-} ExecInput deriving(Bits, FShow, Eq);
+  Bit#(3) frm;
+  Vector#(numReg, Bit#(32)) regs;
+} ExecInput#(numeric type numReg) deriving(Bits, FShow, Eq);
 
 typedef struct {
   // the program pointer associated to the instruction
@@ -104,6 +105,13 @@ function Bool isValue(RegVal r);
   endcase;
 endfunction
 
+function Bool isWait(RegVal r);
+  return case (r) matches
+    tagged Wait .* : True;
+    default: False;
+  endcase;
+endfunction
+
 
 // data needed to execute an instruction in a functional unit
 // (except for loads and stores)
@@ -111,8 +119,8 @@ typedef struct {
   RobIndex index;
   Bit#(32) pc;
   Instr instr;
-  RegVal rs1_val;
-  RegVal rs2_val;
+  Vector#(numReg, RegVal) regs;
   Epoch epoch;
   Age age;
-} IssueQueueInput deriving(Bits, FShow, Eq);
+  Bit#(3) frm;
+} IssueQueueInput#(numeric type numReg) deriving(Bits, FShow, Eq);

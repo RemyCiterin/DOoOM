@@ -97,6 +97,50 @@ fn vector_bench() {
     println!("found {} elements in the list", count);
 }
 
+
+fn matmul_bench() {
+    let size: usize = 5;
+    let mut v1 : Vec<Vec<f32>> = Vec::new();
+    let mut v2 : Vec<Vec<f32>> = Vec::new();
+    let mut v3 : Vec<Vec<f32>> = Vec::new();
+
+    let mut acc:f32 = 0.0;
+    for i in 0..size {
+        v1.push(Vec::new());
+        v2.push(Vec::new());
+        v3.push(Vec::new());
+        for _ in 0..size {
+            v1[i].push(0.0);
+            v2[i].push(acc);
+            v3[i].push(acc);
+        }
+
+        acc += 1.0;
+    }
+
+    println!("acc: {}", acc);
+
+    for i in 0..size {
+        for j in 0..size {
+            for k in 0..size {
+                v1[i][j] += v2[i][k] * v3[k][j];
+            }
+        }
+    }
+
+    let mut sum:f32 = 0.0;
+    for i in 0..size {
+        for j in 0..size {
+            sum += v1[i][j];
+        }
+    }
+
+    println!("sum: {} expected: {}", sum, size*size*size*(size-1)*(size-1) / 4);
+
+
+
+}
+
 // BTree are implemented using a linear search with a comparison instead of
 // counting the elements less than the searched key, so it cause a LOT of
 // branch mispredictions
@@ -179,7 +223,8 @@ extern "C" fn user_main() -> () {
         let mut time = 0-mcycle::read();
         let mut instret = 0-minstret::read();
 
-        btree_bench();
+        //btree_bench();
+        matmul_bench();
 
         time += mcycle::read();
         instret += minstret::read();

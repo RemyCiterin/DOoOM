@@ -106,6 +106,7 @@ module mkLoadQ(LoadQ);
 
     return tuple2(entries[index].index, tagged Ok {
       next_pc: entries[index].pc + 4,
+      fflags: Invalid,
       flush: False,
       rd_val: rd
     });

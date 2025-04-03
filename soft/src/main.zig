@@ -163,19 +163,30 @@ pub fn syscall0(index: usize) void {
     Syscall.exec(@intFromPtr(&user_main), 512, null);
 }
 
-pub noinline fn foo(x: f32, y: f32) f32 {
-    return x + y;
+pub export fn foo(x: f32, y: f32) f32 {
+    UART.writer.print("call foo {}!", .{x}) catch unreachable;
+    return x * y;
 }
 
 pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
     const logger = std.log.scoped(.user);
 
     measureLock.lock();
-    logger.info("fpoint test", .{});
+    logger.info("FPU latency:", .{});
+    for (1..11) |i| {
+        const size = 10 * i;
+        var bench = Bench.LatencyFPU.init(size);
+        const output = Bench.measure(size, &bench);
+        _ = output;
+    }
 
-    const x: f32 = 2.0;
-    const y: f32 = 43.0;
-    logger.info("{} * {} = {}", .{ x, y, foo(x, y) });
+    logger.info("FPU bandwidth:", .{});
+    for (1..11) |i| {
+        const size = 10 * i;
+        var bench = Bench.BandwidthFPU.init(size);
+        const output = Bench.measure(size, &bench);
+        _ = output;
+    }
 
     logger.info("Binary Search:", .{});
     for (1..11) |i| {
