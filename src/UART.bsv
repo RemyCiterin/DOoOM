@@ -139,7 +139,7 @@ module mkTxUART#(Bit#(32) time_per_bit) (TxUART);
     end else begin
       tx <= data[0];
 
-      if (count >= 25_000_000 / 115200) begin
+      if (count >= time_per_bit) begin
         valid <= {1'b0, truncateLSB(valid)};
         data <= {1'b1, truncateLSB(data)};
         count <= 0;
