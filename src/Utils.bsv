@@ -26,33 +26,39 @@ typedef enum {
 } Priv deriving(Bits, FShow, Eq);
 
 typedef enum {
-  EXEC_TAG_DIRECT, EXEC_TAG_CONTROL, EXEC_TAG_EXEC, EXEC_TAG_DMEM
-} Exec_Tag deriving(Bits, FShow, Eq);
+  DIRECT,
+  CONTROL,
+  EXEC,
+  DMEM,
+  FLOAT
+} ExecTag deriving(Bits, FShow, Eq);
 
-function Exec_Tag tagOfInstr(Instr instr);
+function ExecTag tagOfInstr(Instr instr);
   case (instr) matches
-    tagged Btype .* : return EXEC_TAG_CONTROL;
-    tagged Rtype .* : return EXEC_TAG_EXEC;
-    tagged Utype {op: AUIPC} : return EXEC_TAG_EXEC;
-    tagged Utype {op: LUI} : return EXEC_TAG_EXEC;
-    tagged Jtype .* : return EXEC_TAG_CONTROL;
-    tagged Stype .* : return EXEC_TAG_DMEM;
+    tagged Btype .* : return CONTROL;
+    tagged R4type .* : return FLOAT;
+    tagged Rtype {op: tagged FloatOp .*} : return FLOAT;
+    tagged Rtype .* : return EXEC;
+    tagged Utype {op: AUIPC} : return EXEC;
+    tagged Utype {op: LUI} : return EXEC;
+    tagged Jtype .* : return CONTROL;
+    tagged Stype .* : return DMEM;
     tagged Itype {op: .op} :
       return case (op) matches
-        tagged Load .* : EXEC_TAG_DMEM;
-        JALR : EXEC_TAG_CONTROL;
-        ADDI : EXEC_TAG_EXEC;
-        SLTI : EXEC_TAG_EXEC;
-        SLTIU : EXEC_TAG_EXEC;
-        XORI : EXEC_TAG_EXEC;
-        ORI : EXEC_TAG_EXEC;
-        ANDI : EXEC_TAG_EXEC;
-        SLLI : EXEC_TAG_EXEC;
-        SRLI : EXEC_TAG_EXEC;
-        SRAI : EXEC_TAG_EXEC;
-        FENCE : EXEC_TAG_DIRECT;
-        FENCE_I : EXEC_TAG_DIRECT;
-        default : EXEC_TAG_DIRECT;
+        tagged Load .* : DMEM;
+        JALR : CONTROL;
+        ADDI : EXEC;
+        SLTI : EXEC;
+        SLTIU : EXEC;
+        XORI : EXEC;
+        ORI : EXEC;
+        ANDI : EXEC;
+        SLLI : EXEC;
+        SRLI : EXEC;
+        SRAI : EXEC;
+        FENCE : DIRECT;
+        FENCE_I : DIRECT;
+        default : DIRECT;
       endcase;
   endcase
 endfunction
@@ -85,6 +91,37 @@ function Bool isAfter(Epoch a, Epoch b);
   return !isBefore(a, b);
 endfunction
 
+function Maybe#(Bit#(TLog#(n))) findYoungest(Vector#(n, Age) ages, Bit#(n) mask);
+  Bit#(TLog#(n)) idx = ?;
+  Bool empty = True;
+  Age age = ?;
+
+  for (Integer i=0; i < valueOf(n); i = i + 1) begin
+    if (mask[i] == 1 && (empty || isBefore(age, ages[i]))) begin
+      idx = fromInteger(i);
+      age = ages[i];
+      empty = False;
+    end
+  end
+
+  return empty ? Invalid : Valid(idx);
+endfunction
+
+function Maybe#(Bit#(TLog#(n))) findOldest(Vector#(n, Age) ages, Bit#(n) mask);
+  Bit#(TLog#(n)) idx = ?;
+  Bool empty = True;
+  Age age = ?;
+
+  for (Integer i=0; i < valueOf(n); i = i + 1) begin
+    if (mask[i] == 1 && (empty || isBefore(ages[i], age))) begin
+      idx = fromInteger(i);
+      age = ages[i];
+      empty = False;
+    end
+  end
+
+  return empty ? Invalid : Valid(idx);
+endfunction
 
 interface EpochManager;
   method Epoch read;

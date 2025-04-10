@@ -3,6 +3,7 @@ import AXI4 :: *;
 
 import FIFOF :: *;
 import SpecialFIFOs :: *;
+import Fifo :: *;
 import GetPut :: *;
 
 import Decode :: *;
@@ -16,13 +17,15 @@ import OOO :: *;
 import ROB :: *;
 import CSR :: *;
 import IssueQueue :: *;
-import RegisterFile :: *;
+//import RegisterFile :: *;
+import PhysRegFile :: *;
 import FunctionalUnit :: *;
 
 import Ehr :: *;
 import BranchPred :: *;
 
 import LSU :: *;
+import LsuTypes :: *;
 
 import FetchDecode :: *;
 
@@ -53,31 +56,46 @@ module mkCoreOOO(Core_IFC);
   Reg#(Age) current_age <- mkReg(0);
 
   let fetch <- mkFetchDecode;
+  Fifo#(1, FromDecode) decodedQ <- mkPipelineFifo;
+  Fifo#(1, Vector#(3,PhysReg)) renamedQ <- mkPipelineFifo;
 
   ROB rob <- mkROB;
 
-  IssueQueue#(IqSize) alu_issue_queue <- mkDefaultIssueQueue;
-  FunctionalUnit alu_fu <- mkALU_FU;
+  FunctionalUnit#(2) alu_fu <- mkALU_FU;
+  IssueQueue#(IqSize, 2) alu_iq <- mkDefaultIssueQueue;
 
-  IssueQueue#(IqSize) control_issue_queue <- mkDefaultIssueQueue;
-  FunctionalUnit control_fu <- mkControlFU;
+  FunctionalUnit#(2) control_fu <- mkControlFU;
+  IssueQueue#(IqSize, 2) control_iq <- mkDefaultIssueQueue;
 
-  IssueQueue#(IqSize) direct_issue_queue <- mkDefaultOrderedIssueQueue;
+`ifdef FLOAT
+  FunctionalUnit#(3) fpu_fu <- mkFpuFU;
+  IssueQueue#(IqSize, 3) fpu_iq <- mkDefaultFloatIssueQueue;
+`endif
 
   LSU lsu <- mkLSU;
+  IssueQueue#(IqSize, 2) lsu_iq <- mkDefaultIssueQueue;
+
+  IssueQueue#(IqSize, 2) direct_issue_queue <- mkDefaultOrderedIssueQueue;
 
   // indicate if a load is killed by the load store unit
   // because it return a bad value
   Reg#(Bit#(RobSize)) killed <- mkPReg0(0);
 
-  FIFOF#(Tuple2#(RobIndex, ExecOutput)) decodeFail <- mkPipelineFIFOF;
+  FIFOF#(ExecOutput) decodeFail <- mkPipelineFIFOF;
 
+`ifdef FLOAT
+  let toWB <- mkGetScheduler(
+    vec(decodeFail.notEmpty, alu_fu.canDeq, control_fu.canDeq, lsu.canDeq, fpu_fu.canDeq),
+    vec(toGet(decodeFail).get, alu_fu.deq, control_fu.deq, lsu.deq, fpu_fu.deq)
+  );
+`else
   let toWB <- mkGetScheduler(
     vec(decodeFail.notEmpty, alu_fu.canDeq, control_fu.canDeq, lsu.canDeq),
     vec(toGet(decodeFail).get, alu_fu.deq, control_fu.deq, lsu.deq)
   );
+`endif
 
-  RegisterFileOOO registers <- mkRegisterFileOOO;
+  PhysRegFile registers <- mkPhysRegFile;
 
   let csr <- mkCsrFile(0);
 
@@ -101,16 +119,20 @@ module mkCoreOOO(Core_IFC);
   //   invalid
   function Action deqRob(
       Maybe#(Bit#(32)) value,
+      Maybe#(Bit#(5)) fflags,
       Maybe#(Bit#(32)) next_pc
     );
     action
       let entry = rob.first;
       let index = rob.first_index;
 
-      if (value matches tagged Valid .val &&& destination(entry.instr).name != 0 &&& verbose)
+      if (fflags matches tagged Valid .f) csr.set_fflags(f);
+
+      if (value matches tagged Valid .val &&& destination(entry.instr) != zeroReg &&& verbose)
         $display("       ", fshow(destination(entry.instr)), " := %h", val);
 
-      registers.setReady(destination(entry.instr), index, value, next_pc != Invalid);
+      //registers.setReady(destination(entry.instr), index, value, next_pc != Invalid);
+      registers.commit(destination(entry.instr), entry.pdst, value != Invalid, next_pc != Invalid);
       if (next_pc matches tagged Valid .pc) fn_mispredict(pc);
 
       rob.deq;
@@ -119,93 +141,103 @@ module mkCoreOOO(Core_IFC);
 
   // Wakeup all the issue queues (inform the functional units their is a new
   // register)
-  function Action wakeupFn(RobIndex index, ExecOutput result);
+  function Action wakeupFn(PhysReg pdst, ExecResult result);
     action
       let rd_val = case (result) matches
         tagged Ok {rd_val: .v} : v;
         .*: 0;
       endcase;
 
-      control_issue_queue.wakeup(index, rd_val);
-      direct_issue_queue.wakeup(index, rd_val);
-      alu_issue_queue.wakeup(index, rd_val);
-      lsu.wakeup(index, rd_val);
+      lsu_iq.wakeup(pdst, rd_val);
+      alu_iq.wakeup(pdst, rd_val);
+`ifdef FLOAT
+      fpu_iq.wakeup(pdst, rd_val);
+`endif
+      control_iq.wakeup(pdst, rd_val);
+      direct_issue_queue.wakeup(pdst, rd_val);
+      registers.wakeup(pdst,rd_val);
     endaction
   endfunction
 
   // Dispatch a decoded instruction: enqueue it in the Reorder buffer and the
   // issue queues, use the bypassed value for the register evaluation
-  function Action fn_dispatch(FromDecode decoded);
+  function Action fn_dispatch(FromDecode decoded, Vector#(3,PhysReg) regs);
     action
-      let tag = (decoded.exception ? EXEC_TAG_DIRECT : tagOfInstr(decoded.instr));
+      let tag = (decoded.exception ? DIRECT : tagOfInstr(decoded.instr));
       current_age <= current_age+1;
 
+      PhysReg pdst = 0;
+      if (!decoded.exception) pdst <- registers.enter(destination(decoded.instr));
+      let rs1_val = decoded.exception ? Value(0) : registers.read1(regs[0]);
+      let rs2_val = decoded.exception ? Value(0) : registers.read2(regs[1]);
+      let rs3_val = decoded.exception ? Value(0) : registers.read3(regs[3]);
+
       RobEntry rob_entry = RobEntry{
-        pc: decoded.pc,
-        tag: tag,
+        bpred_state: decoded.bpred_state,
+        pred_pc: decoded.pred_pc,
         instr: decoded.instr,
         epoch: decoded.epoch,
-        pred_pc: decoded.pred_pc,
-        bpred_state: decoded.bpred_state,
-        age: current_age
+        age: current_age,
+        pc: decoded.pc,
+        pdst: pdst,
+        tag: tag
       };
 
       let index <- rob.enq(rob_entry);
-      let rs1_val = registers.rs1(register1(decoded.instr));
-      let rs2_val = registers.rs2(register2(decoded.instr));
-
-      if (rs1_val matches tagged Wait .idx &&& rob.read1(idx) matches tagged Valid .res)
-        rs1_val = tagged Value getRdVal(res);
-      if (rs2_val matches tagged Wait .idx &&& rob.read2(idx) matches tagged Valid .res)
-        rs2_val = tagged Value getRdVal(res);
 
       if (decoded.exception)
-        decodeFail.enq(tuple2(index, tagged Error{cause: decoded.cause, tval: decoded.tval}));
+        decodeFail.enq(ExecOutput{
+          result: tagged Error{cause: decoded.cause, tval: decoded.tval},
+          index: index,
+          pdst: pdst
+        });
 
-      registers.setBusy(destination(decoded.instr), index);
 
-      IssueQueueEntry iq_entry = IssueQueueEntry{
-        index: index,
-        pc: decoded.pc,
+      IssueQueueInput#(3) entry3 = IssueQueueInput{
+        regs: vec(rs1_val, rs2_val, rs3_val),
         instr: decoded.instr,
-        rs1_val: rs1_val,
-        rs2_val: rs2_val,
         epoch: decoded.epoch,
-        age: current_age
+        frm: csr.read_frm,
+        age: current_age,
+        pc: decoded.pc,
+        index: index,
+        pdst: pdst,
+        sindex: ?,
+        lindex: ?,
+        tag: tag
       };
 
+      IssueQueueInput#(0) entry0 = mapMicroOp(Vector::take,entry3);
+      if (isLoad(decoded.instr) && tag == DMEM) entry3.lindex <- lsu.enqLoad(entry0);
+      else if (tag == DMEM) entry3.sindex <- lsu.enqStore(entry0);
+      IssueQueueInput#(2) entry2 = mapMicroOp(Vector::take,entry3);
+
       case (tag) matches
-        EXEC_TAG_EXEC: begin
-          alu_issue_queue.enq(iq_entry);
-        end
-        EXEC_TAG_CONTROL: begin
-          control_issue_queue.enq(iq_entry);
-        end
-        EXEC_TAG_DMEM: begin
-          lsu.enq(iq_entry);
-        end
-        EXEC_TAG_DIRECT: if (!decoded.exception) begin
-          direct_issue_queue.enq(iq_entry);
-        end
-        default:
-          noAction;
+        DIRECT: if (!decoded.exception)
+          direct_issue_queue.enq(entry2);
+        CONTROL: control_iq.enq(entry2);
+`ifdef FLOAT
+        FLOAT: fpu_iq.enq(entry3);
+`endif
+        EXEC: alu_iq.enq(entry2);
+        DMEM: lsu_iq.enq(entry2);
       endcase
     endaction
   endfunction
 
   // Commit an instruction and remove it of the ROB
-  function Action doCommit(RobIndex index, RobEntry entry, ExecOutput result);
+  function Action doCommit(RobIndex index, RobEntry entry, ExecResult result);
     action
       if (verbose)
         $display("  wb %h ", entry.pc, displayInstr(entry.instr));
 
-      if (isOk(result) &&& entry.tag != EXEC_TAG_DIRECT)
+      if (isOk(result) &&& entry.tag != DIRECT)
         csr.increment_instret;
 
       case (result) matches
-        tagged Ok {next_pc: .next_pc, rd_val: .rd_val} : begin
+        tagged Ok {next_pc: .next_pc, rd_val: .rd_val, fflags: .fflags} : begin
           deqRob(
-            Valid(rd_val),
+            Valid(rd_val), fflags,
             next_pc != entry.pred_pc ? Valid(next_pc) : Invalid
           );
 
@@ -227,10 +259,8 @@ module mkCoreOOO(Core_IFC);
           end
         end
         tagged Error {cause: .cause, tval: .tval} : begin
-          //$display("%d %h  ", index, entry.pc, displayInstr(entry.instr));
-          //$display("exception from %h ", entry.pc, fshow(cause));
           Bit#(32) trap_pc <- csr.exec_exception(entry.pc, False, pack(cause), tval);
-          deqRob(Invalid, Valid(trap_pc));
+          deqRob(Invalid, Invalid, Valid(trap_pc));
 
           fetch.trainMis(BranchPredTrain{
             pc: entry.pc,
@@ -244,7 +274,7 @@ module mkCoreOOO(Core_IFC);
     endaction
   endfunction
 
-  function ActionValue#(ExecOutput)
+  function ActionValue#(ExecResult)
     execDirect(RobIndex index, RobEntry entry, Bit#(32) rs1, Bit#(32) rs2);
     actionvalue
       case (entry.instr) matches
@@ -259,29 +289,29 @@ module mkCoreOOO(Core_IFC);
           csr.increment_instret;
           lsu.emptySTB();
 
-          return tagged Ok {flush: True, rd_val: 0, next_pc: entry.pc + 4};
+          return tagged Ok {fflags: Invalid, flush: True, rd_val: 0, next_pc: entry.pc + 4};
         end
         tagged Itype {op: FENCE_I} : begin
           csr.increment_instret;
           fetch.invalidateEmpty();
-          return tagged Ok {flush: True, rd_val: 0, next_pc: entry.pc + 4};
+          return tagged Ok {fflags: Invalid, flush: True, rd_val: 0, next_pc: entry.pc + 4};
         end
         tagged Itype {op: CBO} : begin
           csr.increment_instret;
           lsu.invalidate(rs1 + immediateBits(entry.instr));
           fetch.invalidate(rs1 + immediateBits(entry.instr));
-          return tagged Ok {flush: False, rd_val: 0, next_pc: entry.pc + 4};
+          return tagged Ok {fflags: Invalid, flush: False, rd_val: 0, next_pc: entry.pc + 4};
         end
         tagged Itype {instr: .instr, op: tagged Ret MRET} : begin
           let pc <- csr.mret;
           csr.increment_instret;
-          return tagged Ok { flush: False, rd_val: 0, next_pc: pc };
+          return tagged Ok { fflags: Invalid, flush: False, rd_val: 0, next_pc: pc };
         end
         tagged Itype {instr: .instr, op: .op} : begin
           Maybe#(Bit#(32)) val <- csr.exec_csrxx(instr, op, rs1);
 
           if (val matches tagged Valid .v)
-            return tagged Ok {flush: False, rd_val: v, next_pc: entry.pc+4};
+            return tagged Ok {fflags: Invalid, flush: False, rd_val: v, next_pc: entry.pc+4};
           else
             return tagged Error {cause: ILLEGAL_INSTRUCTION, tval: entry.pc};
         end
@@ -291,21 +321,45 @@ module mkCoreOOO(Core_IFC);
     endactionvalue
   endfunction
 
-  rule connectALU;
-    let request <- alu_issue_queue.issue;
-    alu_fu.enq(request);
+  rule connectEXEC;
+    alu_iq.issue.deq;
+    alu_fu.enq(alu_iq.issue.first);
   endrule
 
-  rule connectControl;
-    let request <- control_issue_queue.issue;
-    control_fu.enq(request);
+`ifdef FLOAT
+  rule connectFLOAT;
+    fpu_iq.issue.deq;
+    fpu_fu.enq(fpu_iq.issue.first);
+  endrule
+`endif
+
+  rule connectCONTROL;
+    control_iq.issue.deq;
+    control_fu.enq(control_iq.issue.first);
   endrule
 
-  //(* descending_urgency = "commit_interrupt, execute_direct, write_back" *)
+  rule connectSTORE if (isStore(lsu_iq.issue.first.instr));
+    let entry2 = lsu_iq.issue.first;
+    ExecInput#(1) entry2fst = mapMicroOp(Vector::take,entry2);
+    ExecInput#(1) entry2snd = mapMicroOp(Vector::drop,entry2);
+
+    lsu.wakeupStoreAddr(entry2fst);
+    lsu.wakeupStoreData(entry2snd);
+    lsu_iq.issue.deq;
+  endrule
+
+  rule connectLOAD if (isLoad(lsu_iq.issue.first.instr));
+    let entry2 = lsu_iq.issue.first;
+    ExecInput#(1) entry1 = mapMicroOp(Vector::take,entry2);
+
+    let success <- lsu.wakeupLoad(entry1);
+    if (success) lsu_iq.issue.deq;
+  endrule
+
   rule write_back;
-    let response <- toWB.get;
-    wakeupFn(response.fst, response.snd);
-    rob.writeBack(response.fst, response.snd);
+    let resp <- toWB.get;
+    rob.writeBack(resp.index, resp.result);
+    wakeupFn(resp.pdst, resp.result);
   endrule
 
   rule set_timer;
@@ -316,10 +370,11 @@ module mkCoreOOO(Core_IFC);
   rule discard_instruction
     if (rob.first.epoch != epoch[0] &&& rob.first_result matches tagged Valid .*);
     mispred_instr <= mispred_instr + 1;
-    deqRob(Invalid, Invalid);
+    deqRob(Invalid, Invalid, Invalid);
   endrule
 
-  rule commit_dmem if (rob.first_result matches tagged Valid .result);
+  rule commit_dmem if (
+    rob.first_result matches tagged Valid .result);
     let must_commit = rob.first.epoch == epoch[0] && isOk(result);
     let index = rob.first_index;
 
@@ -343,9 +398,7 @@ module mkCoreOOO(Core_IFC);
     let pc = entry.pc;
 
     if (killed[index] == 1) begin
-      // The instruction return a mispredicted value according to a previous
-      // load store unit commit
-      deqRob(Invalid, Valid(pc));
+      deqRob(Invalid, Invalid, Valid(pc));
       fetch.trainMis(BranchPredTrain{
         state: entry.bpred_state,
         instr: Invalid,
@@ -353,11 +406,11 @@ module mkCoreOOO(Core_IFC);
         pc: pc
       });
     end else if (csr.readyInterrupt matches tagged Valid .cause &&&
-      entry.tag != EXEC_TAG_DMEM && entry.tag != EXEC_TAG_DIRECT) begin
+      entry.tag != DMEM && entry.tag != DIRECT) begin
       // The instruction is abort due to an interrupt, we can't abort already
       // "commited" instructions like memory or CSR operations
       let trap_pc <- csr.exec_exception(pc, True, pack(cause), 0);
-      deqRob(Invalid, Valid(trap_pc));
+      deqRob(Invalid, Invalid, Valid(trap_pc));
       fetch.trainMis(BranchPredTrain{
         state: entry.bpred_state,
         next_pc: trap_pc,
@@ -369,24 +422,39 @@ module mkCoreOOO(Core_IFC);
   endrule
 
   rule execute_direct if (
-      rob.first.tag == EXEC_TAG_DIRECT &&&
+      rob.first.tag == DIRECT &&&
       rob.first_result matches Invalid);
-    ExecInput request <- direct_issue_queue.issue();
+    ExecInput#(2) request = direct_issue_queue.issue.first;
+    direct_issue_queue.issue.deq();
 
-    ExecOutput result = ?;
+    ExecResult result = ?;
 
     if (rob.first.epoch == epoch[0]) result <-
-      execDirect(rob.first_index, rob.first, request.rs1_val, request.rs2_val);
+      execDirect(rob.first_index, rob.first, request.regs[0], request.regs[1]);
 
     rob.writeBack(rob.first_index, result);
-    wakeupFn(rob.first_index, result);
+    wakeupFn(rob.first.pdst, result);
+  endrule
+
+  rule rename;
+    let decoded <- fetch.to_RR.get;
+    let rs1 = registers.rename1(register1(decoded.instr));
+    let rs2 = registers.rename2(register2(decoded.instr));
+    let rs3 = registers.rename3(register3(decoded.instr));
+
+    renamedQ.enq(vec(rs1,rs2,rs3));
+    decodedQ.enq(decoded);
   endrule
 
   rule dispatch;
-    let decoded <- fetch.to_RR.get;
+    let decoded = decodedQ.first;
+    let renamed = renamedQ.first;
+    decodedQ.deq;
+    renamedQ.deq;
+
 
     if (decoded.epoch == epoch[1])
-      fn_dispatch(decoded);
+      fn_dispatch(decoded, renamed);
   endrule
 
   // Use 1 instead of 0 to ensure we don't display during initialisation

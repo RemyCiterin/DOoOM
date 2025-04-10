@@ -28,22 +28,23 @@ interface StoreQ;
 
   // issue and return the result of the execution of the store
   // to the CPU: check address alignment
-  method ActionValue#(Tuple2#(RobIndex, ExecOutput)) issue;
+  method ActionValue#(ExecOutput) issue;
 endinterface
 
+/*** issue < deq < search < wakeup < enq ***/
 (* synthesize *)
 module mkStoreQ(StoreQ);
   Vector#(SqSize, Reg#(StoreQueueEntry)) entries <- replicateM(mkReg(?));
 
-  PReg#(2, Bit#(SqSize)) toIssue <- mkPReg(0);
-  PReg#(2, Bit#(SqSize)) valid <- mkPReg(0);
-  Reg#(SqIndex) head <- mkPReg0(0);
-  Reg#(SqIndex) tail <- mkPReg0(0);
+  Ehr#(2, Bit#(SqSize)) toIssue <- mkEhr(0);
+  Ehr#(2, Bit#(SqSize)) valid <- mkEhr(0);
+  Ehr#(2, SqIndex) head <- mkEhr(0);
+  Reg#(SqIndex) tail <- mkReg(0);
 
-  Vector#(SqSize, Reg#(Bit#(32))) addresses <- replicateM(mkPReg0(?));
-  Vector#(SqSize, Reg#(Bit#(32))) datas <- replicateM(mkPReg0(?));
-  PReg#(2, Bit#(SqSize)) addrValid <- mkPReg(0);
-  PReg#(2, Bit#(SqSize)) dataValid <- mkPReg(0);
+  Vector#(SqSize, Reg#(Bit#(32))) addresses <- replicateM(mkReg(?));
+  Vector#(SqSize, Reg#(Bit#(32))) datas <- replicateM(mkReg(?));
+  Ehr#(2, Bit#(SqSize)) addrValid <- mkEhr(0);
+  Ehr#(2, Bit#(SqSize)) dataValid <- mkEhr(0);
 
   Bit#(SqSize) rdy = toIssue[0] & addrValid[0] & valid[0] & dataValid[0];
 
@@ -57,12 +58,12 @@ module mkStoreQ(StoreQ);
     for (Integer i=0; i < valueOf(SqSize); i = i + 1) begin
       let entry = entries[i];
 
-      if (valid[0][i] == 1 && addrValid[0][i] == 1 && addr[31:2] == addresses[i][31:2] &&
+      if (valid[1][i] == 1 && addrValid[0][i] == 1 && addr[31:2] == addresses[i][31:2] &&
         entry.epoch == epoch && isBefore(entry.age, age))
         mask[i] = 1;
     end
 
-    return case (lastOneFrom(mask, head)) matches
+    return case (lastOneFrom(mask, head[1])) matches
       tagged Valid .idx : StoreConflict{found: True,mask:0,data:?};
       Invalid : StoreConflict{found: False,mask:0,data:?};
     endcase;
@@ -94,12 +95,12 @@ module mkStoreQ(StoreQ);
   endmethod
 
   method ActionValue#(StbEntry) deq()
-    if (valid[0][head] == 1);
-    let addr = addresses[head];
-    let entry = entries[head];
-    let data = datas[head];
-    valid[0][head] <= 0;
-    head <= next(head);
+    if (valid[0][head[0]] == 1);
+    let addr = addresses[head[0]];
+    let entry = entries[head[0]];
+    let data = datas[head[0]];
+    valid[0][head[0]] <= 0;
+    head[0] <= next(head[0]);
 
     let mask = case (entry.size) matches
       Word : 4'b1111;
@@ -114,7 +115,7 @@ module mkStoreQ(StoreQ);
     };
   endmethod
 
-  method ActionValue#(Tuple2#(RobIndex, ExecOutput)) issue()
+  method ActionValue#(ExecOutput) issue()
     if (firstOneFrom(rdy, 0) matches tagged Valid .idx);
     let addr = addresses[idx];
     let entry = entries[idx];
@@ -127,16 +128,23 @@ module mkStoreQ(StoreQ);
     endcase;
 
     if (aligned) begin
-      return tuple2(entry.index, tagged Ok {
-        next_pc: entry.pc + 4,
-        flush: False,
-        rd_val: ?
-      });
+      return ExecOutput{
+        pdst: entry.pdst,
+        index: entry.index,
+        result: tagged Ok {
+          next_pc: entry.pc + 4,
+          fflags: Invalid,
+          flush: False,
+          rd_val: ?
+      }};
     end else begin
-      return tuple2(entry.index, tagged Error {
-        cause: STORE_AMO_ADDRESS_MISALIGNED,
-        tval: addr
-      });
+      return ExecOutput{
+        pdst: entry.pdst,
+        index: entry.index,
+        result: tagged Error {
+          cause: STORE_AMO_ADDRESS_MISALIGNED,
+          tval: addr
+      }};
     end
   endmethod
 endmodule

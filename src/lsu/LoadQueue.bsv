@@ -17,19 +17,20 @@ interface LoadQ;
 
   method Maybe#(RobIndex) search(Bit#(32) addr);
 
-  method Tuple2#(RobIndex, ExecOutput)
+  method ExecOutput
     issue(LqIndex index, AXI4_Lite_RResponse#(4) resp);
 endinterface
 
+/*** (issue,search) < deq < wakeup < enq ***/
 (* synthesize *)
 module mkLoadQ(LoadQ);
   Vector#(LqSize, Reg#(LoadQueueEntry)) entries <- replicateM(mkReg(?));
-  PReg#(2, Bit#(LqSize)) valid <- mkPReg(0);
-  Reg#(LqIndex) head <- mkPReg0(0);
-  Reg#(LqIndex) tail <- mkPReg0(0);
+  Ehr#(2, Bit#(LqSize)) valid <- mkEhr(0);
+  Reg#(LqIndex) head <- mkReg(0);
+  Reg#(LqIndex) tail <- mkReg(0);
 
-  Vector#(LqSize, Reg#(Bit#(32))) addresses <- replicateM(mkPReg0(?));
-  PReg#(2, Bit#(LqSize)) addrValid <- mkPReg(0);
+  Vector#(LqSize, Reg#(Bit#(32))) addresses <- replicateM(mkReg(?));
+  Ehr#(2, Bit#(LqSize)) addrValid <- mkEhr(0);
 
   Bit#(LqSize) rdy = addrValid[0] & valid[0];
 
@@ -63,13 +64,14 @@ module mkLoadQ(LoadQ);
           addr: {addr[31:2], 2'b00}
       });
     end else begin
-      return tagged Failure {
+      return Failure(ExecOutput{
+          pdst: entry.pdst,
           index: entry.index,
           result:tagged Error{
             cause: LOAD_ADDRESS_MISALIGNED,
             tval: addr
           }
-      };
+      });
     end
   endmethod
 
@@ -93,7 +95,7 @@ module mkLoadQ(LoadQ);
     endcase;
   endmethod
 
-  method Tuple2#(RobIndex, ExecOutput)
+  method ExecOutput
     issue(LqIndex index, AXI4_Lite_RResponse#(4) resp);
 
     Bit#(32) rd = resp.bytes >> {addresses[index][1:0], 3'b0};
@@ -104,12 +106,14 @@ module mkLoadQ(LoadQ);
       Half : rd = signedness == Signed ? signExtend(rd[15:0]) : zeroExtend(rd[15:0]);
     endcase
 
-    return tuple2(entries[index].index, tagged Ok {
-      next_pc: entries[index].pc + 4,
-      flush: False,
-      rd_val: rd
-    });
+    return ExecOutput{
+      pdst: entries[index].pdst,
+      index: entries[index].index,
+      result: tagged Ok {
+        next_pc: entries[index].pc + 4,
+        fflags: Invalid,
+        flush: False,
+        rd_val: rd
+      }};
   endmethod
 endmodule
-
-

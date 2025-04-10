@@ -11,18 +11,12 @@ import OOO :: *;
 // first < dmemCommit < deq < writeBack < read < enq
 interface ROB;
   /* Stage 1: enqueue */
-  // read an entry from the rob
-  method Maybe#(ExecOutput) read1(RobIndex index);
-
-  // read an entry from the rob
-  method Maybe#(ExecOutput) read2(RobIndex index);
-
   // enqueue a new entry in the reorder buffer
   method ActionValue#(RobIndex) enq(RobEntry entry);
 
   /* Stage 2: write back */
   // write back the result of the execution of an instruction to the rob
-  method Action writeBack(RobIndex index, ExecOutput result);
+  method Action writeBack(RobIndex index, ExecResult result);
 
   /* Stage 3: dequeue */
   // return the first element of the rob before deq
@@ -32,7 +26,7 @@ interface ROB;
   method RobIndex first_index;
 
   // return the result of the execution of the first item
-  method Maybe#(ExecOutput) first_result;
+  method Maybe#(ExecResult) first_result;
 
   // commit the first instruction before deq if necessary
   method Action dmemCommit();
@@ -44,7 +38,7 @@ endinterface
 (* synthesize *)
 module mkROB(ROB);
   RegFile#(RobIndex, RobEntry) data <- mkRegFileFull;
-  ForwardRegFile#(RobIndex, ExecOutput) results <- mkForwardRegFileFull;
+  ForwardRegFile#(RobIndex, ExecResult) results <- mkForwardRegFileFull;
   Ehr#(3, Bit#(RobSize)) resultValid <- mkEhr(0);
 
   Ehr#(2, RobIndex) firstP <- mkEhr(0);
@@ -73,7 +67,7 @@ module mkROB(ROB);
       if (next_nextP == firstP[1])
         full[1] <= True;
 
-      waitDmemCommit[1][nextP] <= entry.tag == EXEC_TAG_DMEM ? 1 : 0;
+      waitDmemCommit[1][nextP] <= entry.tag == DMEM ? 1 : 0;
 
       return index;
     endactionvalue
@@ -108,17 +102,7 @@ module mkROB(ROB);
       empty[0] <= True;
   endmethod
 
-  method Maybe#(ExecOutput) read1(RobIndex index);
-    return resultValid[2][index] == 1 ?
-      Valid(results.forward(index)) : Invalid;
-  endmethod
-
-  method Maybe#(ExecOutput) read2(RobIndex index);
-    return resultValid[2][index] == 1 ?
-      Valid(results.forward(index)) : Invalid;
-  endmethod
-
-  method Action writeBack(RobIndex index, ExecOutput result);
+  method Action writeBack(RobIndex index, ExecResult result);
     action
       results.upd(index, result);
       resultValid[1][index] <= 1;

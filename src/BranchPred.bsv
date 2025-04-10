@@ -1,7 +1,9 @@
 import RegFileUtils :: *;
+import BuildVector :: *;
 import BlockRam :: *;
 import RegFile :: *;
 import Decode :: *;
+import Vector :: *;
 import Utils :: *;
 import Fifo :: *;
 import Ehr :: *;
@@ -15,7 +17,7 @@ function InstrKind instrKind(Instr instr);
   return case (instr) matches
     tagged Btype .* : Branch;
     tagged Itype {instr: .itype, op: JALR} :
-      case (tuple2(destination(itype).name, register1(itype).name)) matches
+      case (tuple2(destination(instr).name, register1(instr).name)) matches
         Tuple2 {fst: 1, snd: 5} : Call;
         Tuple2 {fst: 5, snd: 1} : Call;
         Tuple2 {fst: 5, snd: .*} : Call;
@@ -36,13 +38,18 @@ function InstrKind instrKindOpt(Maybe#(Instr) opt);
   endcase;
 endfunction
 
-typedef 256 StackSize;
-typedef 12 HistorySize;
+typedef 32 StackSize;
+typedef 128 HistorySize;
 typedef 12 TagSize;
+
+typedef 1 GhtSize;
 
 typedef Bit#(TagSize) Tag;
 typedef Bit#(HistorySize) History;
 typedef Bit#(TLog#(StackSize)) StackIndex;
+
+typedef 1 NumBtbWay;
+typedef Bit#(TLog#(NumBtbWay)) BtbWay;
 
 // An entry of the branch target buffer
 typedef struct {
@@ -57,16 +64,31 @@ interface BranchTargetBuffer;
 
   /* Stage 2: get the result of the read request */
   method Tuple2#(Bit#(32), InstrKind) response();
+  method BtbWay getWay;
   method Action deq();
 
   /* Stage 3: update the state */
-  method Action write(Bit#(32) pc, Bit#(32) next_pc, InstrKind kind);
+  method Action write(Bit#(32) pc, Bit#(32) next_pc, InstrKind kind, BtbWay way);
 endinterface
 
-(* synthesize *)
+(*synthesize *)
 module mkBranchTargetBuffer(BranchTargetBuffer);
-  Bram#(Tag, Maybe#(BtbEntry)) entries <- mkBramInit(Invalid);
+  BramVec#(Tag, NumBtbWay, Maybe#(BtbEntry)) entries <-
+    mkBramInitVec(replicate(Invalid));
+
   Fifo#(1, Bit#(32)) pcQ <- mkPipelineFifo;
+
+  Reg#(BtbWay) randomWay <- mkReg(0);
+
+  rule updateRandomWay;
+    randomWay <= randomWay == fromInteger(valueOf(NumBtbWay)-1) ? 0 : randomWay+1;
+  endrule
+
+  BtbWay way = randomWay;
+  for (Integer i=0; i < valueOf(NumBtbWay); i = i + 1) begin
+    if (entries.response[i] matches tagged Valid .entry)
+      way = entry.pc == pcQ.first ? fromInteger(i) : way;
+  end
 
   method Action start(Bit#(32) pc);
     action
@@ -78,7 +100,7 @@ module mkBranchTargetBuffer(BranchTargetBuffer);
   method Tuple2#(Bit#(32), InstrKind) response();
     let pc = pcQ.first();
 
-    return case (entries.response) matches
+    return case (entries.response[way]) matches
       tagged Valid .entry : entry.pc == pc ?
         tuple2(entry.next_pc, entry.kind) :
         tuple2(pc+4, Linear);
@@ -87,6 +109,8 @@ module mkBranchTargetBuffer(BranchTargetBuffer);
     endcase;
   endmethod
 
+  method BtbWay getWay = way;
+
   method Action deq();
     action
       entries.deq();
@@ -94,14 +118,17 @@ module mkBranchTargetBuffer(BranchTargetBuffer);
     endaction
   endmethod
 
-  method Action write(Bit#(32) pc, Bit#(32) next_pc, InstrKind kind);
+  method Action write(Bit#(32) pc, Bit#(32) next_pc, InstrKind kind, BtbWay w);
     action
+      Vector#(NumBtbWay,Maybe#(BtbEntry)) ret = ?;
+      ret[w] = Valid(BtbEntry{
+        next_pc: next_pc,
+        kind: kind,
+        pc: pc
+      });
+
       if (pc + 4 != next_pc)
-        entries.write(truncate(pc >> 2), Valid(BtbEntry{
-          next_pc: next_pc,
-          kind: kind,
-          pc: pc
-        }));
+        entries.write(truncate(pc >> 2), ret, 1 << w);
     endaction
   endmethod
 endmodule
@@ -150,8 +177,11 @@ typedef struct {
   // Accurate prediction using the program counter and the history
   Int#(3) pred;
 
-  // Tag to check the validity of the accurate prediction
-  Maybe#(Tag) tag;
+  // Say if the tag was found in one of the tagged predictor
+  Bool found;
+
+  // Level of the tagged predictor that found the tag
+  Bit#(TLog#(GhtSize)) level;
 } GhtState deriving(Bits, FShow, Eq);
 
 interface GlobalHistoryTable;
@@ -166,28 +196,64 @@ interface GlobalHistoryTable;
   method Action train(Bit#(32) pc, History h, Bool taken, GhtState st);
 endinterface
 
+typedef struct {
+  Maybe#(Tag) tag;
+  Int#(3) value;
+} TaggedEntry deriving(Bits, FShow, Eq);
+
+instance DefaultValue#(TaggedEntry);
+  function TaggedEntry defaultValue = TaggedEntry{
+    tag: Invalid,
+    value: 0
+  };
+endinstance
+
 (* synthesize *)
 module mkGlobalHistoryTable(GlobalHistoryTable);
-  Bram#(History, Maybe#(Tag)) tagRam <- mkBramInit(Invalid);
-  Bram#(Tag, Int#(3)) baseRam <- mkBramInit(0);
-  Bram#(History, Int#(3)) predRam <- mkBram();
+  Integer size = valueOf(GhtSize);
 
-  Fifo#(1, History) historyQ <- mkPipelineFifo;
   Fifo#(1, Tag) tagQ <- mkPipelineFifo;
 
-  function History hashTagged(Bit#(32) pc, History h);
-    return h ^ truncate(pc >> 2);
+  Bram#(Tag, Int#(3)) baseRam <- mkBramInit(0);
+  Vector#(GhtSize, Bram#(Tag, TaggedEntry)) predRam <-
+    replicateM(mkBramInit(defaultValue));
+
+  function Vector#(GhtSize, Tag) hashTagged(Bit#(32) pc, History h);
+    Vector#(GhtSize,Tag) ret = ?;
+    Tag hash = truncate(pc >> 2);
+
+    for (Integer i=0; i < size; i = i + 1) begin
+      Bit#(12) new_hash = h[12*(i+1)-1:12*i];
+      hash = hash ^ zeroExtend(new_hash);
+      ret[i] = hash;
+    end
+
+    return ret;
   endfunction
 
   function Tag hashBasic(Bit#(32) pc);
     return truncate(pc >> 2);
   endfunction
 
+  Vector#(GhtSize, TaggedEntry) resp = ?;
+  for (Integer i=0; i < size; i = i + 1) resp[i] = predRam[i].response;
+
+  Int#(3) pred = baseRam.response();
+  for (Integer i=0; i < size; i = i + 1)
+    pred = resp[i].tag == Valid(tagQ.first) ? resp[i].value : pred;
+
+  Bool found = False;
+  for (Integer i=0; i < size; i = i + 1)
+    found = found || resp[i].tag == Valid(tagQ.first);
+
+  Bit#(TLog#(GhtSize)) level = 0;
+  for (Integer i=0; i < size; i = i + 1)
+    level = resp[i].tag == Valid(tagQ.first) ? fromInteger(i) : level;
+
   method Action start(Bit#(32) pc, History h);
     action
-      historyQ.enq(hashTagged(pc, h));
-      predRam.read(hashTagged(pc, h));
-      tagRam.read(hashTagged(pc, h));
+      for (Integer i=0; i < size; i = i + 1)
+        predRam[i].read(hashTagged(pc, h)[i]);
       baseRam.read(hashBasic(pc));
       tagQ.enq(hashBasic(pc));
     endaction
@@ -195,24 +261,22 @@ module mkGlobalHistoryTable(GlobalHistoryTable);
 
   method GhtState state;
     return GhtState{
-      pred: predRam.response(),
+      pred: pred,
       base: baseRam.response(),
-      tag: tagRam.response()
+      found: found,
+      level: level
     };
   endmethod
 
   method Bool prediction();
-    return
-      tagRam.response() == Valid(tagQ.first) ?
-        predRam.response() >= 0 : baseRam.response() >= 0;
+    return pred >= 0;
   endmethod
 
   method Action deq();
     action
-      historyQ.deq();
-      predRam.deq();
+      for (Integer i=0; i < size; i = i + 1)
+        predRam[i].deq();
       baseRam.deq();
-      tagRam.deq();
       tagQ.deq();
     endaction
   endmethod
@@ -221,12 +285,21 @@ module mkGlobalHistoryTable(GlobalHistoryTable);
     action
       let base = satPlus(Sat_Bound, st.base, taken ? 1 : -1);
       let pred = satPlus(Sat_Bound, st.pred, taken ? 1 : -1);
-      let found = st.tag == Valid(hashBasic(pc));
-      pred = found ? pred : (taken ? 0 : -1);
+      let tag = Valid(hashBasic(pc));
 
-      tagRam.write(hashTagged(pc, h), Valid(hashBasic(pc)));
-      predRam.write(hashTagged(pc, h), pred);
       baseRam.write(hashBasic(pc), base);
+
+      let alloc = !st.found || st.level < fromInteger(size-1);
+      let alloc_entry = TaggedEntry{tag: tag, value: taken ? 0 : -1};
+      let alloc_level = st.found && size > 1 ? st.level + 1 : 0;
+
+      if (alloc)
+        predRam[alloc_level].write(hashTagged(pc,h)[alloc_level], alloc_entry);
+
+      let train_entry = TaggedEntry{tag: tag, value: pred};
+
+      if (st.found)
+        predRam[st.level].write(hashTagged(pc,h)[st.level],train_entry);
     endaction
   endmethod
 endmodule
@@ -244,6 +317,9 @@ typedef struct {
 
   // State saved from the GlobalHistoryTable
   GhtState state;
+
+  // Way of the branch target buffer
+  BtbWay way;
 } BranchPredState deriving(Bits, FShow, Eq);
 
 // Informations given to the branch predictor to update itself
@@ -320,6 +396,7 @@ module mkBranchPred(BranchPred);
       state: BranchPredState{
         top: ras.topOfStack,
         state: ght.state,
+        way: btb.getWay,
         ghr: history[0],
         kind: kind
       }
@@ -360,7 +437,7 @@ module mkBranchPred(BranchPred);
 
       if (infos.instr matches tagged Valid .instr) begin
         history[0] <= kind == Branch ? newGhr : ghr;
-        btb.write(infos.pc, infos.next_pc, kind);
+        btb.write(infos.pc, infos.next_pc, kind, infos.state.way);
         ras.backtrack(infos.state.top, kind);
       end else begin
         ras.backtrack(infos.state.top, infos.state.kind);

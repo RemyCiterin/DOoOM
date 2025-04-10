@@ -311,8 +311,8 @@ module mkBankController
     `ifndef BSIM
     outputQ.enq(mem.read);
     `else
-    let d <- simReadSDRAM(zeroExtend(cmdAddr));
-    outputQ.enq(d);
+    //let d <- simReadSDRAM(zeroExtend(cmdAddr));
+    //outputQ.enq(d);
     `endif
   endrule
 
@@ -327,7 +327,7 @@ module mkBankController
     `ifndef BSIM
     mem.write(data[15:0], mask[1:0]);
     `else
-    simWriteSDRAM(zeroExtend(addr), zeroExtend(data));
+    //simWriteSDRAM(zeroExtend(addr), zeroExtend(data));
     `endif
   endrule
 

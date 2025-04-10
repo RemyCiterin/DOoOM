@@ -21,43 +21,49 @@ import Types :: *;
 import Pipeline :: *;
 
 interface RegisterFile;
-  method Action setBusy(RegName r);
-  method Bit#(32) read1(RegName r);
-  method Bit#(32) read2(RegName r);
-  method Action setReady(RegName r, Bit#(32) value, Bool commit);
-  method Bool isReady(RegName rd, RegName rs1, RegName rs2);
+  method Action setBusy(ArchReg r);
+  method Bit#(32) read1(ArchReg r);
+  method Bit#(32) read2(ArchReg r);
+  method Bit#(32) read3(ArchReg r);
+  method Action setReady(ArchReg r, Bit#(32) value, Bool commit);
+  method Bool isReady(ArchReg rd, ArchReg rs1, ArchReg rs2, ArchReg rs3);
 endinterface
 
 (* synthesize *)
 module mkRegisterFile(RegisterFile);
-  Ehr#(2, Bit#(32)) scoreboard <- mkEhr(0);
-  ForwardRegFile#(Bit#(5), Bit#(32)) registers <- mkForwardRegFileFullInit(0);
+  Ehr#(2, Bit#(64)) scoreboard <- mkEhr(0);
+  ForwardRegFile#(Bit#(6), Bit#(32)) registers <- mkForwardRegFileFullInit(0);
 
-  method Bool isReady(RegName rd, RegName rs1, RegName rs2);
-    return scoreboard[1][rd.name] == 0 &&
-      scoreboard[1][rs1.name] == 0 &&
-      scoreboard[1][rs2.name] == 0;
+  method Bool isReady(ArchReg rd, ArchReg rs1, ArchReg rs2, ArchReg rs3);
+    return scoreboard[1][pack(rd)] == 0 &&
+      scoreboard[1][pack(rs1)] == 0 &&
+      scoreboard[1][pack(rs2)] == 0 &&
+      scoreboard[1][pack(rs3)] == 0;
   endmethod
 
-  method Action setBusy(RegName r);
+  method Action setBusy(ArchReg r);
     action
-      if (r.name != 0)
-        scoreboard[1][r.name] <= 1;
+      if (r != zeroReg)
+        scoreboard[1][pack(r)] <= 1;
     endaction
   endmethod
 
-  method Bit#(32) read1(RegName r);
-    return registers.forward(r.name);
+  method Bit#(32) read1(ArchReg r);
+    return registers.forward(pack(r));
   endmethod
 
-  method Bit#(32) read2(RegName r);
-    return registers.forward(r.name);
+  method Bit#(32) read2(ArchReg r);
+    return registers.forward(pack(r));
   endmethod
 
-  method Action setReady(RegName r, Bit#(32) value, Bool commit);
+  method Bit#(32) read3(ArchReg r);
+    return registers.forward(pack(r));
+  endmethod
+
+  method Action setReady(ArchReg r, Bit#(32) value, Bool commit);
     action
-      if (commit && r.name != 0) registers.upd(r.name, value);
-      scoreboard[0][r.name] <= 0;
+      if (commit && r != zeroReg) registers.upd(pack(r), value);
+      scoreboard[0][pack(r)] <= 0;
     endaction
   endmethod
 endmodule
@@ -86,6 +92,9 @@ module mkCore(Core_IFC);
 
   DMEM_IFC dmem <- mkDMEM;
   Pipeline control <- mkControlPipeline;
+`ifdef FLOAT
+  Pipeline fpu <- mkFloatPipeline;
+`endif
   Pipeline alu <- mkALUPipeline;
 
   CsrFile csr <- mkCsrFile(0);
@@ -103,17 +112,19 @@ module mkCore(Core_IFC);
 
   function Action dispatchFn(FromDecode req);
     action
-      let tag = (req.exception ? EXEC_TAG_DIRECT : tagOfInstr(req.instr));
+      let tag = (req.exception ? DIRECT : tagOfInstr(req.instr));
 
-      let rd = req.exception ? RegName{name: 0} : destination(req.instr);
-      let rs1 = req.exception ? RegName{name: 0} : register1(req.instr);
-      let rs2 = req.exception ? RegName{name: 0} : register2(req.instr);
+      let rd = req.exception ? zeroReg : destination(req.instr);
+      let rs1 = req.exception ? zeroReg : register1(req.instr);
+      let rs2 = req.exception ? zeroReg : register2(req.instr);
+      let rs3 = req.exception ? zeroReg : register3(req.instr);
 
-      when(registers.isReady(rd, rs1, rs2), registers.setBusy(rd));
+      when(registers.isReady(rd, rs1, rs2, rs3), registers.setBusy(rd));
       decoded.deq();
 
       let rs1_val = registers.read1(rs1);
       let rs2_val = registers.read2(rs2);
+      let rs3_val = registers.read3(rs3);
 
       bpred_states.enq(req.bpred_state);
       window.enq(RR_to_WB{
@@ -127,7 +138,8 @@ module mkCore(Core_IFC);
         instr: req.instr,
         predicted_pc: req.pred_pc,
         rs1_val: rs1_val,
-        rs2_val: rs2_val
+        rs2_val: rs2_val,
+        rs3_val: rs3_val
       });
 
       let msg = RR_to_Pipeline{
@@ -135,13 +147,18 @@ module mkCore(Core_IFC);
         instr: req.instr,
         rs1_val: rs1_val,
         rs2_val: rs2_val,
+        rs3_val: rs3_val,
+        frm: csr.read_frm,
         pc: req.pc
       };
 
       case (tag) matches
-        EXEC_TAG_EXEC: alu.from_RR.put(msg);
-        EXEC_TAG_CONTROL: control.from_RR.put(msg);
-        EXEC_TAG_DMEM: dmem.pipeline.from_RR.put(msg);
+        EXEC: alu.from_RR.put(msg);
+`ifdef FLOAT
+        FLOAT: fpu.from_RR.put(msg);
+`endif
+        CONTROL: control.from_RR.put(msg);
+        DMEM: dmem.pipeline.from_RR.put(msg);
         default: noAction;
       endcase
     endaction
@@ -181,10 +198,12 @@ module mkCore(Core_IFC);
     endaction
   endfunction
 
-  function Action commitFn(Bool commit, Bit#(32) val);
+  function Action commitFn(Bool commit, Bit#(32) val, Maybe#(Bit#(5)) fflags);
     action
       let req = window.first;
-      if (req.exec_tag == EXEC_TAG_DMEM) dmem.commit(commit);
+      if (req.exec_tag == DMEM) dmem.commit(commit);
+
+      if (fflags matches tagged Valid .f) csr.set_fflags(f);
 
       let rd = destination(req.instr);
       registers.setReady(rd, val, commit);
@@ -198,19 +217,19 @@ module mkCore(Core_IFC);
         tagged Itype {op: ECALL} : begin
           exceptionFn(ECALL_FROM_M, req.pc);
           csr.increment_instret();
-          commitFn(False, ?);
+          commitFn(False, ?, Invalid);
         end
         tagged Itype {op: FENCE} : begin
           when(dmem.emptySTB(), csr.increment_instret());
           mispredictFn(Invalid, req.pc+4);
-          commitFn(True, 0);
+          commitFn(True, 0, Invalid);
         end
         tagged Itype {op: CBO} : begin
           let addr = req.rs1_val + immediateBits(req.instr);
           csr.increment_instret();
           fetch.invalidate(addr);
           dmem.invalidate(addr);
-          commitFn(True, 0);
+          commitFn(True, 0, Invalid);
 
           if (req.predicted_pc != req.pc + 4)
             mispredictFn(Invalid, req.pc+4);
@@ -220,27 +239,27 @@ module mkCore(Core_IFC);
           mispredictFn(Invalid, req.pc+4);
           fetch.invalidateEmpty();
           csr.increment_instret();
-          commitFn(True, 0);
+          commitFn(True, 0, Invalid);
         end
         tagged Itype {op: tagged Ret MRET} : begin
           let next_pc <- csr.mret;
           mispredictFn(Valid(req.instr), next_pc);
           csr.increment_instret();
-          commitFn(True, ?);
+          commitFn(True, ?, Invalid);
         end
         tagged Itype {op: .op, instr: .instr} : begin
           Maybe#(Bit#(32)) result <- csr.exec_csrxx(instr, op, req.rs1_val);
 
           case (result) matches
             tagged Valid .val : begin
-              commitFn(True, val);
+              commitFn(True, val, Invalid);
               if (req.predicted_pc != req.pc + 4)
                 mispredictFn(Invalid, req.pc+4);
               else hitFn();
             end
             Invalid : begin
               exceptionFn(ILLEGAL_INSTRUCTION, req.pc);
-              commitFn(False, ?);
+              commitFn(False, ?, Invalid);
             end
           endcase
         end
@@ -253,19 +272,24 @@ module mkCore(Core_IFC);
     actionvalue
       let req = window.first;
       case (req.exec_tag) matches
-        EXEC_TAG_DMEM: begin
+        DMEM: begin
           let resp <- dmem.pipeline.to_WB.get();
           return resp;
         end
-        EXEC_TAG_EXEC: begin
+        EXEC: begin
           let resp <- alu.to_WB.get();
           return resp;
         end
-        EXEC_TAG_CONTROL: begin
+`ifdef FLOAT
+        FLOAT: begin
+          let resp <- fpu.to_WB.get();
+          return resp;
+        end
+`endif
+        CONTROL: begin
           let resp <- control.to_WB.get();
           return resp;
         end
-        default: return ?;
       endcase
     endactionvalue
   endfunction
@@ -279,7 +303,7 @@ module mkCore(Core_IFC);
     let _ <- getPipelineResp();
     let trapPc <- csr.exec_exception(req.pc, True, pack(cause), 0);
     mispredictFn(Invalid, trapPc);
-    commitFn(False, ?);
+    commitFn(False, ?, Invalid);
     bpred_states.deq();
     window.deq();
   endrule
@@ -290,17 +314,16 @@ module mkCore(Core_IFC);
     let resp <- getPipelineResp();
 
     if (req.epoch == epoch[0]) begin
-
       if (req.exception) begin
         exceptionFn(req.cause, req.tval);
-        commitFn(False, ?);
+        commitFn(False, ?, Invalid);
       end else begin
         case (req.exec_tag) matches
-          EXEC_TAG_DIRECT: execDirect();
+          DIRECT: execDirect();
           default: begin
             csr.increment_instret();
 
-            commitFn(!resp.exception, resp.result);
+            commitFn(!resp.exception, resp.result, resp.fflags);
 
             if (resp.exception)
               exceptionFn(resp.cause, resp.tval);
@@ -311,7 +334,7 @@ module mkCore(Core_IFC);
         endcase
       end
     end else begin
-      commitFn(False, ?);
+      commitFn(False, ?, Invalid);
     end
 
     window.deq();
@@ -331,13 +354,14 @@ module mkCore(Core_IFC);
 
   rule countStall;
     let req = decoded.first;
-    let tag = (req.exception ? EXEC_TAG_DIRECT : tagOfInstr(req.instr));
+    let tag = (req.exception ? DIRECT : tagOfInstr(req.instr));
 
-    let rd = req.exception ? RegName{name: 0} : destination(req.instr);
-    let rs1 = req.exception ? RegName{name: 0} : register1(req.instr);
-    let rs2 = req.exception ? RegName{name: 0} : register2(req.instr);
+    let rd = req.exception ? zeroReg : destination(req.instr);
+    let rs1 = req.exception ? zeroReg : register1(req.instr);
+    let rs2 = req.exception ? zeroReg : register2(req.instr);
+    let rs3 = req.exception ? zeroReg : register3(req.instr);
 
-    if (!registers.isReady(rd, rs1, rs2)) stall <= stall + 1;
+    if (!registers.isReady(rd, rs1, rs2, rs3)) stall <= stall + 1;
   endrule
 
   rule countCycle;
