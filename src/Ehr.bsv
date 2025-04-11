@@ -71,7 +71,7 @@ This register type have the following constraints:
 
 module mkEhr#(t init) (Ehr#(n, t)) provisos(Bits#(t, tWidth));
   Vector#(n, Reg#(Bool)) order <- replicateM(mkRevertingVirtualReg(False));
-  Vector#(n, RWire#(t)) wires <- replicateM(mkRWire);
+  Vector#(n, RWire#(t)) wires <- replicateM(mkUnsafeRWire);
   Reg#(t) register <- mkReg(init);
 
   Vector#(n, Reg#(t)) ifc = newVector;

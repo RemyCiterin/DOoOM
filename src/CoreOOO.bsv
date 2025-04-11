@@ -356,6 +356,7 @@ module mkCoreOOO(Core_IFC);
     if (success) lsu_iq.issue.deq;
   endrule
 
+  (* preempts="execute_direct,write_back" *)
   rule write_back;
     let resp <- toWB.get;
     rob.writeBack(resp.index, resp.result);
