@@ -5,7 +5,7 @@ import DReg :: *;
 import Ehr :: *;
 
 `ifdef BSIM
-import "BDPI" function Action simWriteSDRAM(Bit#(32) addr, Bit#(32) data);
+import "BDPI" function Action simWriteSDRAM(Bit#(32) addr, Bit#(32) data, Bit#(4) mask);
 import "BDPI" function ActionValue#(Bit#(32)) simReadSDRAM(Bit#(32) addr);
 `endif
 
@@ -265,6 +265,8 @@ module mkBankController
   Reg#(Bit#(13)) row <- mkReg(?);
   Reg#(Bit#(9)) col <- mkReg(?);
 
+  Bit#(32) addr = {9'b0, row,col[8:1],bank};
+
   Bit#(4) tRP = 3;
   //Bit#(4) tMRD = 2;
   Bit#(4) tRCD = 3;
@@ -311,8 +313,8 @@ module mkBankController
     `ifndef BSIM
     outputQ.enq(mem.read);
     `else
-    //let d <- simReadSDRAM(zeroExtend(cmdAddr));
-    //outputQ.enq(d);
+    let d <- simReadSDRAM(addr);
+    outputQ.enq(d);
     `endif
   endrule
 
@@ -327,7 +329,7 @@ module mkBankController
     `ifndef BSIM
     mem.write(data[15:0], mask[1:0]);
     `else
-    //simWriteSDRAM(zeroExtend(addr), zeroExtend(data));
+    simWriteSDRAM(addr, data, mask);
     `endif
   endrule
 
@@ -422,12 +424,11 @@ module mkSDRAM#(Bit#(16) clock_mhz) (SDRAM);
   for (Integer i=0; i < valueOf(NumBank); i = i + 1) begin
     match {.addr, .data, .we} = inputQ.first;
     Bank bank = fromInteger(i);
-    addr = addr << 1;
 
     rule idle
-      if (state == IDLE && addr[2:1] == bank && !mustRefresh);
+      if (state == IDLE && addr[1:0] == bank && !mustRefresh);
 
-      banks[bank].request(addr[23:11], {addr[10:3],1'b0}, data, we);
+      banks[bank].request(addr[22:10], {addr[9:2],1'b0}, data, we);
       if (we == 0) tagQ.enq(bank);
       inputQ.deq();
     endrule
