@@ -84,15 +84,15 @@ function Bit#(32) riscv_from_AXI4_BytesSnd(Bit#(2) addr_offset, Bit#(32) bytes);
 endfunction
 
 module mkRiscv_WrAXI4_Lite_Master_Adapter#(Riscv_Write_Master master)(WrAXI4_Lite_Master#(32, 4));
-  FIFOF#(AXI4_Lite_WRequest#(32, 4)) next_request <- mkPipelineFIFOF;
+  Fifo#(2, AXI4_Lite_WRequest#(32, 4)) next_request <- mkFifo;
 
-  FIFOF#(AXI4_Lite_WRequest#(32, 4)) wrequest <- mkBypassFIFOF;
-  FIFOF#(AXI4_Lite_WResponse) wresponse <- mkBypassFIFOF;
+  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) wrequest <- mkBypassFifo;
+  Fifo#(1, AXI4_Lite_WResponse) wresponse <- mkBypassFifo;
 
-  FIFOF#(Bool) req_is_double <- mkSizedBypassFIFOF(32);
-  FIFOF#(AXI4_Lite_WResponse) prev_response <- mkPipelineFIFOF;
+  Fifo#(32, Bool) req_is_double <- mkBypassFifo;
+  Fifo#(2, AXI4_Lite_WResponse) prev_response <- mkFifo;
 
-  rule fst_response_step if (prev_response.notFull);
+  rule fst_response_step if (prev_response.canEnq);
     let resp = wresponse.first;
     wresponse.deq;
 
@@ -124,7 +124,7 @@ module mkRiscv_WrAXI4_Lite_Master_Adapter#(Riscv_Write_Master master)(WrAXI4_Lit
     next_request.deq;
   endrule
 
-  rule fst_request_step if (next_request.notFull);
+  rule fst_request_step if (next_request.canEnq);
     let req <- master.request.get;
 
     wrequest.enq (AXI4_Lite_WRequest{
@@ -167,17 +167,17 @@ endfunction
 
 
 module mkRiscv_RdAXI4_Lite_Master_Adapter#(Riscv_Read_Master master)(RdAXI4_Lite_Master#(32, 4));
-  FIFOF#(AXI4_Lite_RRequest#(32)) next_request <- mkPipelineFIFOF;
+  Fifo#(2, AXI4_Lite_RRequest#(32)) next_request <- mkFifo;
 
-  FIFOF#(AXI4_Lite_RRequest#(32)) rrequest <- mkBypassFIFOF;
-  FIFOF#(AXI4_Lite_RResponse#(4)) rresponse <- mkBypassFIFOF;
+  Fifo#(1, AXI4_Lite_RRequest#(32)) rrequest <- mkBypassFifo;
+  Fifo#(1, AXI4_Lite_RResponse#(4)) rresponse <- mkBypassFifo;
 
-  FIFOF#(Bool) req_is_double <- mkSizedBypassFIFOF(8);
-  FIFOF#(AXI4_Lite_RResponse#(4)) prev_response <- mkPipelineFIFOF;
+  Fifo#(8, Bool) req_is_double <- mkBypassFifo;
+  Fifo#(2, AXI4_Lite_RResponse#(4)) prev_response <- mkFifo;
 
-  FIFOF#(Bit#(2)) offset_fifo <- mkSizedBypassFIFOF(8);
+  Fifo#(8, Bit#(2)) offset_fifo <- mkBypassFifo;
 
-  rule fst_response_step if (prev_response.notFull);
+  rule fst_response_step if (prev_response.canEnq);
     let resp = rresponse.first;
     rresponse.deq;
 
@@ -219,7 +219,7 @@ module mkRiscv_RdAXI4_Lite_Master_Adapter#(Riscv_Read_Master master)(RdAXI4_Lite
     next_request.deq;
   endrule
 
-  rule fst_request_step if (next_request.notFull);
+  rule fst_request_step if (next_request.canEnq);
     let req <- master.request.get;
 
     offset_fifo.enq(req.addr[1:0]);
@@ -326,18 +326,18 @@ module mkXBarRdAXI4_Lite#(
     function Bit#(TLog#(nSlave)) dispatch(AXI4_Lite_RRequest#(aW) req)
   ) (Empty);
 
-  Vector#(nMaster, FIFOF#(AXI4_Lite_RRequest#(aW))) requests;
+  Vector#(nMaster, Fifo#(1, AXI4_Lite_RRequest#(aW))) requests;
 
   Vector#(nMaster, Fifo#(4, Bit#(TLog#(nSlave)))) receiveRspFrom;
   Vector#(nSlave, Fifo#(4, Bit#(TLog#(nMaster)))) sendRspTo;
 
   for (Integer i=0; i < valueOf(nMaster); i = i + 1) begin
-    receiveRspFrom[i] <- mkPipelineFifo;
-    requests[i] <- mkBypassFIFOF;
+    requests[i] <- mkBypassFifo;
+    receiveRspFrom[i] <- mkFifo;
   end
 
   for (Integer i=0; i < valueOf(nSlave); i = i + 1) begin
-    sendRspTo[i] <- mkPipelineFifo;
+    sendRspTo[i] <- mkFifo;
   end
 
   function Bool receiveGuard(Integer i, Integer j);
@@ -390,18 +390,18 @@ module mkXBarWrAXI4_Lite#(
     function Bit#(TLog#(nSlave)) dispatch(AXI4_Lite_WRequest#(aW, dW) req)
   ) (Empty);
 
-  Vector#(nMaster, FIFOF#(AXI4_Lite_WRequest#(aW, dW))) requests;
+  Vector#(nMaster, Fifo#(1, AXI4_Lite_WRequest#(aW, dW))) requests;
 
   Vector#(nMaster, Fifo#(4, Bit#(TLog#(nSlave)))) receiveRspFrom;
   Vector#(nSlave, Fifo#(4, Bit#(TLog#(nMaster)))) sendRspTo;
 
   for (Integer i=0; i < valueOf(nMaster); i = i + 1) begin
-    receiveRspFrom[i] <- mkPipelineFifo;
-    requests[i] <- mkBypassFIFOF;
+    requests[i] <- mkBypassFifo;
+    receiveRspFrom[i] <- mkFifo;
   end
 
   for (Integer i=0; i < valueOf(nSlave); i = i + 1) begin
-    sendRspTo[i] <- mkPipelineFifo;
+    sendRspTo[i] <- mkFifo;
   end
 
   function Bool receiveGuard(Integer i, Integer j);
@@ -454,18 +454,18 @@ module mkXBarRdAXI4#(
     function Bit#(TLog#(nSlave)) dispatch(AXI4_RRequest#(idW, aW) req)
   ) (Empty);
 
-  Vector#(nMaster, FIFOF#(AXI4_RRequest#(idW, aW))) requests;
+  Vector#(nMaster, Fifo#(1, AXI4_RRequest#(idW, aW))) requests;
 
   Vector#(nMaster, Fifo#(4, Bit#(TLog#(nSlave)))) receiveRspFrom;
   Vector#(nSlave, Fifo#(4, Bit#(TLog#(nMaster)))) sendRspTo;
 
   for (Integer i=0; i < valueOf(nMaster); i = i + 1) begin
-    receiveRspFrom[i] <- mkPipelineFifo;
-    requests[i] <- mkBypassFIFOF;
+    requests[i] <- mkBypassFifo;
+    receiveRspFrom[i] <- mkFifo;
   end
 
   for (Integer i=0; i < valueOf(nSlave); i = i + 1) begin
-    sendRspTo[i] <- mkPipelineFifo;
+    sendRspTo[i] <- mkFifo;
   end
 
   function Bool receiveGuard(Integer i, Integer j);
@@ -520,20 +520,20 @@ module mkXBarWrAXI4#(
     function Bit#(TLog#(nSlave)) dispatch(AXI4_AWRequest#(idW, aW) req)
   ) (Empty);
 
-  Vector#(nMaster, FIFOF#(AXI4_AWRequest#(idW, aW))) requests;
+  Vector#(nMaster, Fifo#(1, AXI4_AWRequest#(idW, aW))) requests;
 
   Vector#(nMaster, PReg#(2, Maybe#(Bit#(TLog#(nSlave))))) sendDataTo;
   Vector#(nMaster, Fifo#(4, Bit#(TLog#(nSlave)))) receiveRspFrom;
   Vector#(nSlave, Fifo#(4, Bit#(TLog#(nMaster)))) sendRspTo;
 
   for (Integer i=0; i < valueOf(nMaster); i = i + 1) begin
-    receiveRspFrom[i] <- mkPipelineFifo;
     sendDataTo[i] <- mkPReg(Invalid);
-    requests[i] <- mkBypassFIFOF;
+    receiveRspFrom[i] <- mkFifo;
+    requests[i] <- mkBypassFifo;
   end
 
   for (Integer i=0; i < valueOf(nSlave); i = i + 1) begin
-    sendRspTo[i] <- mkPipelineFifo;
+    sendRspTo[i] <- mkFifo;
   end
 
   function Bool receiveGuard(Integer i, Integer j);

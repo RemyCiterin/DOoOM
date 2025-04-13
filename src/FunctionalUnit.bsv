@@ -45,25 +45,25 @@ endfunction
 
 (* synthesize *)
 module mkALU_FU(FunctionalUnit#(2));
-  FIFOF#(ExecInput#(2)) to_alu <- mkPipelineFIFOF;
+  Fifo#(2, ExecInput#(2)) to_alu <- mkFifo;
 
-  FIFOF#(ExecInput#(2)) to_mul <- mkPipelineFIFOF;
-  FIFOF#(ExecInput#(2)) to_div <- mkPipelineFIFOF;
+  Fifo#(2, ExecInput#(2)) to_mul <- mkFifo;
+  Fifo#(2, ExecInput#(2)) to_div <- mkFifo;
 
-  FIFOF#(ExecOutput) to_wb <- mkBypassFIFOF;
+  Fifo#(1, ExecOutput) to_wb <- mkBypassFifo;
 
   let multiplier <- mkMulServer;
   let diviser <- mkDivServer;
 
   rule compute;
-    if (to_alu.notEmpty) begin
+    if (to_alu.canDeq) begin
       let req <- toGet(to_alu).get;
       to_wb.enq(ExecOutput{
         result: execALU(req),
         index: req.index,
         pdst: req.pdst
       });
-    end else if (to_mul.notEmpty) begin
+    end else if (to_mul.canDeq) begin
       let req <- toGet(to_mul).get;
       let res <- multiplier.response.get;
       to_wb.enq(ExecOutput{
@@ -157,7 +157,7 @@ module mkALU_FU(FunctionalUnit#(2));
 
   method deq = toGet(to_wb).get;
 
-  method canDeq = to_wb.notEmpty;
+  method canDeq = to_wb.canDeq;
 endmodule
 
 
@@ -232,8 +232,8 @@ endfunction
 
 (* synthesize *)
 module mkControlFU(FunctionalUnit#(2));
-  FIFOF#(ExecInput#(2)) to_control <- mkPipelineFIFOF;
-  FIFOF#(ExecOutput) to_wb <- mkBypassFIFOF;
+  Fifo#(2, ExecInput#(2)) to_control <- mkFifo;
+  Fifo#(1, ExecOutput) to_wb <- mkBypassFifo;
 
   rule compute;
     let request = to_control.first;
@@ -250,12 +250,12 @@ module mkControlFU(FunctionalUnit#(2));
 
   method deq = toGet(to_wb).get;
 
-  method canDeq = to_wb.notEmpty;
+  method canDeq = to_wb.canDeq;
 endmodule
 
 (*synthesize *)
 module mkFpuFU(FunctionalUnit#(3));
-  Fifo#(1, ExecInput#(3)) inputQ <- mkPipelineFifo;
+  Fifo#(2, ExecInput#(3)) inputQ <- mkFifo;
   Fifo#(1, ExecOutput) outputQ <- mkBypassFifo;
 
   FPointPipeline#(Tuple3#(RobIndex, PhysReg, Bit#(32))) fpu <- mkFPointPipeline(False);

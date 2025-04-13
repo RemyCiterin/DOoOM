@@ -48,22 +48,21 @@ typedef struct {
 (* synthesize *)
 module mkMiniSTB(DMEM_Controller);
   Fifo#(1, AXI4_Lite_WRequest#(32, 4)) storeQ <- mkPipelinePFifo;
-  Fifo#(2, AXI4_Lite_RRequest#(32)) loadQ <- mkPipelinePFifo;
   Fifo#(1, AXI4_Lite_WRequest#(32, 4)) stb <- mkPipelinePFifo;
 
-  Fifo#(2, Maybe#(Bit#(32))) forwardQ <- mkPipelineFifo;
+  Fifo#(2, Maybe#(Bit#(32))) forwardQ <- mkFifo;
 
-  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) wrequestQ <- mkBypassFifo;
-  Fifo#(1, AXI4_Lite_RRequest#(32)) rrequestQ <- mkBypassFifo;
-  Fifo#(1, AXI4_Lite_WResponse) wresponseQ <- mkPipelineFifo;
-  Fifo#(1, AXI4_Lite_RResponse#(4)) rresponseQ <- mkPipelineFifo;
+  Fifo#(2, AXI4_Lite_WRequest#(32, 4)) wrequestQ <- mkFifo;
+  Fifo#(2, AXI4_Lite_RRequest#(32)) rrequestQ <- mkFifo;
+  Fifo#(1, AXI4_Lite_WResponse) wresponseQ <- mkFifo;
+  Fifo#(1, AXI4_Lite_RResponse#(4)) rresponseQ <- mkFifo;
 
   let cache <- mkDefaultBCache();
 
   Fifo#(1, void) invalidateQ <- mkPipelineFifo;
 
-  Fifo#(4, Bool) isStoreMMIO <- mkPipelineFifo;
-  Fifo#(4, Bool) isLoadMMIO <- mkPipelineFifo;
+  Fifo#(4, Bool) isStoreMMIO <- mkFifo;
+  Fifo#(4, Bool) isLoadMMIO <- mkFifo;
 
   function Action enqLoad(AXI4_Lite_RRequest#(32) req);
     action

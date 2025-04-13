@@ -102,8 +102,8 @@ module mkCore(Core_IFC);
   RegisterFile registers <- mkRegisterFile();
 
   // Instructions window: Fifo of instructions to write-back
-  Fifo#(6, RR_to_WB) window <- mkPipelineFifo();
-  Fifo#(6, BranchPredState) bpred_states <- mkPipelineFifo();
+  Fifo#(6, BranchPredState) bpred_states <- mkFifo();
+  Fifo#(6, RR_to_WB) window <- mkFifo();
 
   Reg#(Bit#(32)) stall <- mkReg(0);
   Reg#(Bit#(32)) cycle <- mkReg(0);

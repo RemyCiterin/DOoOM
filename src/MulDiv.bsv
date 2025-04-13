@@ -25,7 +25,7 @@ typedef Server#(MulRequest, Bit#(32)) MulServer;
 typedef Server#(DivRequest, Bit#(32)) DivServer;
 
 module mkMulServer(MulServer);
-  Fifo#(1, MulRequest) requests <- mkPipelineFifo;
+  Fifo#(2, MulRequest) requests <- mkFifo;
 
   method request = toPut(requests);
 
@@ -90,7 +90,7 @@ typedef union tagged {
 
 module mkDivServer(DivServer);
   Ehr#(2, DivideState) state <- mkEhr(Idle);
-  Fifo#(1, DivRequest) requests <- mkPipelineFifo;
+  Fifo#(2, DivRequest) requests <- mkFifo;
 
   // Let return Q, R such that
   // N = Q * D + R with sign(R) = sign(N) and 0 <= |R| < |D|

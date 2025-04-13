@@ -1,8 +1,7 @@
 package UART;
 
-import FIFOF :: *;
 import GetPut :: *;
-import SpecialFIFOs :: *;
+import Fifo :: *;
 
 interface RxUART;
   (* always_ready, always_enabled *)
@@ -114,7 +113,7 @@ interface TxUART;
 endinterface
 
 module mkTxUART#(Bit#(32) time_per_bit) (TxUART);
-  FIFOF#(Bit#(8)) inputs_fifo <- mkPipelineFIFOF;
+  Fifo#(2, Bit#(8)) inputs_fifo <- mkFifo;
 
   Wire#(Bit#(1)) tx <- mkBypassWire;
 
@@ -124,7 +123,7 @@ module mkTxUART#(Bit#(32) time_per_bit) (TxUART);
 
   rule step;
     if (valid == 0) begin
-      if (inputs_fifo.notEmpty) begin
+      if (inputs_fifo.canDeq) begin
         $write("%c", inputs_fifo.first);
         data <= {~0, inputs_fifo.first, 1'b0};
         valid <= ~0;

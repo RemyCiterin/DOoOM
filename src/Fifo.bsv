@@ -321,6 +321,17 @@ module mkPipelinePFifo(Fifo#(n, t)) provisos(Bits#(t, size_t));
   return fifo;
 endmodule
 
+// A fifo of size two without combinatorial path between both sides
+module mkFifo(Fifo#(n, t)) provisos(Bits#(t, size_t));
+  FIFOF#(t) fifo <- mkSizedFIFOF(valueOf(n));
+
+  method deq = fifo.deq;
+  method first = fifo.first;
+  method canDeq = fifo.notEmpty;
+
+  method enq = fifo.enq;
+  method canEnq = fifo.notFull;
+endmodule
 
 module mkBypassFifo(Fifo#(n, t)) provisos(Bits#(t, size_t));
   let fifo <- mkSizedBypassFIFOF(valueOf(n));

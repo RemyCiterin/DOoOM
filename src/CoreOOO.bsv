@@ -9,7 +9,6 @@ import GetPut :: *;
 import Decode :: *;
 import Utils :: *;
 import Types :: *;
-
 import BuildVector :: *;
 import Vector :: *;
 
@@ -81,16 +80,16 @@ module mkCoreOOO(Core_IFC);
   // because it return a bad value
   Reg#(Bit#(RobSize)) killed <- mkPReg0(0);
 
-  FIFOF#(ExecOutput) decodeFail <- mkPipelineFIFOF;
+  Fifo#(2, ExecOutput) decodeFail <- mkFifo;
 
 `ifdef FLOAT
   let toWB <- mkGetScheduler(
-    vec(decodeFail.notEmpty, alu_fu.canDeq, control_fu.canDeq, lsu.canDeq, fpu_fu.canDeq),
+    vec(decodeFail.canDeq, alu_fu.canDeq, control_fu.canDeq, lsu.canDeq, fpu_fu.canDeq),
     vec(toGet(decodeFail).get, alu_fu.deq, control_fu.deq, lsu.deq, fpu_fu.deq)
   );
 `else
   let toWB <- mkGetScheduler(
-    vec(decodeFail.notEmpty, alu_fu.canDeq, control_fu.canDeq, lsu.canDeq),
+    vec(decodeFail.canDeq, alu_fu.canDeq, control_fu.canDeq, lsu.canDeq),
     vec(toGet(decodeFail).get, alu_fu.deq, control_fu.deq, lsu.deq)
   );
 `endif

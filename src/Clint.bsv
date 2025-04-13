@@ -6,11 +6,10 @@ import AXI4 :: *;
 import AXI4_Lite :: *;
 import Utils :: *;
 
-import SpecialFIFOs :: *;
 import RegFile :: *;
 import GetPut :: *;
-import FIFOF :: *;
 import UART :: *;
+import Fifo :: *;
 import Ehr :: *;
 import Screen :: *;
 
@@ -24,11 +23,11 @@ interface CLINT_AXI4_Lite;
 endinterface
 
 module mkCLINT_AXI4_Lite#(Bit#(32) clint_addr) (CLINT_AXI4_Lite);
-  FIFOF#(AXI4_Lite_RRequest#(32)) rrequest <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_RResponse#(4)) rresponse <- mkBypassFIFOF;
+  Fifo#(2, AXI4_Lite_RRequest#(32)) rrequest <- mkFifo;
+  Fifo#(1, AXI4_Lite_RResponse#(4)) rresponse <- mkBypassFifo;
 
-  FIFOF#(AXI4_Lite_WRequest#(32, 4)) wrequest <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_WResponse) wresponse <- mkBypassFIFOF;
+  Fifo#(2, AXI4_Lite_WRequest#(32, 4)) wrequest <- mkFifo;
+  Fifo#(1, AXI4_Lite_WResponse) wresponse <- mkBypassFifo;
 
   Reg#(Bit#(64)) mtimecmp <- mkReg(0);
   Reg#(Bit#(64)) mtime <- mkReg(0);

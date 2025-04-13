@@ -71,17 +71,17 @@ module mkLSU(LSU);
 
   Fifo#(4, AXI4_Lite_RRequest#(32)) rrequestQ <- mkBypassFifo;
   Fifo#(4, AXI4_Lite_WRequest#(32, 4)) wrequestQ <- mkBypassFifo;
-  Fifo#(4, AXI4_Lite_RResponse#(4)) rresponseQ <- mkPipelineFifo;
-  Fifo#(4, AXI4_Lite_WResponse) wresponseQ <- mkPipelineFifo;
+  Fifo#(2, AXI4_Lite_RResponse#(4)) rresponseQ <- mkFifo;
+  Fifo#(2, AXI4_Lite_WResponse) wresponseQ <- mkFifo;
 
   Fifo#(1, ExecOutput) loadFailureQ <- mkPipelineFifo;
   Fifo#(1, ExecOutput) loadSuccessQ <- mkBypassFifo;
   Fifo#(1, ExecOutput) storeSuccessQ <- mkBypassFifo;
 
-  Fifo#(LqSize, LqIndex) pendingDmemLoadsQ <- mkPipelineFifo;
-  Fifo#(LqSize, LqIndex) pendingMmioLoadsQ <- mkPipelineFifo;
+  Fifo#(LqSize, LqIndex) pendingDmemLoadsQ <- mkFifo;
+  Fifo#(LqSize, LqIndex) pendingMmioLoadsQ <- mkFifo;
 
-  Fifo#(TAdd#(LqSize, SqSize), LsuTag) tagQ <- mkPipelineFifo;
+  Fifo#(TAdd#(LqSize, SqSize), LsuTag) tagQ <- mkFifo;
 
   rule enqRdCache if (!isMMIO(rrequestQ.first.addr));
     let req <- toGet(rrequestQ).get;

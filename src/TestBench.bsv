@@ -2,11 +2,10 @@ import AXI4 :: *;
 import AXI4_Lite :: *;
 import Utils :: *;
 
-import SpecialFIFOs :: *;
 import BRAMCore :: *;
 import GetPut :: *;
-import FIFOF :: *;
 import UART :: *;
+import Fifo :: *;
 import Ehr :: *;
 import Screen :: *;
 import SdCard :: *;
@@ -32,11 +31,11 @@ endinterface
 module mkVGA_AXI4_Lite#(Bit#(32) vga_addr) (VGA_AXI4_Lite);
   let vga <- mkVGA;
 
-  FIFOF#(AXI4_Lite_RRequest#(32)) rrequest <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_RResponse#(4)) rresponse <- mkBypassFIFOF;
+  Fifo#(2, AXI4_Lite_RRequest#(32)) rrequest <- mkFifo;
+  Fifo#(2, AXI4_Lite_RResponse#(4)) rresponse <- mkFifo;
 
-  FIFOF#(AXI4_Lite_WRequest#(32, 4)) wrequest <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_WResponse) wresponse <- mkBypassFIFOF;
+  Fifo#(2, AXI4_Lite_WRequest#(32, 4)) wrequest <- mkFifo;
+  Fifo#(2, AXI4_Lite_WResponse) wresponse <- mkFifo;
 
   rule read;
     let req = rrequest.first;
@@ -81,11 +80,11 @@ endinterface
 module mkSdCard#(Bit#(32) sdcard_addr) (SdCard_AXI4_Lite);
   SPI spi <- mkSPI;
 
-  FIFOF#(AXI4_Lite_RRequest#(32)) rrequest <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_RResponse#(4)) rresponse <- mkBypassFIFOF;
+  Fifo#(2, AXI4_Lite_RRequest#(32)) rrequest <- mkFifo;
+  Fifo#(2, AXI4_Lite_RResponse#(4)) rresponse <- mkFifo;
 
-  FIFOF#(AXI4_Lite_WRequest#(32, 4)) wrequest <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_WResponse) wresponse <- mkBypassFIFOF;
+  Fifo#(2, AXI4_Lite_WRequest#(32, 4)) wrequest <- mkFifo;
+  Fifo#(2, AXI4_Lite_WResponse) wresponse <- mkFifo;
 
   Reg#(Bit#(8)) result <- mkReg(0);
 
@@ -161,11 +160,11 @@ endinterface
 module mkBtn#(Bit#(32) btn_addr) (Btn);
   Ehr#(2, Bit#(6)) ehr <- mkEhr(?);
 
-  FIFOF#(AXI4_Lite_RRequest#(32)) rrequest <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_RResponse#(4)) rresponse <- mkBypassFIFOF;
+  Fifo#(2, AXI4_Lite_RRequest#(32)) rrequest <- mkFifo;
+  Fifo#(2, AXI4_Lite_RResponse#(4)) rresponse <- mkFifo;
 
-  FIFOF#(AXI4_Lite_WRequest#(32, 4)) wrequest <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_WResponse) wresponse <- mkBypassFIFOF;
+  Fifo#(2, AXI4_Lite_WRequest#(32, 4)) wrequest <- mkFifo;
+  Fifo#(2, AXI4_Lite_WResponse) wresponse <- mkFifo;
 
   Reg#(Bit#(6)) cycle <- mkReg(0);
 
@@ -261,11 +260,11 @@ module mkUART#(Bit#(32) uart_addr) (UART);
 
   Ehr#(2, Bit#(8)) data <- mkEhr(0);
 
-  FIFOF#(AXI4_Lite_RRequest#(32)) rrequest <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_RResponse#(4)) rresponse <- mkBypassFIFOF;
+  Fifo#(2, AXI4_Lite_RRequest#(32)) rrequest <- mkFifo;
+  Fifo#(2, AXI4_Lite_RResponse#(4)) rresponse <- mkFifo;
 
-  FIFOF#(AXI4_Lite_WRequest#(32, 4)) wrequest <- mkPipelineFIFOF;
-  FIFOF#(AXI4_Lite_WResponse) wresponse <- mkBypassFIFOF;
+  Fifo#(2, AXI4_Lite_WRequest#(32, 4)) wrequest <- mkFifo;
+  Fifo#(2, AXI4_Lite_WResponse) wresponse <- mkFifo;
 
   Reg#(Bit#(32)) cycle <- mkReg(0);
 
@@ -358,14 +357,14 @@ module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
   else
     bram <- mkBRAMCore1BELoad(conf.size / 4, False, conf.name, False);
 
-  FIFOF#(AXI4_RRequest#(4, 32)) rrequest <- mkBypassFIFOF;
-  FIFOF#(AXI4_RResponse#(4, 4)) rresponse <- mkPipelineFIFOF;
+  Fifo#(2, AXI4_RRequest#(4, 32)) rrequest <- mkFifo;
+  Fifo#(2, AXI4_RResponse#(4, 4)) rresponse <- mkFifo;
 
-  FIFOF#(AXI4_WRequest#(4)) wrequest <- mkBypassFIFOF;
-  FIFOF#(AXI4_AWRequest#(4, 32)) awrequest <- mkBypassFIFOF;
-  FIFOF#(AXI4_WResponse#(4)) wresponse <- mkPipelineFIFOF;
+  Fifo#(2, AXI4_WRequest#(4)) wrequest <- mkFifo;
+  Fifo#(2, AXI4_AWRequest#(4, 32)) awrequest <- mkFifo;
+  Fifo#(2, AXI4_WResponse#(4)) wresponse <- mkFifo;
 
-  FIFOF#(void) readQ <- mkPipelineFIFOF;
+  Fifo#(2, void) readQ <- mkFifo;
 
   Ehr#(2, RomState) state <- mkEhr(IDLE);
   Reg#(Bit#(32)) phase <- mkReg(0);
@@ -436,7 +435,7 @@ module mkRom#(RomConfig conf) (AXI4_Slave#(4, 32, 4));
   endrule
 
   rule enq if (state[1] == IDLE && phase == 0);
-    if (rrequest.notEmpty) begin
+    if (rrequest.canDeq) begin
       state[1] <= tagged Read {req: rrequest.first, init_length: rrequest.first.length};
       rrequest.deq;
     end else begin
@@ -467,14 +466,14 @@ endinterface
 module mkSdramAXI4#(Bit#(32) start) (SdramAXI4);
   let sdram <- mkSDRAM(25);
 
-  FIFOF#(AXI4_RRequest#(4, 32)) rrequest <- mkBypassFIFOF;
-  FIFOF#(AXI4_RResponse#(4, 4)) rresponse <- mkPipelineFIFOF;
+  Fifo#(2, AXI4_RRequest#(4, 32)) rrequest <- mkFifo;
+  Fifo#(2, AXI4_RResponse#(4, 4)) rresponse <- mkFifo;
 
-  FIFOF#(AXI4_WRequest#(4)) wrequest <- mkBypassFIFOF;
-  FIFOF#(AXI4_AWRequest#(4, 32)) awrequest <- mkBypassFIFOF;
-  FIFOF#(AXI4_WResponse#(4)) wresponse <- mkPipelineFIFOF;
+  Fifo#(2, AXI4_WRequest#(4)) wrequest <- mkFifo;
+  Fifo#(2, AXI4_AWRequest#(4, 32)) awrequest <- mkFifo;
+  Fifo#(2, AXI4_WResponse#(4)) wresponse <- mkFifo;
 
-  FIFOF#(void) readQ <- mkPipelineFIFOF;
+  Fifo#(2, void) readQ <- mkFifo;
 
   Ehr#(2, RomState) state <- mkEhr(IDLE);
 
@@ -540,7 +539,7 @@ module mkSdramAXI4#(Bit#(32) start) (SdramAXI4);
   endrule
 
   rule enq if (state[1] == IDLE);
-    if (rrequest.notEmpty) begin
+    if (rrequest.canDeq) begin
       state[1] <= tagged Read {req: rrequest.first, init_length: rrequest.first.length};
       rrequest.deq;
     end else begin

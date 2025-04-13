@@ -50,18 +50,18 @@ typedef enum {Rd, Wr, NotAlign} DMEM_Tag deriving(Bits, Eq, FShow);
 (* synthesize *)
 module mkDMEM(DMEM_IFC);
   DMEM_Controller dmem <- mkMiniSTB;
-  Fifo#(4, Bool) commitQ <- mkPipelineFifo;
+  Fifo#(4, Bool) commitQ <- mkFifo;
 
-  Fifo#(3, Bool) signQ <- mkPipelineFifo;
-  Fifo#(3, Data_Size) sizeQ <- mkPipelineFifo;
-  Fifo#(3, Bit#(2)) offsetQ <- mkPipelineFifo;
-  Fifo#(3, RR_to_Pipeline) reqQ <- mkPipelineFifo;
+  Fifo#(3, Bool) signQ <- mkFifo;
+  Fifo#(3, Data_Size) sizeQ <- mkFifo;
+  Fifo#(3, Bit#(2)) offsetQ <- mkFifo;
+  Fifo#(3, RR_to_Pipeline) reqQ <- mkFifo;
 
-  Fifo#(1, RR_to_Pipeline) inputQ <- mkPipelineFifo;
+  Fifo#(2, RR_to_Pipeline) inputQ <- mkFifo;
 
   Fifo#(1, Pipeline_to_WB) rresponseQ <- mkBypassFifo;
-  Fifo#(3, Pipeline_to_WB) wresponseQ <- mkPipelineFifo;
-  Fifo#(3, DMEM_Tag) tagQ <- mkPipelineFifo;
+  Fifo#(3, Pipeline_to_WB) wresponseQ <- mkFifo;
+  Fifo#(3, DMEM_Tag) tagQ <- mkFifo;
 
   function Bool isAligned(Bit#(32) addr, Data_Size size);
     return case (size) matches
@@ -261,8 +261,8 @@ endfunction
 
 (* synthesize *)
 module mkALUPipeline(Pipeline);
-  FIFOF#(RR_to_Pipeline) rr_to_alu <- mkPipelineFIFOF;
-  FIFOF#(Bit#(2)) tags <- mkPipelineFIFOF;
+  Fifo#(2, RR_to_Pipeline) rr_to_alu <- mkFifo;
+  Fifo#(2, Bit#(2)) tags <- mkFifo;
 
   let multiplier <- mkMulServer;
   let diviser <- mkDivServer;
@@ -419,8 +419,8 @@ endfunction
 
 (* synthesize *)
 module mkControlPipeline(Pipeline);
-  FIFOF#(RR_to_Pipeline) rr_to_control <- mkPipelineFIFOF;
-  FIFOF#(Pipeline_to_WB) control_to_wb <- mkBypassFIFOF;
+  Fifo#(2, RR_to_Pipeline) rr_to_control <- mkFifo;
+  Fifo#(1, Pipeline_to_WB) control_to_wb <- mkBypassFifo;
 
   rule connect;
     control_to_wb.enq(controlFlow(rr_to_control.first));
@@ -433,11 +433,11 @@ endmodule
 
 (* synthesize *)
 module mkFloatPipeline(Pipeline);
-  FIFOF#(RR_to_Pipeline) rr_to_fpu <- mkPipelineFIFOF;
-  FIFOF#(Pipeline_to_WB) fpu_to_wb <- mkBypassFIFOF;
+  Fifo#(1, RR_to_Pipeline) rr_to_fpu <- mkBypassFifo;
+  Fifo#(2, Pipeline_to_WB) fpu_to_wb <- mkFifo;
 
-  Fifo#(4, Bit#(2)) requestIdQ <- mkPipelineFifo;
-  Fifo#(4, RR_to_Pipeline) requestQ <- mkPipelineFifo;
+  Fifo#(4, Bit#(2)) requestIdQ <- mkFifo;
+  Fifo#(4, RR_to_Pipeline) requestQ <- mkFifo;
   FPointPipeline#(Bit#(2)) fpu <- mkFPointPipeline(False);
 
   // Response buffer

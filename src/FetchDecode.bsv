@@ -110,10 +110,10 @@ module mkFetchDecode(FetchDecode);
 
   let bpred <- mkBranchPred;
 
-  Fifo#(1, void) invalidateQ <- mkPipelineFifo;
+  Fifo#(2, void) invalidateQ <- mkPipelineFifo;
 
   Fifo#(2, AXI4_Lite_RResponse#(4)) rresponseQ <- mkBypassFifo;
-  Fifo#(2, Maybe#(FetchToDecode)) fetch_to_decode <- mkPipelineFifo;
+  Fifo#(2, Maybe#(FetchToDecode)) fetch_to_decode <- mkFifo;
   Fifo#(1, FromDecode) outputs <- mkBypassFifo;
 
   Reg#(Bit#(32)) misCount <- mkReg(0);
