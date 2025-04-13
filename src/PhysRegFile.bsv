@@ -1,4 +1,4 @@
-import ForwardRegFile :: *;
+import RegFileUtils :: *;
 import BuildVector :: *;
 import RegFile :: *;
 import Utils :: *;
