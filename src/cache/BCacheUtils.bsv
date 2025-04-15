@@ -23,7 +23,7 @@ module mkBAcquireBlock#(BramBE#(Bit#(indexW), wordW) bram)
   provisos(Mul#(wordW, wordPerBlock, blockW));
 
   Fifo#(1, AXI4_RRequest#(4, addrW)) rrequestQ <- mkBypassFifo;
-  Fifo#(1, AXI4_RResponse#(4, wordW)) rresponseQ <- mkPipelineFifo;
+  Fifo#(2, AXI4_RResponse#(4, wordW)) rresponseQ <- mkFifo;
 
   Bit#(TLog#(wordPerBlock)) maxOffset = fromInteger(valueOf(wordPerBlock) - 1);
 
@@ -95,7 +95,7 @@ module mkBReleaseBlock#(BramBE#(Bit#(indexW), wordW) bram)
 
   Fifo#(1, AXI4_AWRequest#(4, addrW)) awrequestQ <- mkBypassFifo;
   Fifo#(1, AXI4_WRequest#(wordW)) wrequestQ <- mkBypassFifo;
-  Fifo#(1, AXI4_WResponse#(4)) wresponseQ <- mkPipelineFifo;
+  Fifo#(2, AXI4_WResponse#(4)) wresponseQ <- mkFifo;
 
   Bit#(TLog#(wordPerBlock)) maxOffset = fromInteger(valueOf(wordPerBlock) - 1);
 

@@ -65,7 +65,7 @@ typedef enum {FMA, ADD, DIV, SQRT, IDLE} FPointTag deriving(Bits, FShow, Eq);
 module mkFPointPipeline#(Bool pipelined)
   (FPointPipeline#(reqId)) provisos(Bits#(reqId,reqIdW));
 
-  Fifo#(1, FPointTag) tagQ <- mkPipelineFifo;
+  Fifo#(2, FPointTag) tagQ <- mkFifo;
 
   function Action enqTag(FPointTag tag);
     action
@@ -89,29 +89,29 @@ module mkFPointPipeline#(Bool pipelined)
       return True;
   endfunction
 
-  Fifo#(1, FpuRequest#(reqId)) inputQ <- mkPipelineFifo;
+  Fifo#(2, FpuRequest#(reqId)) inputQ <- mkFifo;
   Fifo#(1, FpuResponse#(reqId)) outputQ <- mkBypassFifo;
 
   Server#(Tuple2#(UInt#(56), UInt#(28)), Tuple2#(UInt#(28), UInt#(28)))
     divider <- mkDivider(1);
   Server#(Tuple3#(F32, F32, RoundMode), Tuple2#(F32, Exception))
     fp_divider <- mkFloatingPointDivider(divider);
-  Fifo#(1, reqId) id_divider <- mkPipelineFifo;
+  Fifo#(2, reqId) id_divider <- mkFifo;
 
   Server#(UInt#(60), Tuple2#(UInt#(60), Bool))
     sqrt <- mkNonPipelinedSquareRooter(2);
   Server#(Tuple2#(F32, RoundMode), Tuple2#(F32, Exception))
     fp_sqrt <- mkFloatingPointSquareRooter(sqrt);
-  Fifo#(1, reqId) id_sqrt <- mkPipelineFifo;
+  Fifo#(2, reqId) id_sqrt <- mkFifo;
 
   Server#(Tuple4#(Maybe#(F32), F32, F32, RoundMode), Tuple2#(F32, Exception))
     fp_fma <- mkFloatingPointFusedMultiplyAccumulate;
-  Fifo#(1, Bool) negate_fma <- mkPipelineFifo;
-  Fifo#(1, reqId) id_fma <- mkPipelineFifo;
+  Fifo#(2, Bool) negate_fma <- mkFifo;
+  Fifo#(2, reqId) id_fma <- mkFifo;
 
   Server#(Tuple3#(F32, F32, RoundMode), Tuple2#(F32, Exception))
     fp_add <- mkFloatingPointAdder;
-  Fifo#(1, reqId) id_add <- mkPipelineFifo;
+  Fifo#(2, reqId) id_add <- mkFifo;
 
   rule startFMA if (inputQ.first.op matches tagged Fma .op);
     let req = inputQ.first;

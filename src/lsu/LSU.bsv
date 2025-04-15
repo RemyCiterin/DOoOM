@@ -67,6 +67,8 @@ module mkLSU(LSU);
 
   let cache <- mkDefaultBCache();
 
+  Fifo#(2, void) stbDeqQ <- mkFifo;
+
   Fifo#(1, void) invalidateQ <- mkPipelineFifo;
 
   Fifo#(4, AXI4_Lite_RRequest#(32)) rrequestQ <- mkBypassFifo;
@@ -101,6 +103,12 @@ module mkLSU(LSU);
     isStoreMMIO.deq();
     if (isStoreMMIO.first) wresponseQ.deq();
     else let _ <- cache.cpu_write.response.get();
+    stbDeqQ.enq(?);
+    //stb.deq;
+  endrule
+
+  rule doDeqSTB;
+    stbDeqQ.deq;
     stb.deq;
   endrule
 

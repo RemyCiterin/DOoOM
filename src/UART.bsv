@@ -110,6 +110,8 @@ interface TxUART;
 
   // user can use this port to send data to the UART
   method Action put(Bit#(8) data);
+
+  method Bit#(8) leds;
 endinterface
 
 module mkTxUART#(Bit#(32) time_per_bit) (TxUART);
@@ -117,15 +119,17 @@ module mkTxUART#(Bit#(32) time_per_bit) (TxUART);
 
   Wire#(Bit#(1)) tx <- mkBypassWire;
 
-  Reg#(Bit#(24)) valid <- mkReg(~0);
-  Reg#(Bit#(24)) data <- mkReg(~0);
+  Reg#(Bit#(128)) valid <- mkReg(~0);
+  Reg#(Bit#(128)) data <- mkReg(~0);
   Reg#(Bit#(32)) count <- mkReg(0);
+  Reg#(Bit#(8)) status <- mkReg(0);
 
   rule step;
     if (valid == 0) begin
       if (inputs_fifo.canDeq) begin
         $write("%c", inputs_fifo.first);
         data <= {~0, inputs_fifo.first, 1'b0};
+        status <= inputs_fifo.first;
         valid <= ~0;
         count <= 0;
 
@@ -150,6 +154,8 @@ module mkTxUART#(Bit#(32) time_per_bit) (TxUART);
   method transmit = tx;
 
   method put = toPut(inputs_fifo).put;
+
+  method leds = status;
 endmodule
 
 

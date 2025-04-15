@@ -254,9 +254,9 @@ typedef union tagged {
 } RomState deriving(Bits, FShow, Eq);
 
 // This module return the value {24'b0, last_rx_data} if we try to read it at uart_addr
-module mkUART#(Bit#(32) uart_addr) (UART);
-  let rx_uart <- mkRxUART(217);
-  let tx_uart <- mkTxUART(217);
+module mkUART#(Bit#(32) cycle_per_bit, Bit#(32) uart_addr) (UART);
+  let rx_uart <- mkRxUART(cycle_per_bit);
+  let tx_uart <- mkTxUART(cycle_per_bit);
 
   Ehr#(2, Bit#(8)) data <- mkEhr(0);
 
@@ -325,7 +325,7 @@ module mkUART#(Bit#(32) uart_addr) (UART);
   endinterface
 
 
-  method leds = rx_uart.leds;
+  method leds = tx_uart.leds;
 
   method transmit = tx_uart.transmit;
   method receive = rx_uart.receive;

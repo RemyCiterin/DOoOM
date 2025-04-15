@@ -366,9 +366,9 @@ endmodule
 module mkSDRAM#(Bit#(16) clock_mhz) (SDRAM);
   Clock clock <- exposeCurrentClock;
 
-  Fifo#(4, Tuple3#(Bit#(32),Bit#(32),Bit#(4))) inputQ <- mkPipelineFifo;
-  Fifo#(NumBank, Bank) tagQ <- mkPipelineFifo;
+  Fifo#(4, Tuple3#(Bit#(32),Bit#(32),Bit#(4))) inputQ <- mkFifo;
   Fifo#(2, Bit#(32)) outputQ <- mkBypassFifo;
+  Fifo#(NumBank, Bank) tagQ <- mkFifo;
 
   Bit#(16) init_cycles = 100 * clock_mhz;
   Bit#(16) rf_cycles = clock_mhz * 78 / 10;
