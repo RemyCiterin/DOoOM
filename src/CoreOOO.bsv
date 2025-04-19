@@ -74,7 +74,7 @@ module mkCoreOOO(Core_IFC);
   LSU lsu <- mkLSU;
   IssueQueue#(IqSize, 2) lsu_iq <- mkDefaultIssueQueue;
 
-  IssueQueue#(IqSize, 2) direct_issue_queue <- mkDefaultOrderedIssueQueue;
+  Fifo#(4, Vector#(2,PhysReg)) direct_issue_queue <- mkFifo;
 
   // indicate if a load is killed by the load store unit
   // because it return a bad value
@@ -94,6 +94,7 @@ module mkCoreOOO(Core_IFC);
   );
 `endif
 
+  RenamingTable renaming <- mkRenamingTable;
   PhysRegFile registers <- mkPhysRegFile;
 
   let csr <- mkCsrFile(0);
@@ -131,7 +132,7 @@ module mkCoreOOO(Core_IFC);
         $display("       ", fshow(destination(entry.instr)), " := %h", val);
 
       //registers.setReady(destination(entry.instr), index, value, next_pc != Invalid);
-      registers.commit(destination(entry.instr), entry.pdst, value != Invalid, next_pc != Invalid);
+      renaming.commit(destination(entry.instr), entry.pdst, value != Invalid, next_pc != Invalid);
       if (next_pc matches tagged Valid .pc) fn_mispredict(pc);
 
       rob.deq;
@@ -147,14 +148,15 @@ module mkCoreOOO(Core_IFC);
         .*: 0;
       endcase;
 
-      lsu_iq.wakeup(pdst, rd_val);
-      alu_iq.wakeup(pdst, rd_val);
+      //$display("wakeup p%h", pdst);
+      lsu_iq.wakeup(pdst);
+      alu_iq.wakeup(pdst);
 `ifdef FLOAT
-      fpu_iq.wakeup(pdst, rd_val);
+      fpu_iq.wakeup(pdst);
 `endif
-      control_iq.wakeup(pdst, rd_val);
-      direct_issue_queue.wakeup(pdst, rd_val);
-      registers.wakeup(pdst,rd_val);
+      control_iq.wakeup(pdst);
+      registers.write(pdst, rd_val);
+      renaming.wakeup(pdst);
     endaction
   endfunction
 
@@ -165,11 +167,13 @@ module mkCoreOOO(Core_IFC);
       let tag = (decoded.exception ? DIRECT : tagOfInstr(decoded.instr));
       current_age <= current_age+1;
 
-      PhysReg pdst = 0;
-      if (!decoded.exception) pdst <- registers.enter(destination(decoded.instr));
-      let rs1_val = decoded.exception ? Value(0) : registers.read1(regs[0]);
-      let rs2_val = decoded.exception ? Value(0) : registers.read2(regs[1]);
-      let rs3_val = decoded.exception ? Value(0) : registers.read3(regs[3]);
+      PhysReg pdst = decoded.exception ? 0 : renaming.allocated(destination(decoded.instr));
+      if (!decoded.exception) renaming.allocate(destination(decoded.instr));
+      let rs1_rdy = decoded.exception ? True : renaming.ready1(regs[0]);
+      let rs2_rdy = decoded.exception ? True : renaming.ready2(regs[1]);
+      let rs3_rdy = decoded.exception ? True : renaming.ready3(regs[2]);
+
+      //$display("dispatch p%h(p%h, p%h)  ", pdst, regs[0], regs[1], displayInstr(decoded.instr));
 
       RobEntry rob_entry = RobEntry{
         bpred_state: decoded.bpred_state,
@@ -193,7 +197,7 @@ module mkCoreOOO(Core_IFC);
 
 
       IssueQueueInput#(3) entry3 = IssueQueueInput{
-        regs: vec(rs1_val, rs2_val, rs3_val),
+        regs: vec(tuple2(regs[0], rs1_rdy), tuple2(regs[1], rs2_rdy), tuple2(regs[2], rs3_rdy)),
         instr: decoded.instr,
         epoch: decoded.epoch,
         frm: csr.read_frm,
@@ -213,13 +217,14 @@ module mkCoreOOO(Core_IFC);
 
       case (tag) matches
         DIRECT: if (!decoded.exception)
-          direct_issue_queue.enq(entry2);
+          direct_issue_queue.enq(vec(regs[0],regs[1]));
         CONTROL: control_iq.enq(entry2);
 `ifdef FLOAT
         FLOAT: fpu_iq.enq(entry3);
 `endif
         EXEC: alu_iq.enq(entry2);
         DMEM: lsu_iq.enq(entry2);
+        default: noAction;
       endcase
     endaction
   endfunction
@@ -320,9 +325,14 @@ module mkCoreOOO(Core_IFC);
     endactionvalue
   endfunction
 
+  function Vector#(2,Bit#(32)) readRegEXEC(Vector#(2,PhysReg) phys);
+    return vec(registers.read1(phys[0]), registers.read2(phys[1]));
+  endfunction
+
   rule connectEXEC;
     alu_iq.issue.deq;
-    alu_fu.enq(alu_iq.issue.first);
+    let entry2 = mapMicroOp(readRegEXEC, alu_iq.issue.first);
+    alu_fu.enq(entry2);
   endrule
 
 `ifdef FLOAT
@@ -332,13 +342,22 @@ module mkCoreOOO(Core_IFC);
   endrule
 `endif
 
+  function Vector#(2,Bit#(32)) readRegCONTROL(Vector#(2,PhysReg) phys);
+    return vec(registers.read3(phys[0]), registers.read4(phys[1]));
+  endfunction
+
   rule connectCONTROL;
     control_iq.issue.deq;
-    control_fu.enq(control_iq.issue.first);
+    let entry2 = mapMicroOp(readRegCONTROL, control_iq.issue.first);
+    control_fu.enq(entry2);
   endrule
 
+  function Vector#(2,Bit#(32)) readRegDMEM(Vector#(2,PhysReg) phys);
+    return vec(registers.read5(phys[0]), registers.read6(phys[1]));
+  endfunction
+
   rule connectSTORE if (isStore(lsu_iq.issue.first.instr));
-    let entry2 = lsu_iq.issue.first;
+    let entry2 = mapMicroOp(readRegDMEM, lsu_iq.issue.first);
     ExecInput#(1) entry2fst = mapMicroOp(Vector::take,entry2);
     ExecInput#(1) entry2snd = mapMicroOp(Vector::drop,entry2);
 
@@ -348,14 +367,13 @@ module mkCoreOOO(Core_IFC);
   endrule
 
   rule connectLOAD if (isLoad(lsu_iq.issue.first.instr));
-    let entry2 = lsu_iq.issue.first;
+    let entry2 = mapMicroOp(readRegDMEM, lsu_iq.issue.first);
     ExecInput#(1) entry1 = mapMicroOp(Vector::take,entry2);
 
-    let success <- lsu.wakeupLoad(entry1);
-    if (success) lsu_iq.issue.deq;
+    lsu.wakeupLoad(entry1);
+    lsu_iq.issue.deq;
   endrule
 
-  (* preempts="execute_direct,write_back" *)
   rule write_back;
     let resp <- toWB.get;
     rob.writeBack(resp.index, resp.result);
@@ -421,16 +439,26 @@ module mkCoreOOO(Core_IFC);
       doCommit(index, entry, result);
   endrule
 
+  (* preempts="execute_direct,write_back" *)
+  //(* preempts = "execute_direct,readEXEC" *)
+  //(* preempts = "execute_direct,readCONTROL" *)
+  //(* preempts = "execute_direct,readDMEM" *)
+  //(* preempts = "connectEXEC,connectCONTROL" *)
+  //(* preempts = "connectEXEC,connectLOAD" *)
+  //(* preempts = "connectEXEC,connectSTORE" *)
+  //(* preempts = "connectCONTROL,connectLOAD" *)
+  //(* preempts = "connectCONTROL,connectSTORE" *)
   rule execute_direct if (
       rob.first.tag == DIRECT &&&
       rob.first_result matches Invalid);
-    ExecInput#(2) request = direct_issue_queue.issue.first;
-    direct_issue_queue.issue.deq();
+    Vector#(2, PhysReg) regs = direct_issue_queue.first;
+    Vector#(2, Bit#(32)) values = vec(registers.read7(regs[0]), registers.read8(regs[1]));
+    direct_issue_queue.deq();
 
     ExecResult result = ?;
 
     if (rob.first.epoch == epoch[0]) result <-
-      execDirect(rob.first_index, rob.first, request.regs[0], request.regs[1]);
+      execDirect(rob.first_index, rob.first, values[0], values[1]);
 
     rob.writeBack(rob.first_index, result);
     wakeupFn(rob.first.pdst, result);
@@ -438,9 +466,9 @@ module mkCoreOOO(Core_IFC);
 
   rule rename;
     let decoded <- fetch.to_RR.get;
-    let rs1 = registers.rename1(register1(decoded.instr));
-    let rs2 = registers.rename2(register2(decoded.instr));
-    let rs3 = registers.rename3(register3(decoded.instr));
+    let rs1 = renaming.rename1(register1(decoded.instr));
+    let rs2 = renaming.rename2(register2(decoded.instr));
+    let rs3 = renaming.rename3(register3(decoded.instr));
 
     renamedQ.enq(vec(rs1,rs2,rs3));
     decodedQ.enq(decoded);

@@ -9,40 +9,37 @@ import Ehr :: *;
 import CSR :: *;
 import OOO :: *;
 
-interface PhysRegFile;
-  // Run at stage 1 (commit and register read)
+interface RenamingTable;
+  // Stage 1 commit
   method Action commit(ArchReg arch, PhysReg phys, Bool keep, Bool flush);
-  //method Vector#(3, Bit#(32)) read(Vector#(3, PhysReg) phys);
 
-  // Run at stage 2 (wakeup)
-  method Action wakeup(PhysReg phys, Bit#(32) value);
+  // Stage 2 wakeup
+  method Action wakeup(PhysReg phys);
 
+  // Stage 2 enter
+  method Bool ready1(PhysReg phys);
+  method Bool ready2(PhysReg phys);
+  method Bool ready3(PhysReg phys);
+  method Action allocate(ArchReg arch);
+  method PhysReg allocated(ArchReg arch);
 
-  // Run at stage 3 (enter)
-  method RegVal read1(PhysReg phys);
-  method RegVal read2(PhysReg phys);
-  method RegVal read3(PhysReg phys);
-  method ActionValue#(PhysReg) enter(ArchReg arch);
-
-  // Run at stage 4 (rename)
+  // Stage 4 rename
   method PhysReg rename1(ArchReg arch);
   method PhysReg rename2(ArchReg arch);
   method PhysReg rename3(ArchReg arch);
 endinterface
 
 (* synthesize *)
-module mkPhysRegFile(PhysRegFile);
+module mkRenamingTable(RenamingTable);
   ForwardRegFile#(Bit#(6), PhysReg) naming <- mkForwardRegFileFullGen(zeroExtend);
   ForwardRegFile#(ArchReg, PhysReg) backup <- mkForwardRegFileFull();
-  Ehr#(3,Bit#(64)) speculated <- mkEhr(0);
+  Ehr#(3,Bit#(NumArchReg)) speculated <- mkEhr(0);
 
   Ehr#(2,Bit#(NumPhysReg)) scoreboard <- mkEhr(0);
 
-  ForwardRegFile#(PhysReg,Bit#(32)) registers <- mkForwardRegFileFullInit(0);
-
   /*** Free List ***/
-  Ehr#(2, Maybe#(PhysReg)) head <- mkEhr(Valid(64));
-  function Maybe#(PhysReg) genFreeList(PhysReg phys) = phys+1 <= 64 ? Invalid : Valid(phys+1);
+  Ehr#(2, Maybe#(PhysReg)) head <- mkEhr(Valid(fromInteger(valueOf(NumArchReg))));
+  function Maybe#(PhysReg) genFreeList(PhysReg phys) = phys+1 <= fromInteger(valueOf(NumArchReg)) ? Invalid : Valid(phys+1);
   ForwardRegFile#(PhysReg, Maybe#(PhysReg)) freeList <- mkForwardRegFileFullGen(genFreeList);
 
   function Action free(PhysReg phys);
@@ -82,40 +79,39 @@ module mkPhysRegFile(PhysRegFile);
   endmethod
 
   /*** Stage 2 ***/
-  method Action wakeup(PhysReg r, Bit#(32) value);
+  method Action wakeup(PhysReg r);
     action
-      if (r != 0) begin
-        registers.upd(r, value);
-        scoreboard[0][r] <= 0;
-      end
+      if (r != 0) scoreboard[0][r] <= 0;
     endaction
   endmethod
 
   /*** Stage 3 ***/
-  method RegVal read1(PhysReg phys);
-    return scoreboard[1][phys] == 1 ? Wait(phys) : Value(registers.forward(phys));
+  method Bool ready1(PhysReg phys);
+    return scoreboard[1][phys] == 0;
   endmethod
 
-  method RegVal read2(PhysReg phys);
-    return scoreboard[1][phys] == 1 ? Wait(phys) : Value(registers.forward(phys));
+  method Bool ready2(PhysReg phys);
+    return scoreboard[1][phys] == 0;
   endmethod
 
-  method RegVal read3(PhysReg phys);
-    return scoreboard[1][phys] == 1 ? Wait(phys) : Value(registers.forward(phys));
+  method Bool ready3(PhysReg phys);
+    return scoreboard[1][phys] == 0;
   endmethod
 
-  method ActionValue#(PhysReg) enter(ArchReg arch)
+  method PhysReg allocated(ArchReg arch) if (head[1] matches tagged Valid .hd);
+    return arch == zeroReg ? 0 : hd;
+  endmethod
+
+  method Action allocate(ArchReg arch)
     if (canAlloc);
-    actionvalue
-      if (arch == zeroReg) return 0;
-      else begin
+    action
+      if (arch != zeroReg) begin
         let phys <- alloc();
         speculated[1][pack(arch)] <= 1;
         scoreboard[1][phys] <= 1;
         backup.upd(arch, phys);
-        return phys;
       end
-    endactionvalue
+    endaction
   endmethod
 
   method PhysReg rename1(ArchReg arch);
@@ -128,5 +124,73 @@ module mkPhysRegFile(PhysRegFile);
 
   method PhysReg rename3(ArchReg arch);
     return speculated[2][pack(arch)] == 1 ? backup.forward(arch) : naming.forward(pack(arch));
+  endmethod
+endmodule
+
+
+interface PhysRegFile;
+  // Stage 1 read
+  method Bit#(32) read1(PhysReg phys);
+  method Bit#(32) read2(PhysReg phys);
+  method Bit#(32) read3(PhysReg phys);
+  method Bit#(32) read4(PhysReg phys);
+  method Bit#(32) read5(PhysReg phys);
+  method Bit#(32) read6(PhysReg phys);
+  method Bit#(32) read7(PhysReg phys);
+  method Bit#(32) read8(PhysReg phys);
+
+  // Stage 2 write
+  method Action write(PhysReg phys, Bit#(32) value);
+endinterface
+
+(* synthesize *)
+module mkPhysRegFile(PhysRegFile);
+  // We know that the register was already ready in the register Issue Queue the
+  // previous cycle, so we don't need to forward the value form the writeBack stage
+  Vector#(NumPhysReg, Reg#(Bit#(32))) registers <- replicateM(mkPReg0(0));
+  //RegFile#(PhysReg, Bit#(32)) registers1 <- mkRegFileFullInit(0);
+  //RegFile#(PhysReg, Bit#(32)) registers2 <- mkRegFileFullInit(0);
+  //RWire#(Tuple2#(PhysReg, Bit#(32))) update <- mkRWire;
+  //Wire#(Bool) info <- mkDWire(False);
+
+  //(* fire_when_enabled *)
+  //rule do_update;
+  //  if (update.wget matches tagged Valid {.phys, .value}) begin
+  //    registers1.upd(phys,value);
+  //    registers2.upd(phys,value);
+  //    info <= True;
+  //  end
+  //endrule
+
+  //rule test_;
+  //  if (update.wget matches tagged Valid {.phys, .value} &&& !info) begin
+  //    $display("failure");
+  //    $finish;
+  //  end
+
+  //endrule
+
+  //method read1 = registers1.sub;
+  //method read2 = registers1.sub;
+  //method read3 = registers1.sub;
+  //method read4 = registers1.sub;
+  //method read5 = registers2.sub;
+  //method read6 = registers2.sub;
+  //method read7 = registers2.sub;
+  //method read8 = registers2.sub;
+
+  method Bit#(32) read1(PhysReg phys) = registers[phys];
+  method Bit#(32) read2(PhysReg phys) = registers[phys];
+  method Bit#(32) read3(PhysReg phys) = registers[phys];
+  method Bit#(32) read4(PhysReg phys) = registers[phys];
+  method Bit#(32) read5(PhysReg phys) = registers[phys];
+  method Bit#(32) read6(PhysReg phys) = registers[phys];
+  method Bit#(32) read7(PhysReg phys) = registers[phys];
+  method Bit#(32) read8(PhysReg phys) = registers[phys];
+  method Action write(PhysReg phys, Bit#(32) value);
+    action
+      if (phys != 0) registers[phys] <=  value;
+      //if (phys != 0) update.wset(tuple2(phys,value));
+    endaction
   endmethod
 endmodule

@@ -85,6 +85,8 @@ endinterface
 
 (* synthesize *)
 module mkCore(Core_IFC);
+  Bool verbose = False;
+
   Ehr#(2, Epoch) epoch <- mkEhr(0);
   FetchDecode fetch <- mkFetchDecode;
   Fifo#(1, FromDecode) decoded <- mkBypassFifo;
@@ -207,6 +209,12 @@ module mkCore(Core_IFC);
 
       let rd = destination(req.instr);
       registers.setReady(rd, val, commit);
+
+      if (verbose && commit)
+        $display("  wb %h ", req.pc, displayInstr(req.instr));
+
+      if (verbose && rd != zeroReg && commit)
+        $display("       ", fshow(rd), " := %h", val);
     endaction
   endfunction
 

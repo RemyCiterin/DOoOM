@@ -114,7 +114,7 @@ module mkFetchDecode(FetchDecode);
 
   Fifo#(2, AXI4_Lite_RResponse#(4)) rresponseQ <- mkBypassFifo;
   Fifo#(2, Maybe#(FetchToDecode)) fetch_to_decode <- mkFifo;
-  Fifo#(1, FromDecode) outputs <- mkBypassFifo;
+  Fifo#(2, FromDecode) outputs <- mkFifo;
 
   Reg#(Bit#(32)) misCount <- mkReg(0);
   Reg#(Bit#(32)) cycle <- mkReg(0);

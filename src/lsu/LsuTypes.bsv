@@ -98,7 +98,9 @@ typedef struct {
 } StbEntry deriving(Bits, FShow, Eq);
 
 
-typedef union tagged {
-  ExecOutput Failure; // Tell to the Reorder Buffer that the access is misaligned
-  AXI4_Lite_RRequest#(32) Success; // Ask a value to the data cache
-} LoadWakeup deriving(Bits, FShow, Eq);
+typedef struct {
+  Age age;
+  Epoch epoch;
+  LqIndex lindex;
+  AXI4_Lite_RRequest#(32) request;
+} LoadIssue deriving(Bits, FShow, Eq);
