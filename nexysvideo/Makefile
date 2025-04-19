@@ -15,7 +15,8 @@ SOURCES = \
 					$(BLUESPECDIR)/Verilog/RevertReg.v \
 					$(BLUESPECDIR)/Verilog/RegFile.v \
 					$(BLUESPECDIR)/Verilog/RegFileLoad.v \
-					../src/*.v ./rtl/*.v
+					../src/*.v ./rtl/*.v \
+					./nexysvideo.v
 
 PACKAGES = ../src/:../src/lsu/:../src/cache/:+
 
@@ -24,7 +25,6 @@ DBPART = $(shell echo ${PART} | sed -e 's/-[0-9]//g')
 
 TOP ?= ${PROJECT}
 TOP_MODULE ?= ${TOP}
-TOP_VERILOG ?= ./nexysvideo.v
 
 XDC ?= nexysvideo.xdc
 

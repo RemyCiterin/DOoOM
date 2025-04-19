@@ -24,6 +24,41 @@ typedef struct {
 typedef Server#(MulRequest, Bit#(32)) MulServer;
 typedef Server#(DivRequest, Bit#(32)) DivServer;
 
+// Very slow but very small
+module mkMulServer64(Server#(Tuple2#(Bit#(64),Bit#(64)), Bit#(64)));
+  Reg#(Bit#(64)) status <- mkReg(0);
+  Reg#(Bool) busy <- mkReg(False);
+  Reg#(Bit#(64)) acc <- mkReg(0);
+  Reg#(Bit#(64)) lhs <- mkReg(?);
+  Reg#(Bit#(64)) rhs <- mkReg(?);
+
+  rule step if (busy && status != 0);
+    acc <= acc + (rhs[0] == 1 ? lhs : 0);
+    status <= status << 1;
+    rhs <= rhs >> 1;
+    lhs <= lhs << 1;
+  endrule
+
+  interface Put request;
+    method Action put(Tuple2#(Bit#(64),Bit#(64)) req) if (!busy);
+      action
+        lhs <= req.fst;
+        rhs <= req.snd;
+        busy <= True;
+        status <= 1;
+        acc <= 0;
+      endaction
+    endmethod
+  endinterface
+
+  interface Get response;
+    method ActionValue#(Bit#(64)) get if (busy && status == 0);
+      busy <= False;
+      return acc;
+    endmethod
+  endinterface
+endmodule
+
 module mkMulServer(MulServer);
   Fifo#(2, MulRequest) requests <- mkFifo;
 

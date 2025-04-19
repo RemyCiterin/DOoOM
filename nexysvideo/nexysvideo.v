@@ -27,7 +27,6 @@ module nexysvideo_ddr3 (
     .clk_in1(i_clk)
   );
 
-
   reg RST_N = 1;
   always @(posedge i_controller_clk) begin
     RST_N <= !i_rst && clk_locked ? 1 : 0;

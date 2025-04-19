@@ -41,8 +41,11 @@ module mkPhysRegFile(PhysRegFile);
   ForwardRegFile#(PhysReg,Bit#(32)) registers <- mkForwardRegFileFullInit(0);
 
   /*** Free List ***/
-  Ehr#(2, Maybe#(PhysReg)) head <- mkEhr(Valid(64));
-  function Maybe#(PhysReg) genFreeList(PhysReg phys) = phys+1 <= 64 ? Invalid : Valid(phys+1);
+  PhysReg initHead = 64;
+  PhysReg lastPhys = fromInteger(valueOf(NumPhysReg)-1);
+  Ehr#(2, Maybe#(PhysReg)) head <- mkEhr(Valid(initHead));
+  function Maybe#(PhysReg) genFreeList(PhysReg phys) =
+    phys < initHead || phys == lastPhys ? Invalid : Valid(phys+1);
   ForwardRegFile#(PhysReg, Maybe#(PhysReg)) freeList <- mkForwardRegFileFullGen(genFreeList);
 
   function Action free(PhysReg phys);
