@@ -12,10 +12,10 @@ typedef Vector#(SupSize, t) Super#(type t);
 typedef Bit#(SupSize) SupMask;
 
 // The number of slots in the reorder buffer
-typedef 16 RobSize;
+typedef 32 RobSize;
 typedef Bit#(TLog#(RobSize)) RobIndex;
 
-typedef 4 IqSize;
+typedef 8 IqSize;
 
 // Store Buffer Size
 typedef 2 StbSize;

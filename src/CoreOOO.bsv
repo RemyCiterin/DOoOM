@@ -440,14 +440,6 @@ module mkCoreOOO(Core_IFC);
   endrule
 
   (* preempts="execute_direct,write_back" *)
-  //(* preempts = "execute_direct,readEXEC" *)
-  //(* preempts = "execute_direct,readCONTROL" *)
-  //(* preempts = "execute_direct,readDMEM" *)
-  //(* preempts = "connectEXEC,connectCONTROL" *)
-  //(* preempts = "connectEXEC,connectLOAD" *)
-  //(* preempts = "connectEXEC,connectSTORE" *)
-  //(* preempts = "connectCONTROL,connectLOAD" *)
-  //(* preempts = "connectCONTROL,connectSTORE" *)
   rule execute_direct if (
       rob.first.tag == DIRECT &&&
       rob.first_result matches Invalid);

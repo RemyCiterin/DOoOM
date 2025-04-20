@@ -38,8 +38,11 @@ module mkRenamingTable(RenamingTable);
   Ehr#(2,Bit#(NumPhysReg)) scoreboard <- mkEhr(0);
 
   /*** Free List ***/
-  Ehr#(2, Maybe#(PhysReg)) head <- mkEhr(Valid(fromInteger(valueOf(NumArchReg))));
-  function Maybe#(PhysReg) genFreeList(PhysReg phys) = phys+1 <= fromInteger(valueOf(NumArchReg)) ? Invalid : Valid(phys+1);
+  PhysReg initHead = fromInteger(valueOf(NumArchReg));
+  PhysReg lastPhys = fromInteger(valueOf(NumPhysReg)-1);
+  Ehr#(2, Maybe#(PhysReg)) head <- mkEhr(Valid(initHead));
+  function Maybe#(PhysReg) genFreeList(PhysReg phys) =
+    phys < initHead || phys == lastPhys ? Invalid : Valid(phys+1);
   ForwardRegFile#(PhysReg, Maybe#(PhysReg)) freeList <- mkForwardRegFileFullGen(genFreeList);
 
   function Action free(PhysReg phys);
@@ -147,50 +150,63 @@ endinterface
 module mkPhysRegFile(PhysRegFile);
   // We know that the register was already ready in the register Issue Queue the
   // previous cycle, so we don't need to forward the value form the writeBack stage
-  Vector#(NumPhysReg, Reg#(Bit#(32))) registers <- replicateM(mkPReg0(0));
-  //RegFile#(PhysReg, Bit#(32)) registers1 <- mkRegFileFullInit(0);
-  //RegFile#(PhysReg, Bit#(32)) registers2 <- mkRegFileFullInit(0);
-  //RWire#(Tuple2#(PhysReg, Bit#(32))) update <- mkRWire;
-  //Wire#(Bool) info <- mkDWire(False);
+  ForwardRegFile#(PhysReg, Bit#(32)) registers1 <- mkForwardRegFileFull;
+  ForwardRegFile#(PhysReg, Bit#(32)) registers2 <- mkForwardRegFileFull;
+  RWire#(Tuple2#(PhysReg, Bit#(32))) update <- mkRWire;
 
-  //(* fire_when_enabled *)
-  //rule do_update;
-  //  if (update.wget matches tagged Valid {.phys, .value}) begin
-  //    registers1.upd(phys,value);
-  //    registers2.upd(phys,value);
-  //    info <= True;
-  //  end
-  //endrule
+  Reg#(PhysReg) index <- mkReg(0);
+  Reg#(Bool) init <- mkReg(False);
 
-  //rule test_;
-  //  if (update.wget matches tagged Valid {.phys, .value} &&& !info) begin
-  //    $display("failure");
-  //    $finish;
-  //  end
+  rule initialize if (!init);
+    registers1.upd(index,0);
+    registers2.upd(index,0);
 
-  //endrule
+    index <= index + 1;
+    if (index == fromInteger(valueOf(NumPhysReg)-1))
+      init <= True;
+  endrule
 
-  //method read1 = registers1.sub;
-  //method read2 = registers1.sub;
-  //method read3 = registers1.sub;
-  //method read4 = registers1.sub;
-  //method read5 = registers2.sub;
-  //method read6 = registers2.sub;
-  //method read7 = registers2.sub;
-  //method read8 = registers2.sub;
+  rule do_update if (init);
+    if (update.wget matches tagged Valid {.phys, .value}) begin
+      registers1.upd(phys,value);
+      registers2.upd(phys,value);
+    end
+  endrule
 
-  method Bit#(32) read1(PhysReg phys) = registers[phys];
-  method Bit#(32) read2(PhysReg phys) = registers[phys];
-  method Bit#(32) read3(PhysReg phys) = registers[phys];
-  method Bit#(32) read4(PhysReg phys) = registers[phys];
-  method Bit#(32) read5(PhysReg phys) = registers[phys];
-  method Bit#(32) read6(PhysReg phys) = registers[phys];
-  method Bit#(32) read7(PhysReg phys) = registers[phys];
-  method Bit#(32) read8(PhysReg phys) = registers[phys];
-  method Action write(PhysReg phys, Bit#(32) value);
+  method read1 = when(init,registers1.sub);
+  method read2 = when(init,registers1.sub);
+  method read3 = when(init,registers1.sub);
+  method read4 = when(init,registers1.sub);
+  method read5 = when(init,registers2.sub);
+  method read6 = when(init,registers2.sub);
+  method read7 = when(init,registers2.sub);
+  method read8 = when(init,registers2.sub);
+
+  method Action write(PhysReg phys, Bit#(32) value) if (init);
     action
-      if (phys != 0) registers[phys] <=  value;
-      //if (phys != 0) update.wset(tuple2(phys,value));
+      if (phys != 0) update.wset(tuple2(phys,value));
     endaction
   endmethod
 endmodule
+
+//(* synthesize *)
+//module mkPhysRegFile(PhysRegFile);
+//  // We know that the register was already ready in the register Issue Queue the
+//  // previous cycle, so we don't need to forward the value form the writeBack stage
+//  Vector#(NumPhysReg, Ehr#(2, Bit#(32))) registers <- replicateM(mkEhr(0));
+//
+//  method Bit#(32) read1(PhysReg phys) = registers[phys][1];
+//  method Bit#(32) read2(PhysReg phys) = registers[phys][1];
+//  method Bit#(32) read3(PhysReg phys) = registers[phys][1];
+//  method Bit#(32) read4(PhysReg phys) = registers[phys][1];
+//  method Bit#(32) read5(PhysReg phys) = registers[phys][1];
+//  method Bit#(32) read6(PhysReg phys) = registers[phys][1];
+//  method Bit#(32) read7(PhysReg phys) = registers[phys][1];
+//  method Bit#(32) read8(PhysReg phys) = registers[phys][1];
+//
+//  method Action write(PhysReg phys, Bit#(32) value);
+//    action
+//      if (phys != 0) registers[phys][0] <= value;
+//    endaction
+//  endmethod
+//endmodule

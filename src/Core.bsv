@@ -85,7 +85,7 @@ endinterface
 
 (* synthesize *)
 module mkCore(Core_IFC);
-  Bool verbose = False;
+  Bool verbose = True;
 
   Ehr#(2, Epoch) epoch <- mkEhr(0);
   FetchDecode fetch <- mkFetchDecode;
