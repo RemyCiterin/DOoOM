@@ -5,6 +5,12 @@ import Ehr :: *;
 import CSR :: *;
 import BranchPred :: *;
 
+typedef 2 SupSize;
+typedef TLog#(SupSize) SupLogSize;
+typedef Bit#(SupLogSize) SupIndex;
+typedef Vector#(SupSize, t) Super#(type t);
+typedef Bit#(SupSize) SupMask;
+
 // The number of slots in the reorder buffer
 typedef 16 RobSize;
 typedef Bit#(TLog#(RobSize)) RobIndex;
@@ -15,12 +21,18 @@ typedef 4 IqSize;
 typedef 2 StbSize;
 
 // Store Queue Size
-typedef 4 SqSize;
+typedef 6 SqSize;
 
 // Load Queue Size
-typedef 4 LqSize;
+typedef 6 LqSize;
 
-typedef 128 NumPhysReg;
+typedef 48 NumPhysReg;
+
+`ifdef FLOAT
+typedef 64 NumArchReg;
+`else
+typedef 32 NumArchReg;
+`endif
 
 typedef Bit#(TLog#(NumPhysReg)) PhysReg;
 
@@ -204,4 +216,4 @@ typedef MicroOpN#(numReg, Bit#(32)) ExecInput#(numeric type numReg);
 
 // data needed to execute an instruction in a functional unit
 // (except for loads and stores)
-typedef MicroOpN#(numReg,RegVal) IssueQueueInput#(numeric type numReg);
+typedef MicroOpN#(numReg,Tuple2#(PhysReg, Bool)) IssueQueueInput#(numeric type numReg);
