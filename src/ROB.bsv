@@ -38,7 +38,7 @@ endinterface
 (* synthesize *)
 module mkROB(ROB);
   RegFile#(RobIndex, RobEntry) data <- mkRegFileFull;
-  ForwardRegFile#(RobIndex, ExecResult) results <- mkForwardRegFileFull;
+  RegFile#(RobIndex, ExecResult) results <- mkRegFileFull;
   Ehr#(3, Bit#(RobSize)) resultValid <- mkEhr(0);
 
   Ehr#(2, RobIndex) firstP <- mkEhr(0);

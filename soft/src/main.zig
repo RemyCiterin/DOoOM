@@ -198,13 +198,6 @@ pub export fn user_main(pid: usize, alloc: *Allocator) callconv(.C) noreturn {
         bench.free();
     }
 
-    logger.info("Linked List:", .{});
-    for (1..11) |i| {
-        const size = 10 * i;
-        var bench = Bench.LinkedList.init(alloc.*, size);
-        _ = Bench.measure(size, &bench) catch unreachable;
-    }
-
     logger.info("Fibo:", .{});
     for (1..11) |i| {
         const size = 10 * i;

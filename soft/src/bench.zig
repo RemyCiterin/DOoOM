@@ -26,7 +26,7 @@ pub fn measure(
     id: usize,
     bench: anytype,
 ) @TypeOf(bench.call()) {
-    var cycle = RV.mcycle.read();
+    var cycle: u32 = RV.mcycle.read();
     var instret = RV.minstret.read();
     const output = bench.call();
     instret = RV.minstret.read() -% instret;
@@ -472,85 +472,5 @@ pub const Sort = struct {
 
     pub inline fn call(self: Self) void {
         self.mergeSort(0, self.array.len - 1);
-    }
-};
-
-pub const LinkedList = struct {
-    random: Random,
-    alloc: std.mem.Allocator,
-    N: u32,
-
-    const Self = @This();
-
-    pub fn init(allocator: std.mem.Allocator, N: u32) Self {
-        return .{ .alloc = allocator, .N = N, .random = Random.initCycle() };
-    }
-
-    const List = union(enum) {
-        nil,
-        cons: struct { item: u32, next: *List },
-
-        pub fn next(list: List) ?*List {
-            return switch (list) {
-                .cons => |data| data.next,
-                .nil => null,
-            };
-        }
-
-        pub fn item(list: List) ?u32 {
-            return switch (list) {
-                .nil => null,
-                .cons => |data| data.item,
-            };
-        }
-    };
-
-    fn sum(list: List) u32 {
-        return switch (list) {
-            .cons => |info| info.item + sum(info.next.*),
-            .nil => 0,
-        };
-    }
-
-    fn len(list: List) u32 {
-        var l: List = list;
-        var x: u32 = 0;
-
-        while (l.next()) |ptr| {
-            l = ptr.*;
-            x += 1;
-        }
-
-        return x;
-    }
-
-    fn free(self: Self, l: List) void {
-        var list: List = l;
-
-        while (list.next()) |next| {
-            list = next.*;
-            self.alloc.destroy(next);
-        }
-    }
-
-    fn cons(self: Self, x: u32, list: List) !List {
-        const result = try self.alloc.create(List);
-        result.* = list;
-        return .{ .cons = .{ .next = result, .item = x } };
-    }
-
-    fn nil(self: Self) List {
-        _ = self;
-        return .nil;
-    }
-
-    pub noinline fn call(self: *Self) !u32 {
-        var list: List = .nil;
-        defer self.free(list);
-
-        for (0..self.N) |_|
-            list = try self.cons(self.random.random().int(u32), list);
-
-        return sum(list) * len(list);
     }
 };

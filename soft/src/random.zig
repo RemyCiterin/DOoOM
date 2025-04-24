@@ -9,6 +9,10 @@ pub fn initCycle() Self {
     return .{ .seed = RV.mcycle.read() };
 }
 
+pub fn init(seed: u32) Self {
+    return .{ .seed = seed };
+}
+
 pub fn uint32(self: *Self) u32 {
     self.seed += 1;
     return std.hash.uint32(self.seed);
