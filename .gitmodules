@@ -1,3 +1,9 @@
 [submodule "doom_riscv"]
 	path = doom_riscv
 	url = git@github.com:RemyCiterin/doom_riscv.git
+[submodule "nexysvideo/core_ddr3_controller"]
+	path = nexysvideo/core_ddr3_controller
+	url = git@github.com:ultraembedded/core_ddr3_controller.git
+[submodule "nexysvideo/UberDDR3"]
+	path = nexysvideo/UberDDR3
+	url = git@github.com:AngeloJacobo/UberDDR3.git

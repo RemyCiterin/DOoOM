@@ -33,10 +33,14 @@ module mkMulServer64(Server#(Tuple2#(Bit#(64),Bit#(64)), Bit#(64)));
   Reg#(Bit#(64)) rhs <- mkReg(?);
 
   rule step if (busy && status != 0);
-    acc <= acc + (rhs[0] == 1 ? lhs : 0);
-    status <= status << 1;
-    rhs <= rhs >> 1;
-    lhs <= lhs << 1;
+    acc <= acc +
+      (rhs[0] == 1 ? lhs : 0) +
+      (rhs[1] == 1 ? lhs << 1 : 0) +
+      (rhs[2] == 1 ? lhs << 2 : 0) +
+      (rhs[3] == 1 ? lhs << 3 : 0);
+    status <= status << 4;
+    rhs <= rhs >> 4;
+    lhs <= lhs << 4;
   endrule
 
   interface Put request;
@@ -62,19 +66,30 @@ endmodule
 module mkMulServer(MulServer);
   Fifo#(2, MulRequest) requests <- mkFifo;
 
+  Fifo#(2, Bool) highQ <- mkFifo;
+  Server#(Tuple2#(Bit#(64),Bit#(64)), Bit#(64)) server <- mkMulServer64;
+
+  rule start_mul;
+    let req = requests.first;
+    requests.deq;
+
+    Bit#(64) x1 = (req.x1Signed ? signExtend(req.x1) : zeroExtend(req.x1));
+    Bit#(64) x2 = (req.x2Signed ? signExtend(req.x2) : zeroExtend(req.x2));
+    highQ.enq(req.high);
+
+    server.request.put(tuple2(x1,x2));
+  endrule
+
   method request = toPut(requests);
 
   interface Get response;
     method ActionValue#(Bit#(32)) get;
       actionvalue
-        let req = requests.first;
-        requests.deq;
+        let high = highQ.first;
+        highQ.deq;
 
-        Bit#(64) x1 = (req.x1Signed ? signExtend(req.x1) : zeroExtend(req.x1));
-        Bit#(64) x2 = (req.x2Signed ? signExtend(req.x2) : zeroExtend(req.x2));
-        Bit#(64) ret = x1 * x2;
-
-        return (req.high ? ret[63:32] : ret[31:0]);
+        let ret <- server.response.get;
+        return high ? ret[63:32] : ret[31:0];
       endactionvalue
     endmethod
   endinterface

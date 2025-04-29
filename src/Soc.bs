@@ -118,8 +118,6 @@ mkCPU = module
   interface
     memory = sdram.memory
     sdcard_fab = sdcard.fabric
-    -- wr_axi4 = wr_port.fabric
-    -- rd_axi4 = rd_port.fabric
     ftdi_rxd = uart.transmit
     ftdi_txd = uart.receive
     vga_out = vga.fabric
@@ -232,10 +230,17 @@ interface CPU_MINIMAL_IFC =
   led :: Bit 8 {-# always_ready, always_enabled #-}
   ftdi_rxd :: Bit 1 {-# always_ready, always_enabled #-}
   ftdi_txd :: Bit 1 -> Action {-# always_ready, always_enabled, arg_names= [ftdi_txd], prefix="" #-}
+  -- write SDRAM port using AXI4 protocol
+  wr_axi4 :: WrAXI4_Master_Fab 4 32 4 {-# prefix="" #-}
+  -- read SDRAM port using AXI4 protocol
+  rd_axi4 :: RdAXI4_Master_Fab 4 32 4 {-# prefix="" #-}
 
 {-# verilog mkCPU #-}
 mkCPU_MINIMAL :: Module CPU_MINIMAL_IFC
 mkCPU_MINIMAL = module
+  wr_port <- mkWrAXI4_Master Pipeline
+  rd_port <- mkRdAXI4_Master Pipeline
+
   core <- mkCoreOOO
   let core_i_rd = core.rd_imem
 
@@ -268,11 +273,13 @@ mkCPU_MINIMAL = module
   let rd_masters :: Vector 2 (RdAXI4_Master 4 32 4) = core.rd_dmem :> core_i_rd :> nil
   let wr_masters :: Vector 1 (WrAXI4_Master 4 32 4) = core.wr_dmem :> nil
 
-  let rd_slaves :: Vector 1 (RdAXI4_Slave 4 32 4) = rom.read :> nil
-  let wr_slaves :: Vector 1 (WrAXI4_Slave 4 32 4) = rom.write :> nil
+  let rd_slaves :: Vector 2 (RdAXI4_Slave 4 32 4) = rom.read :> rd_port.server :> nil
+  let wr_slaves :: Vector 2 (WrAXI4_Slave 4 32 4) = rom.write :> wr_port.server :> nil
 
-  let rdReqDispatch :: AXI4_RRequest 4 32 -> Bit 0 = \ req -> 0
-  let wrReqDispatch :: AXI4_AWRequest 4 32 -> Bit 0 = \ req -> 0
+  let rdReqDispatch :: AXI4_RRequest 4 32 -> Bit 1 =
+        \ req -> if req.addr < offset || req.addr >= offset + fromInteger alloc_size then 1 else 0
+  let wrReqDispatch :: AXI4_AWRequest 4 32 -> Bit 1 =
+        \ req -> if req.addr < offset || req.addr >= offset + fromInteger alloc_size then 1 else 0
 
   mkXBarRdAXI4 rd_masters rd_slaves rdReqDispatch
   mkXBarWrAXI4 wr_masters wr_slaves wrReqDispatch
@@ -289,6 +296,37 @@ mkCPU_MINIMAL = module
       core.set_msip(clint.software_interrupt)
 
   interface
+    wr_axi4 = wr_port.fabric
+    rd_axi4 = rd_port.fabric
     ftdi_rxd = uart.transmit
     ftdi_txd = uart.receive
     led = uart.leds
+
+{-# verilog mkCPU #-}
+mkDDR3_TEST :: Module CPU_MINIMAL_IFC
+mkDDR3_TEST = module
+  wr_port <- mkWrAXI4_Master Pipeline
+  rd_port <- mkRdAXI4_Master Pipeline
+
+  tx_uart <- mkTxUART (100_000_000 / 115200)
+  rx_uart <- mkRxUART (100_000_000 / 115200)
+
+  counter :: Reg (Bit 32) <- mkReg 0
+
+  rules
+    "count": when True ==> do
+      counter := counter + 1
+
+    "send_ddr3 read request": when True ==> do
+      rd_port.server.request.put (AXI4_RRequest{addr=0; id=0; length=0; burst=INCR})
+
+    "receive ddr3 response": when True ==> do
+      resp <- rd_port.server.response.get
+      tx_uart.put resp.bytes[7:0]
+
+  interface
+    wr_axi4 = wr_port.fabric
+    rd_axi4 = rd_port.fabric
+    ftdi_rxd = tx_uart.transmit
+    ftdi_txd = rx_uart.receive
+    led = counter[27:20]

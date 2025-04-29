@@ -15,8 +15,10 @@ SOURCES = \
 					$(BLUESPECDIR)/Verilog/RevertReg.v \
 					$(BLUESPECDIR)/Verilog/RegFile.v \
 					$(BLUESPECDIR)/Verilog/RegFileLoad.v \
+					./core_ddr3_controller/src_v/phy/xc7/ddr3_dfi_phy.v \
+					./core_ddr3_controller/src_v/*.v \
 					../src/*.v ./rtl/*.v \
-					./nexysvideo.v
+					./*.v
 
 PACKAGES = ../src/:../src/lsu/:../src/cache/:+
 
@@ -38,7 +40,7 @@ compile:
 		-no-warn-action-shadowing -check-assert \
 		-keep-fires -aggressive-conditions \
 		-cpp +RTS -K128M -RTS  -show-range-conflict \
-		-p $(PACKAGES) -g mkCPU_MINIMAL -u ../src/Soc.bs
+		-p $(PACKAGES) -g mkDDR3_TEST -u ../src/Soc.bs
 
 
 .PHONY: program
