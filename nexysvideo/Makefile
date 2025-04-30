@@ -15,8 +15,8 @@ SOURCES = \
 					$(BLUESPECDIR)/Verilog/RevertReg.v \
 					$(BLUESPECDIR)/Verilog/RegFile.v \
 					$(BLUESPECDIR)/Verilog/RegFileLoad.v \
-					./core_ddr3_controller/src_v/phy/xc7/ddr3_dfi_phy.v \
-					./core_ddr3_controller/src_v/*.v \
+					./UberDDR3/rtl/*.v \
+					./UberDDR3/rtl/axi/*.v \
 					../src/*.v ./rtl/*.v \
 					./*.v
 

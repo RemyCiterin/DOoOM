@@ -2,11 +2,13 @@
 
 module nexysvideo_ddr3 (
   input                   clk100mhz,
+  input wire i_rst,
   // UART line
   input wire rx,
   output wire tx,
   //Debug LEDs
-  output wire[7:0] led,
+  output reg[7:0] led,
+  input wire[3:0] btn,
   // DDR3 SDRAM
   output  wire            ddr3_reset_n,
   output  wire            ddr3_cke,
@@ -20,8 +22,8 @@ module nexysvideo_ddr3 (
   output  wire    [13:0]  ddr3_addr,
   output  wire    [0:0]   ddr3_odt,
   output  wire    [1:0]   ddr3_dm,
-  inout   wire    [1:0]   ddr3_dqs_p,
-  inout   wire    [1:0]   ddr3_dqs_n,
+  inout   wire    [0:0]   ddr3_dqs_p,
+  inout   wire    [0:0]   ddr3_dqs_n,
   inout   wire    [15:0]  ddr3_dq
 );
 
@@ -34,187 +36,139 @@ module nexysvideo_ddr3 (
   wire clk_ddr_dqs_w;
   wire clk_ref_w;
 
-  //artix7_pll
-  //u_pll
-  //(
-  //     .clkref_i(clk100mhz)
-  //    ,.clkout0_o(clk_w)         // 100
-  //    ,.clkout1_o(clk_ddr_w)     // 400
-  //    ,.clkout2_o(clk_ref_w)     // 200
-  //    ,.clkout3_o(clk_ddr_dqs_w) // 400 (phase shifted 90 degrees)
-  //);
+  wire [31:0] o_debug1;
+  wire [31:0] o_debug2;
 
+  assign led = {o_debug2[7:0]};
+  assign ddr3_cs_n = 0; //tie cs_n to ground (same as disabling the chip-select)
+
+
+  (* mark_debug="true" *) wire clk_locked;
   clk_wiz pll (
     .clk_in1(clk100mhz),
     .clk_out1(clk_w),        // 100mhz
     .clk_out2(clk_ref_w),    // 200mhz
     .clk_out3(clk_ddr_w),    // 400mhz
-    .clk_out4(clk_ddr_dqs_w) // 400mhz @ 90°
+    .clk_out4(clk_ddr_dqs_w),// 400mhz @ 90°
+    .reset(i_rst),
+    .locked(clk_locked)
   );
 
-  reset_gen
-  u_rst
+  wire        awready;
+  wire        arready;
+  wire [7:0]  arlen  ;
+  wire        wvalid ;
+  wire [31:0] araddr ;
+  wire [1:0]  bresp  ;
+  wire [31:0] wdata  ;
+  wire        rlast  ;
+  wire        awvalid;
+  wire [3:0]  rid    ;
+  wire [1:0]  rresp  ;
+  wire        bvalid ;
+  wire [3:0]  wstrb  ;
+  wire [1:0]  arburst;
+  wire        arvalid;
+  wire [3:0]  awid   ;
+  wire [3:0]  bid    ;
+  wire [3:0]  arid   ;
+  wire        rready ;
+  wire [7:0]  awlen  ;
+  wire        wlast  ;
+  wire [31:0] rdata  ;
+  wire        bready ;
+  wire [31:0] awaddr ;
+  wire        wready ;
+  wire [1:0]  awburst;
+  wire        rvalid ;
+
+  // DDR3 Controller
+  ddr3_top_axi #(
+    .CONTROLLER_CLK_PERIOD(12_000), //12_000ps, clock period of the controller interface
+    .DDR3_CLK_PERIOD(3_000), //3_000ps, clock period of the DDR3 RAM device (must be 1/4 of the CONTROLLER_CLK_PERIOD)
+    .ROW_BITS(14), //width of row address
+    .COL_BITS(10), //width of column address
+    .BA_BITS(3), //width of bank address
+    .DQ_BITS(8),  //width of DQ
+    .BYTE_LANES(1), //number of DDR3 modules to be controlled
+    .AXI_ID_WIDTH(4),
+    .WB2_ADDR_BITS(32), //width of 2nd wishbone address bus
+    .WB2_DATA_BITS(32), //width of 2nd wishbone data bus
+    .MICRON_SIM(0), //enable faster simulation for micron ddr3 model
+    .ODELAY_SUPPORTED(0), //set to 1 when ODELAYE2 is supported
+    .SECOND_WISHBONE(0), //set to 1 if 2nd wishbone is needed
+    .SELF_REFRESH(1)
+  ) ddr3_top_inst
   (
-       .clk_i(clk_w)
-      ,.rst_o(rst_w)
-  );
+      //clock and reset
+      .i_controller_clk(clk_w),
+      .i_ddr3_clk(clk_ddr_w), //i_controller_clk has period of CONTROLLER_CLK_PERIOD, i_ddr3_clk has period of DDR3_CLK_PERIOD
+      .i_ref_clk(clk_ref_w),
+      .i_ddr3_clk_90(clk_ddr_dqs_w),
+      .i_rst_n(!i_rst && clk_locked),
 
-  //-----------------------------------------------------------------
-  // DDR Core + PHY
-  //-----------------------------------------------------------------
-  wire [ 13:0]   dfi_address_w;
-  wire [  2:0]   dfi_bank_w;
-  wire           dfi_cas_n_w;
-  wire           dfi_cke_w;
-  wire           dfi_cs_n_w;
-  wire           dfi_odt_w;
-  wire           dfi_ras_n_w;
-  wire           dfi_reset_n_w;
-  wire           dfi_we_n_w;
-  wire [ 31:0]   dfi_wrdata_w;
-  wire           dfi_wrdata_en_w;
-  wire [  3:0]   dfi_wrdata_mask_w;
-  wire           dfi_rddata_en_w;
-  wire [ 31:0]   dfi_rddata_w;
-  wire           dfi_rddata_valid_w;
-  wire [  1:0]   dfi_rddata_dnv_w;
+      // PHY Interface (to be added later)
+      // DDR3 I/O Interface
+      .o_ddr3_clk_p(ddr3_clk_p),
+      .o_ddr3_clk_n(ddr3_clk_n),
+      .o_ddr3_reset_n(ddr3_reset_n),
+      .o_ddr3_cke(ddr3_cke), // CKE
+      .o_ddr3_cs_n(/*ddr3_cs_n*/), // chip select signal (controls rank 1 only)
+      .o_ddr3_ras_n(ddr3_ras_n), // RAS#
+      .o_ddr3_cas_n(ddr3_cas_n), // CAS#
+      .o_ddr3_we_n(ddr3_we_n), // WE#
+      .o_ddr3_addr(ddr3_addr),
+      .o_ddr3_ba_addr(ddr3_ba),
+      .io_ddr3_dq(ddr3_dq),
+      .io_ddr3_dqs(ddr3_dqs_p),
+      .io_ddr3_dqs_n(ddr3_dqs_n),
+      .o_ddr3_dm(ddr3_dm),
+      .o_ddr3_odt(ddr3_odt), // on-die termination
+      .o_debug1(o_debug1),
+      .o_debug2(o_debug2),
 
-  wire           awready;
-  wire           arready;
-  wire  [  7:0]  arlen;
-  wire           wvalid;
-  wire  [ 31:0]  araddr;
-  wire  [  1:0]  bresp;
-  wire  [ 31:0]  wdata;
-  wire           rlast;
-  wire           awvalid;
-  wire  [  3:0]  rid;
-  wire  [  1:0]  rresp;
-  wire           bvalid;
-  wire  [  3:0]  wstrb;
-  wire  [  1:0]  arburst;
-  wire           arvalid;
-  wire  [  3:0]  awid;
-  wire  [  3:0]  bid;
-  wire  [  3:0]  arid;
-  wire           rready;
-  wire  [  7:0]  awlen;
-  wire           wlast;
-  wire  [ 31:0]  rdata;
-  wire           bready;
-  wire  [ 31:0]  awaddr;
-  wire           wready;
-  wire  [  1:0]  awburst;
-  wire           rvalid;
-
-  ddr3_axi
-  #(
-       .DDR_WRITE_LATENCY(4)
-      ,.DDR_READ_LATENCY(4)
-      ,.DDR_MHZ(100)
-  )
-  u_ddr
-  (
-      // Inputs
-       .clk_i(clk_w)
-      ,.rst_i(rst_w)
-      ,.inport_awvalid_i(awvalid)
-      ,.inport_awaddr_i(awaddr)
-      ,.inport_awid_i(awid)
-      ,.inport_awlen_i(awlen)
-      ,.inport_awburst_i(awburst)
-      ,.inport_wvalid_i(wvalid)
-      ,.inport_wdata_i(wdata)
-      ,.inport_wstrb_i(wstrb)
-      ,.inport_wlast_i(wlast)
-      ,.inport_bready_i(bready)
-      ,.inport_arvalid_i(arvalid)
-      ,.inport_araddr_i(araddr)
-      ,.inport_arid_i(arid)
-      ,.inport_arlen_i(arlen)
-      ,.inport_arburst_i(arburst)
-      ,.inport_rready_i(rready)
-      ,.dfi_rddata_i(dfi_rddata_w)
-      ,.dfi_rddata_valid_i(dfi_rddata_valid_w)
-      ,.dfi_rddata_dnv_i(dfi_rddata_dnv_w)
-
-      // Outputs
-      ,.inport_awready_o(awready)
-      ,.inport_wready_o(wready)
-      ,.inport_bvalid_o(bvalid)
-      ,.inport_bresp_o(bresp)
-      ,.inport_bid_o(bid)
-      ,.inport_arready_o(arready)
-      ,.inport_rvalid_o(rvalid)
-      ,.inport_rdata_o(rdata)
-      ,.inport_rresp_o(rresp)
-      ,.inport_rid_o(rid)
-      ,.inport_rlast_o(rlast)
-      ,.dfi_address_o(dfi_address_w)
-      ,.dfi_bank_o(dfi_bank_w)
-      ,.dfi_cas_n_o(dfi_cas_n_w)
-      ,.dfi_cke_o(dfi_cke_w)
-      ,.dfi_cs_n_o(dfi_cs_n_w)
-      ,.dfi_odt_o(dfi_odt_w)
-      ,.dfi_ras_n_o(dfi_ras_n_w)
-      ,.dfi_reset_n_o(dfi_reset_n_w)
-      ,.dfi_we_n_o(dfi_we_n_w)
-      ,.dfi_wrdata_o(dfi_wrdata_w)
-      ,.dfi_wrdata_en_o(dfi_wrdata_en_w)
-      ,.dfi_wrdata_mask_o(dfi_wrdata_mask_w)
-      ,.dfi_rddata_en_o(dfi_rddata_en_w)
-  );
-
-  ddr3_dfi_phy
-  #(
-       .DQS_TAP_DELAY_INIT(27)
-      ,.DQ_TAP_DELAY_INIT(0)
-      ,.TPHY_RDLAT(5)
-  )
-  u_phy
-  (
-       .clk_i(clk_w)
-      ,.rst_i(rst_w)
-
-      ,.clk_ddr_i(clk_ddr_w)
-      ,.clk_ddr90_i(clk_ddr_dqs_w)
-      ,.clk_ref_i(clk_ref_w)
-
-      ,.cfg_valid_i(1'b0)
-      ,.cfg_i(32'b0)
-
-      ,.dfi_address_i(dfi_address_w)
-      ,.dfi_bank_i(dfi_bank_w)
-      ,.dfi_cas_n_i(dfi_cas_n_w)
-      ,.dfi_cke_i(dfi_cke_w)
-      ,.dfi_cs_n_i(dfi_cs_n_w)
-      ,.dfi_odt_i(dfi_odt_w)
-      ,.dfi_ras_n_i(dfi_ras_n_w)
-      ,.dfi_reset_n_i(dfi_reset_n_w)
-      ,.dfi_we_n_i(dfi_we_n_w)
-      ,.dfi_wrdata_i(dfi_wrdata_w)
-      ,.dfi_wrdata_en_i(dfi_wrdata_en_w)
-      ,.dfi_wrdata_mask_i(dfi_wrdata_mask_w)
-      ,.dfi_rddata_en_i(dfi_rddata_en_w)
-      ,.dfi_rddata_o(dfi_rddata_w)
-      ,.dfi_rddata_valid_o(dfi_rddata_valid_w)
-      ,.dfi_rddata_dnv_o(dfi_rddata_dnv_w)
-
-      ,.ddr3_ck_p_o(ddr3_clk_p)
-      ,.ddr3_ck_n_o(ddr3_clk_n)
-      ,.ddr3_cke_o(ddr3_cke)
-      ,.ddr3_reset_n_o(ddr3_reset_n)
-      ,.ddr3_ras_n_o(ddr3_ras_n)
-      ,.ddr3_cas_n_o(ddr3_cas_n)
-      ,.ddr3_we_n_o(ddr3_we_n)
-      ,.ddr3_cs_n_o(ddr3_cs_n)
-      ,.ddr3_ba_o(ddr3_ba)
-      ,.ddr3_addr_o(ddr3_addr[13:0])
-      ,.ddr3_odt_o(ddr3_odt)
-      ,.ddr3_dm_o(ddr3_dm)
-      ,.ddr3_dq_io(ddr3_dq)
-      ,.ddr3_dqs_p_io(ddr3_dqs_p)
-      ,.ddr3_dqs_n_io(ddr3_dqs_n)
+      /// AXI Interface
+      .s_axi_awvalid(awvalid),
+      .s_axi_awready(awready),
+      .s_axi_awid(awid),
+      .s_axi_awaddr(awaddr),
+      .s_axi_awlen(awlen),
+      .s_axi_awsize(2),
+      .s_axi_awburst(awburst),
+      .s_axi_awlock(0),
+      .s_axi_awcache(0),
+      .s_axi_awprot(0),
+      .s_axi_awqos(0),
+      // AXI write data channel signals
+      .s_axi_wvalid(wvalid),
+      .s_axi_wready(wready),
+      .s_axi_wdata(wdata),
+      .s_axi_wstrb(wstrb),
+      .s_axi_wlast(wlast),
+      // AXI write response channel signals
+      .s_axi_bvalid(bvalid),
+      .s_axi_bready(bready),
+      .s_axi_bid(bid),
+      .s_axi_bresp(bresp),
+      // AXI read address channel signals
+      .s_axi_arvalid(arvalid),
+      .s_axi_arready(arready),
+      .s_axi_arid(arid),
+      .s_axi_araddr(araddr),
+      .s_axi_arlen(arlen),
+      .s_axi_arsize(2),
+      .s_axi_arburst(arburst),
+      .s_axi_arlock(0),
+      .s_axi_arcache(0),
+      .s_axi_arprot(0),
+      .s_axi_arqos(0),
+      // AXI read data channel signals
+      .s_axi_rvalid(rvalid),  // rd rslt valid
+      .s_axi_rready(rready),  // rd rslt ready
+      .s_axi_rid(rid), // response id
+      .s_axi_rdata(rdata),// read data
+      .s_axi_rlast(rlast),   // read last
+      .s_axi_rresp(rresp)   // read response
   );
 
   mkDDR3_TEST top_instance (
@@ -248,10 +202,10 @@ module nexysvideo_ddr3 (
     .rvalid    (rvalid ),
 
     .CLK(clk_w),
-    .RST_N(~rst_w),
+    .RST_N(!i_rst && clk_locked),
     .ftdi_txd(rx),
-    .ftdi_rxd(tx),
-    .led(led)
+    .ftdi_rxd(tx)
+    //.led(led)
   );
 
 endmodule

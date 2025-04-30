@@ -22,12 +22,12 @@ module clk_wiz
     .COMPENSATION         ("INTERNAL"),
     .STARTUP_WAIT         ("FALSE"),
     .DIVCLK_DIVIDE        (1),
-    .CLKFBOUT_MULT        (12), // 100 MHz * 10 = 1000 MHz
+    .CLKFBOUT_MULT        (10), // 100 MHz * 10 = 1000 MHz
     .CLKFBOUT_PHASE       (0.000),
     .CLKOUT0_DIVIDE       (12), // 1000 MHz / 12 = 83.333 MHz
     .CLKOUT0_PHASE        (0.000),
     .CLKOUT0_DUTY_CYCLE   (0.500),
-    .CLKOUT1_DIVIDE       (6), // 1000 MHz / 6 = 166.667 MHz
+    .CLKOUT1_DIVIDE       (5), // 1000 MHz / 5 = 200 MHz
     .CLKOUT1_PHASE        (0.000),
     .CLKOUT1_DUTY_CYCLE   (0.500),
     .CLKOUT2_DIVIDE       (3), // 1000 MHz / 5 = 333.333 MHz

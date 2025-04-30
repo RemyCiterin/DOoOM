@@ -305,28 +305,42 @@ mkCPU_MINIMAL = module
 {-# verilog mkCPU #-}
 mkDDR3_TEST :: Module CPU_MINIMAL_IFC
 mkDDR3_TEST = module
-  wr_port <- mkWrAXI4_Master Pipeline
-  rd_port <- mkRdAXI4_Master Pipeline
+  wr_port <- mkWrAXI4_Master (Normal(2))
+  rd_port <- mkRdAXI4_Master (Normal(2))
 
-  tx_uart <- mkTxUART (100_000_000 / 115200)
-  rx_uart <- mkRxUART (100_000_000 / 115200)
+  tx_uart <- mkTxUART (83_000_000 / 115200)
+  rx_uart <- mkRxUART (83_000_000 / 115200)
 
   counter :: Reg (Bit 32) <- mkReg 0
+
+  state :: Reg (Bit 2) <- mkReg 0
 
   rules
     "count": when True ==> do
       counter := counter + 1
 
-    "send_ddr3 read request": when True ==> do
+    --"testRl": when True ==> do
+    --  tx_uart.put ((zeroExtend counter[27:25]) | 8'h30)
+
+    -- "send_ddr3 read request": when state == 0 ==> do
+    --   wr_port.server.awrequest.put (AXI4_AWRequest{addr=0; id=0; length=0; burst=INCR})
+    --   wr_port.server.wrequest.put (AXI4_WRequest{bytes=42; strb=15; last=True})
+    --   state := 1
+
+    -- "receive w response": when state == 1 ==> do
+    --   resp <- wr_port.server.response.get
+    --   state := 2
+
+    "send_ddr3 read request": when state == 2 ==> do
       rd_port.server.request.put (AXI4_RRequest{addr=0; id=0; length=0; burst=INCR})
 
     "receive ddr3 response": when True ==> do
       resp <- rd_port.server.response.get
-      tx_uart.put resp.bytes[7:0]
+      tx_uart.put ((zeroExtend resp.bytes[2:0]) | 8'h30)
 
   interface
     wr_axi4 = wr_port.fabric
     rd_axi4 = rd_port.fabric
     ftdi_rxd = tx_uart.transmit
     ftdi_txd = rx_uart.receive
-    led = counter[27:20]
+    led = tx_uart.leds -- counter[27:20]
