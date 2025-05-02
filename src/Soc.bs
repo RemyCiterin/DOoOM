@@ -177,11 +177,6 @@ mkCPU_SIM = module
   let rd_masters :: Vector 2 (RdAXI4_Master 4 32 4) = core.rd_dmem :> core_i_rd :> nil
   let wr_masters :: Vector 1 (WrAXI4_Master 4 32 4) = core.wr_dmem :> nil
 
-  --let rd_slaves :: Vector 1 (RdAXI4_Slave 4 32 4) = rom.read :> nil
-  --let wr_slaves :: Vector 1 (WrAXI4_Slave 4 32 4) = rom.write :> nil
-
-  --let rdReqDispatch :: AXI4_RRequest 4 32 -> Bit 0 = \ _ -> 0
-  --let wrReqDispatch :: AXI4_AWRequest 4 32 -> Bit 0 = \ _ -> 0
   let rd_slaves :: Vector 2 (RdAXI4_Slave 4 32 4) = rom.read :> rd_port :> nil
   let wr_slaves :: Vector 2 (WrAXI4_Slave 4 32 4) = rom.write :> wr_port :> nil
 
@@ -302,6 +297,73 @@ mkCPU_MINIMAL = module
     ftdi_txd = uart.receive
     led = uart.leds
 
+
+interface CPU_NO_SDRAM_IFC =
+  led :: Bit 8 {-# always_ready, always_enabled #-}
+  ftdi_rxd :: Bit 1 {-# always_ready, always_enabled #-}
+  ftdi_txd :: Bit 1 -> Action {-# always_ready, always_enabled, arg_names= [ftdi_txd], prefix="" #-}
+
+{-# verilog mkCPU #-}
+mkCPU_NO_SDRAM :: Module CPU_NO_SDRAM_IFC
+mkCPU_NO_SDRAM  = module
+  core <- mkCoreOOO
+  let core_i_rd = core.rd_imem
+
+  let alloc_size :: Integer = 0x3d6f -- 32'h800 -- 32'h660 -- 32'h23000
+  let offset :: Bit 32 = 32'h80000000
+  let is_clint :: Bit 32 -> Bool = \x -> x >= 32'h30000000 && x < 32'h3000C000
+
+  rom <- mkRom (RomConfig{name="Mem.mem"; start=offset; size=alloc_size; maxPhase=0})
+  clint <- mkCLINT_AXI4_Lite 32'h30000000
+  uart <- mkUART 347 32'h10000000
+
+  let rd_masters_lite :: Vector 1 (RdAXI4_Lite_Master 32 4) = core.rd_mmio :> nil
+  let wr_masters_lite :: Vector 1 (WrAXI4_Lite_Master 32 4) = core.wr_mmio :> nil
+
+  let rd_slaves_lite :: Vector 2 (RdAXI4_Lite_Slave 32 4) =
+        uart.axi4.read :> clint.read :> nil
+  let wr_slaves_lite :: Vector 2 (WrAXI4_Lite_Slave 32 4) =
+        uart.axi4.write :> clint.write :> nil
+
+  let rdReqLiteDispatch :: AXI4_Lite_RRequest 32 -> Bit 1 =
+        \ req -> if req.addr == 32'h10000000 then 0 else
+        if is_clint req.addr then 1 else 0
+  let wrReqLiteDispatch :: AXI4_Lite_WRequest 32 4 -> Bit 1 =
+        \ req -> if req.addr == 32'h10000000 then 0 else
+        if is_clint req.addr then 1 else 0
+
+  mkXBarRdAXI4_Lite rd_masters_lite rd_slaves_lite rdReqLiteDispatch
+  mkXBarWrAXI4_Lite wr_masters_lite wr_slaves_lite wrReqLiteDispatch
+
+  let rd_masters :: Vector 2 (RdAXI4_Master 4 32 4) = core.rd_dmem :> core_i_rd :> nil
+  let wr_masters :: Vector 1 (WrAXI4_Master 4 32 4) = core.wr_dmem :> nil
+
+  let rd_slaves :: Vector 1 (RdAXI4_Slave 4 32 4) = rom.read :> nil
+  let wr_slaves :: Vector 1 (WrAXI4_Slave 4 32 4) = rom.write :> nil
+
+  let rdReqDispatch :: AXI4_RRequest 4 32 -> Bit 0 = \ req -> 0
+  let wrReqDispatch :: AXI4_AWRequest 4 32 -> Bit 0 = \ req -> 0
+
+  mkXBarRdAXI4 rd_masters rd_slaves rdReqDispatch
+  mkXBarWrAXI4 wr_masters wr_slaves wrReqDispatch
+
+  rules
+    "uart interrupt": when True ==> do
+      core.set_meip(True)
+      uart.interrupt
+
+    "clint timer interrupt": when True ==> do
+      core.set_mtip(clint.timer_interrupt)
+
+    "clint software interrupt": when True ==> do
+      core.set_msip(clint.software_interrupt)
+
+  interface
+    ftdi_rxd = uart.transmit
+    ftdi_txd = uart.receive
+    led = uart.leds
+
+
 {-# verilog mkCPU #-}
 mkDDR3_TEST :: Module CPU_MINIMAL_IFC
 mkDDR3_TEST = module
@@ -322,16 +384,16 @@ mkDDR3_TEST = module
     --"testRl": when True ==> do
     --  tx_uart.put ((zeroExtend counter[27:25]) | 8'h30)
 
-    -- "send_ddr3 read request": when state == 0 ==> do
-    --   wr_port.server.awrequest.put (AXI4_AWRequest{addr=0; id=0; length=0; burst=INCR})
-    --   wr_port.server.wrequest.put (AXI4_WRequest{bytes=42; strb=15; last=True})
-    --   state := 1
+    "send_ddr3 write request": when state == 0 ==> do
+      wr_port.server.awrequest.put (AXI4_AWRequest{addr=0; id=0; length=0; burst=INCR})
+      wr_port.server.wrequest.put (AXI4_WRequest{bytes=7; strb=15; last=True})
+      state := 1
 
-    -- "receive w response": when state == 1 ==> do
-    --   resp <- wr_port.server.response.get
-    --   state := 2
+    "receive w response": when state == 1 ==> do
+      resp <- wr_port.server.response.get
+      state := 2
 
-    "send_ddr3 read request": when state == 2 ==> do
+    "send_ddr3 read request": when state == 2 && counter[26:0] == 0 ==> do
       rd_port.server.request.put (AXI4_RRequest{addr=0; id=0; length=0; burst=INCR})
 
     "receive ddr3 response": when True ==> do
