@@ -18,7 +18,7 @@ typedef Bit#(TLog#(RobSize)) RobIndex;
 typedef 4 IqSize;
 
 // Store Buffer Size
-typedef 2 StbSize;
+typedef 3 StbSize;
 
 // Store Queue Size
 typedef 6 SqSize;

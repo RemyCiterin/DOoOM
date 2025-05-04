@@ -1,4 +1,5 @@
 import BCacheUtils :: *;
+import Connectable :: *;
 import AXI4_Lite :: *;
 import BlockRam :: *;
 import GetPut :: *;
@@ -306,8 +307,42 @@ module mkBCache(BCache#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
   interface mem_write = cache.write();
 endmodule
 
+module mkBufferBCache(BCache#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)))
+  provisos(Add#(tagW, __a, 32), Add#(indexW, __b, __a));
+
+  BCache#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW)) cache <- mkBCache;
+
+  Fifo#(2, AXI4_Lite_RResponse#(4)) rresp <- mkFifo;
+  Fifo#(2, AXI4_Lite_WResponse) wresp <- mkFifo;
+  Fifo#(2, void) invAck <- mkFifo;
+
+  mkConnection(toPut(rresp), cache.cpu_read.response);
+  mkConnection(toPut(wresp), cache.cpu_write.response);
+
+  rule invalidateAckRl;
+    cache.invalidateAck;
+    invAck.enq(?);
+  endrule
+
+  interface WrAXI4_Lite_Slave cpu_write;
+    interface request = cache.cpu_write.request;
+    interface response = toGet(wresp);
+  endinterface
+
+  interface RdAXI4_Lite_Slave cpu_read;
+    interface request = cache.cpu_read.request;
+    interface response = toGet(rresp);
+  endinterface
+
+  method invalidate = cache.invalidate;
+  method invalidateAck = invAck.deq;
+  interface mem_read = cache.mem_read;
+  interface mem_write = cache.mem_write;
+  method setID = cache.setID;
+endmodule
+
 (* synthesize *)
 module mkDefaultBCache(BCache#(Bit#(2), Bit#(20), Bit#(7), Bit#(3)));
-  let ifc <- mkBCache();
+  let ifc <- mkBufferBCache();
   return ifc;
 endmodule

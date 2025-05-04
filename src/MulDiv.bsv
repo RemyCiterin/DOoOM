@@ -64,12 +64,14 @@ module mkMulServer64(Server#(Tuple2#(Bit#(64),Bit#(64)), Bit#(64)));
 endmodule
 
 module mkMulServer(MulServer);
+  Bool fastMul = True;
+
   Fifo#(2, MulRequest) requests <- mkFifo;
 
   Fifo#(2, Bool) highQ <- mkFifo;
   Server#(Tuple2#(Bit#(64),Bit#(64)), Bit#(64)) server <- mkMulServer64;
 
-  rule start_mul;
+  if (!fastMul) rule start_mul;
     let req = requests.first;
     requests.deq;
 
@@ -85,11 +87,22 @@ module mkMulServer(MulServer);
   interface Get response;
     method ActionValue#(Bit#(32)) get;
       actionvalue
-        let high = highQ.first;
-        highQ.deq;
+        if (fastMul) begin
+          let req = requests.first;
+          requests.deq;
 
-        let ret <- server.response.get;
-        return high ? ret[63:32] : ret[31:0];
+          Bit#(64) x1 = (req.x1Signed ? signExtend(req.x1) : zeroExtend(req.x1));
+          Bit#(64) x2 = (req.x2Signed ? signExtend(req.x2) : zeroExtend(req.x2));
+          Bit#(64) ret = x1 * x2;
+
+          return req.high ? ret[63:32] : ret[31:0];
+        end else begin
+          let high = highQ.first;
+          highQ.deq;
+
+          let ret <- server.response.get;
+          return high ? ret[63:32] : ret[31:0];
+        end
       endactionvalue
     endmethod
   endinterface
