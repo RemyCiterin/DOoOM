@@ -89,7 +89,7 @@ module mkCore(Core_IFC);
 
   Ehr#(2, Epoch) epoch <- mkEhr(0);
   FetchDecode fetch <- mkFetchDecode;
-  Fifo#(1, FromDecode) decoded <- mkBypassFifo;
+  Fifo#(2, FromDecode) decoded <- mkFifo;
   mkConnection(toPut(decoded), fetch.to_RR);
 
   DMEM_IFC dmem <- mkDMEM;
@@ -104,8 +104,8 @@ module mkCore(Core_IFC);
   RegisterFile registers <- mkRegisterFile();
 
   // Instructions window: Fifo of instructions to write-back
-  Fifo#(6, BranchPredState) bpred_states <- mkFifo();
-  Fifo#(6, RR_to_WB) window <- mkFifo();
+  Fifo#(8, BranchPredState) bpred_states <- mkFifo();
+  Fifo#(8, RR_to_WB) window <- mkFifo();
 
   Reg#(Bit#(32)) stall <- mkReg(0);
   Reg#(Bit#(32)) cycle <- mkReg(0);

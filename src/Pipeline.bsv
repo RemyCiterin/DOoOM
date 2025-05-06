@@ -50,18 +50,18 @@ typedef enum {Rd, Wr, NotAlign} DMEM_Tag deriving(Bits, Eq, FShow);
 (* synthesize *)
 module mkDMEM(DMEM_IFC);
   DMEM_Controller dmem <- mkMiniSTB;
-  Fifo#(4, Bool) commitQ <- mkFifo;
+  Fifo#(8, Bool) commitQ <- mkFifo;
 
-  Fifo#(3, Bool) signQ <- mkFifo;
-  Fifo#(3, Data_Size) sizeQ <- mkFifo;
-  Fifo#(3, Bit#(2)) offsetQ <- mkFifo;
-  Fifo#(3, RR_to_Pipeline) reqQ <- mkFifo;
+  Fifo#(6, Bool) signQ <- mkFifo;
+  Fifo#(6, Data_Size) sizeQ <- mkFifo;
+  Fifo#(6, Bit#(2)) offsetQ <- mkFifo;
+  Fifo#(6, RR_to_Pipeline) reqQ <- mkFifo;
 
   Fifo#(2, RR_to_Pipeline) inputQ <- mkFifo;
 
   Fifo#(1, Pipeline_to_WB) rresponseQ <- mkBypassFifo;
-  Fifo#(3, Pipeline_to_WB) wresponseQ <- mkFifo;
-  Fifo#(3, DMEM_Tag) tagQ <- mkFifo;
+  Fifo#(2, Pipeline_to_WB) wresponseQ <- mkFifo;
+  Fifo#(6, DMEM_Tag) tagQ <- mkFifo;
 
   function Bool isAligned(Bit#(32) addr, Data_Size size);
     return case (size) matches

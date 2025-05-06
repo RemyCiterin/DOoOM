@@ -131,7 +131,7 @@ mkCPU_SIM = module
   let wr_port = sdram.slave.write
   let rd_port = sdram.slave.read
 
-  core <- mkCoreOOO
+  core <- mkCore
   let core_i_rd = core.rd_imem
 
   let alloc_size :: Integer = 300000 --33 * 1024 * 1024 -- maxBound

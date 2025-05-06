@@ -314,10 +314,16 @@ module mkBufferBCache(BCache#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW
 
   Fifo#(2, AXI4_Lite_RResponse#(4)) rresp <- mkFifo;
   Fifo#(2, AXI4_Lite_WResponse) wresp <- mkFifo;
+  Fifo#(2, Bit#(32)) invQ <- mkFifo;
   Fifo#(2, void) invAck <- mkFifo;
 
   mkConnection(toPut(rresp), cache.cpu_read.response);
   mkConnection(toPut(wresp), cache.cpu_write.response);
+
+  rule invalidateRl;
+    cache.invalidate(invQ.first);
+    invQ.deq;
+  endrule
 
   rule invalidateAckRl;
     cache.invalidateAck;
@@ -334,7 +340,7 @@ module mkBufferBCache(BCache#(Bit#(wayW), Bit#(tagW), Bit#(indexW), Bit#(offsetW
     interface response = toGet(rresp);
   endinterface
 
-  method invalidate = cache.invalidate;
+  method invalidate = invQ.enq;
   method invalidateAck = invAck.deq;
   interface mem_read = cache.mem_read;
   interface mem_write = cache.mem_write;

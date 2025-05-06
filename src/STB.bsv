@@ -45,24 +45,70 @@ typedef struct {
   Maybe#(Bit#(32)) forward;
 } STB_SearchResult deriving(Eq, FShow, Bits);
 
+interface StoreBuffer#(numeric type size);
+  method Action enq(Bit#(32) addr, Bit#(32) data, Bit#(4) mask);
+  method ActionValue#(Tuple3#(Bit#(32),Bit#(32),Bit#(4))) deq();
+  method Bool search(Bit#(32) addr);
+  method Bool isEmpty;
+endinterface
+
+module mkStoreBuffer#(Integer validPort, Integer addrPort) (StoreBuffer#(size));
+  Vector#(size, Ehr#(2, Bit#(32))) addr <- replicateM(mkEhr(?));
+  Vector#(size, Reg#(Bit#(32))) data <- replicateM(mkReg(?));
+  Vector#(size, Reg#(Bit#(4))) mask <- replicateM(mkReg(?));
+  Reg#(Bit#(TLog#(size))) head <- mkReg(0);
+  Reg#(Bit#(TLog#(size))) tail <- mkReg(0);
+  Ehr#(3, Bit#(size)) valid <- mkEhr(0);
+
+  method Action enq(Bit#(32) a, Bit#(32) d, Bit#(4) m) if (valid[1][tail] == 0);
+    tail <= tail == fromInteger(valueof(size)-1) ? 0 : tail + 1;
+    valid[1][tail] <= 1;
+
+    addr[tail][0] <= a;
+    data[tail] <= d;
+    mask[tail] <= m;
+  endmethod
+
+  method ActionValue#(Tuple3#(Bit#(32),Bit#(32),Bit#(4))) deq if (valid[0][head] == 1);
+    head <= head == fromInteger(valueof(size)-1) ? 0 : head + 1;
+    valid[0][head] <= 0;
+
+    return tuple3(addr[head][0], data[head], mask[head]);
+  endmethod
+
+  method Bool search(Bit#(32) a);
+    return valid[validPort] != 0;
+    //Bool ret = False;
+
+    //for (Integer i=0; i < valueOf(size); i = i + 1) begin
+    //  if (valid[validPort][i] == 1)// && addr[i][addrPort] == a)
+    //    ret = True;
+    //end
+
+    //return ret;
+  endmethod
+
+  method Bool isEmpty = valid[1] == 0;
+endmodule
+
 (* synthesize *)
 module mkMiniSTB(DMEM_Controller);
-  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) storeQ <- mkPipelinePFifo;
-  Fifo#(1, AXI4_Lite_WRequest#(32, 4)) stb <- mkPipelinePFifo;
+  StoreBuffer#(3) storeQ <- mkStoreBuffer(0, 0);
+  StoreBuffer#(3) stb <- mkStoreBuffer(1, 0);
 
-  Fifo#(2, Maybe#(Bit#(32))) forwardQ <- mkFifo;
+  Fifo#(8, Maybe#(Bit#(32))) forwardQ <- mkFifo;
 
   Fifo#(2, AXI4_Lite_WRequest#(32, 4)) wrequestQ <- mkFifo;
   Fifo#(2, AXI4_Lite_RRequest#(32)) rrequestQ <- mkFifo;
-  Fifo#(1, AXI4_Lite_WResponse) wresponseQ <- mkFifo;
-  Fifo#(1, AXI4_Lite_RResponse#(4)) rresponseQ <- mkFifo;
+  Fifo#(2, AXI4_Lite_WResponse) wresponseQ <- mkFifo;
+  Fifo#(2, AXI4_Lite_RResponse#(4)) rresponseQ <- mkFifo;
 
   let cache <- mkDefaultBCache();
 
   Fifo#(1, void) invalidateQ <- mkPipelineFifo;
 
   Fifo#(4, Bool) isStoreMMIO <- mkFifo;
-  Fifo#(4, Bool) isLoadMMIO <- mkFifo;
+  Fifo#(8, Bool) isLoadMMIO <- mkFifo;
 
   function Action enqLoad(AXI4_Lite_RRequest#(32) req);
     action
@@ -106,21 +152,8 @@ module mkMiniSTB(DMEM_Controller);
       found: False
     };
 
-    if (stb.canDeq) begin
+    if (stb.search(addr) || storeQ.search(addr))
       ret.found = True;
-      //if (addr == stb.first.addr)
-      //  ret.found = True;
-    end
-
-    if (storeQ.canDeq) begin
-      ret.found = True;
-      // Their is no storeQ forwarding because the elements
-      // of the storeQ may be mispredicted
-      //if (addr == storeQ.first.addr) begin
-      //  ret.forward = Invalid;
-      //  ret.found = True;
-      //end
-    end
 
     return ret;
   endfunction
@@ -135,8 +168,8 @@ module mkMiniSTB(DMEM_Controller);
   endrule
 
   rule write_response;
-    let _ <- deqStore();
-    stb.deq;
+    let _1 <- deqStore();
+    let _2 <- stb.deq;
   endrule
 
   method Action rrequest(Bit#(32) addr);
@@ -173,22 +206,17 @@ module mkMiniSTB(DMEM_Controller);
   endmethod
 
   method Action wrequest(Bit#(32) addr, Bit#(32) data, Bit#(4) mask);
-    action
-      let req = AXI4_Lite_WRequest{addr: addr, bytes: data, strb: mask};
-      storeQ.enq(req);
-    endaction
+    storeQ.enq(addr, data, mask);
   endmethod
 
   method Action wcommit(Bool commit);
-    action
-      let req = storeQ.first;
-      storeQ.deq;
+    match {.addr, .data, .mask} <- storeQ.deq;
+    let req = AXI4_Lite_WRequest{addr: addr, bytes: data, strb: mask};
 
-      if (commit) begin
-        enqStore(req);
-        stb.enq(req);
-      end
-    endaction
+    if (commit) begin
+      stb.enq(addr, data, mask);
+      enqStore(req);
+    end
   endmethod
 
   method Action invalidate(Bit#(32) addr);
@@ -209,5 +237,5 @@ module mkMiniSTB(DMEM_Controller);
   interface rd_dmem = cache.mem_read;
   interface wr_dmem = cache.mem_write;
 
-  method Bool emptySTB = !stb.canDeq && invalidateQ.canEnq;
+  method Bool emptySTB = stb.isEmpty && invalidateQ.canEnq;
 endmodule
