@@ -417,9 +417,13 @@ module mkBranchPred(BranchPred);
 
   method Action trainHit(BranchPredTrain infos);
     action
+      let kind = instrKindOpt(infos.instr);
+
       let ghr = infos.state.ghr;
       let taken = infos.next_pc != infos.pc + 4;
-      ght.train(infos.pc, ghr, taken, infos.state.state);
+
+      if (kind == Branch)
+        ght.train(infos.pc, ghr, taken, infos.state.state);
     endaction
   endmethod
 

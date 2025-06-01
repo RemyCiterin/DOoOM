@@ -82,6 +82,15 @@ module nexysvideo_ddr3 (
   wire [1:0]  awburst;
   wire        rvalid ;
 
+  reg [8:0] refresh_counter;
+  initial begin
+    refresh_counter <= 0;
+  end
+
+  always @(posedge clk_w) begin
+    refresh_counter <= refresh_counter + 1;
+  end
+
   // DDR3 Controller
   ddr3_top_axi #(
     .CONTROLLER_CLK_PERIOD(12_000), //12_000ps, clock period of the controller interface
@@ -106,6 +115,8 @@ module nexysvideo_ddr3 (
       .i_ref_clk(clk_ref_w),
       .i_ddr3_clk_90(clk_ddr_dqs_w),
       .i_rst_n(!i_rst && clk_locked),
+
+      .i_user_self_refresh(),
 
       // PHY Interface (to be added later)
       // DDR3 I/O Interface

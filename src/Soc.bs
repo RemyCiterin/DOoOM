@@ -43,7 +43,7 @@ mkCPU = module
   -- wr_port <- mkWrAXI4_Master Pipeline
   -- rd_port <- mkRdAXI4_Master Pipeline
 
-  core <- mkCoreOOO
+  core <- mkCore
   let core_i_rd = core.rd_imem
 
   let alloc_size :: Integer = 0x3d6f -- 32'h800 -- 32'h660 -- 32'h23000
@@ -131,7 +131,7 @@ mkCPU_SIM = module
   let wr_port = sdram.slave.write
   let rd_port = sdram.slave.read
 
-  core <- mkCore
+  core <- mkCoreOOO
   let core_i_rd = core.rd_imem
 
   let alloc_size :: Integer = 300000 --33 * 1024 * 1024 -- maxBound
@@ -393,7 +393,7 @@ mkDDR3_TEST = module
       resp <- wr_port.server.response.get
       state := 2
 
-    "send_ddr3 read request": when state == 2 && counter[26:0] == 0 ==> do
+    "send_ddr3 read request": when state == 2 ==> do -- && counter[20:0] == 0 ==> do
       rd_port.server.request.put (AXI4_RRequest{addr=0; id=0; length=0; burst=INCR})
 
     "receive ddr3 response": when True ==> do

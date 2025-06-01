@@ -22,7 +22,6 @@ SOURCES = \
 
 PACKAGES = ../src/:../src/lsu/:../src/cache/:+
 
-#############################################################################################
 DBPART = $(shell echo ${PART} | sed -e 's/-[0-9]//g')
 
 TOP ?= ${PROJECT}

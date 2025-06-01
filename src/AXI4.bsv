@@ -327,7 +327,7 @@ module mkRdAXI4_Master#(FIFOF_Config conf) (RdAXI4_Master_IFC#(i, a, d));
   Wire#(AXI4_Response) wire_rresp  <- mkBypassWire();
 
   rule step;
-    if (request.notEmpty() && !isRst) begin
+    if (request.notEmpty() && !isRst && response.notFull()) begin
       wire_arvalid <= True;
       wire_araddr <= request.first().addr;
       wire_arburst <= request.first().burst;
@@ -470,7 +470,7 @@ module mkWrAXI4_Master#(FIFOF_Config conf) (WrAXI4_Master_IFC#(i, a, d));
 
   rule step;
     // send address
-    if (!isRst && awrequest.notEmpty()) begin
+    if (!isRst && awrequest.notEmpty() && response.notFull()) begin
       wire_awvalid <= True;
       wire_awaddr <= awrequest.first().addr;
       wire_awburst <= awrequest.first().burst;
@@ -486,7 +486,7 @@ module mkWrAXI4_Master#(FIFOF_Config conf) (WrAXI4_Master_IFC#(i, a, d));
     end
 
     // send data
-    if (!isRst && wrequest.notEmpty()) begin
+    if (!isRst && wrequest.notEmpty() && response.notFull()) begin
       wire_wvalid <= True;
       wire_wdata <= wrequest.first().bytes;
       wire_wstrb <= wrequest.first().strb;
