@@ -237,10 +237,10 @@ module mkCoreOOO(Core_IFC);
         csr.increment_instret;
 
       case (result) matches
-        tagged Ok {next_pc: .next_pc, rd_val: .rd_val, fflags: .fflags} : begin
+        tagged Ok {next_pc: .next_pc, rd_val: .rd_val, fflags: .fflags, flush: .flush} : begin
           deqRob(
             Valid(rd_val), fflags,
-            next_pc != entry.pred_pc ? Valid(next_pc) : Invalid
+            next_pc != entry.pred_pc || flush ? Valid(next_pc) : Invalid
           );
 
           if (next_pc != entry.pred_pc) begin

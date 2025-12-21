@@ -309,6 +309,14 @@ module mkUART#(Bit#(32) cycle_per_bit, Bit#(32) uart_addr) (UART);
       end
     end
 
+`ifdef BSIM
+    // Read next char for simulation
+    if (req.addr == uart_addr + 4 && req.strb[0] == 1) begin
+      let char <- $fgetc(stdin);
+      data[0] <= char == -1 ? 8'b0 : pack(char)[7:0];
+    end
+`endif
+
     wresponse.enq(AXI4_Lite_WResponse{resp: OKAY});
   endrule
 

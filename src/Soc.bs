@@ -43,7 +43,7 @@ mkCPU = module
   -- wr_port <- mkWrAXI4_Master Pipeline
   -- rd_port <- mkRdAXI4_Master Pipeline
 
-  core <- mkCore
+  core <- mkCoreOOO
   let core_i_rd = core.rd_imem
 
   let alloc_size :: Integer = 0x3d6f -- 32'h800 -- 32'h660 -- 32'h23000
@@ -134,7 +134,7 @@ mkCPU_SIM = module
   core <- mkCoreOOO
   let core_i_rd = core.rd_imem
 
-  let alloc_size :: Integer = 300000 --33 * 1024 * 1024 -- maxBound
+  let alloc_size :: Integer = 33 * 1024 * 1024 -- maxBound
   let offset :: Bit 32 = 32'h80000000
   let is_vga :: Bit 32 -> Bool = \x -> x >= 32'h40000000 && x < 32'h50000000
   let is_btn :: Bit 32 -> Bool = \x -> x == 32'h20000000
