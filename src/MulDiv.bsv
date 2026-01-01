@@ -114,11 +114,22 @@ typedef struct {
   Bit#(size) index;
   Bit#(size) rem;
   Bit#(size) div;
+  Bit#(size) num;
+  Bit#(size) den;
 } DivideUState#(numeric type size) deriving(Bits, FShow, Eq);
 
-function DivideUState#(size) divideInit;
+function DivideUState#(size) divideInit(Bit#(size) num, Bit#(size) den);
+  Bool found = False;
+  Bit#(size) index = 0;
+  for (Integer i=valueOf(size)-1; i >= 0; i = i - 1) if (!found && num[i] == 1) begin
+    index[i] = 1;
+    found = True;
+  end
+
   return DivideUState{
-    index: 1 << (valueOf(size) - 1),
+    index: index,
+    num: num,
+    den: den,
     rem: 0,
     div: 0
   };
@@ -129,11 +140,11 @@ endfunction
 //   2 * a + 1 = b * (2^-n * q) + 2*r+1
 //
 // Then we remove b to the reminder if 2*r+1 or 2*r is greater than b
-function DivideUState#(size) divideStep(Bit#(size) num, Bit#(size) den, DivideUState#(size) state);
-  state.rem = (num & state.index) != 0 ? (state.rem << 1) | 1 : state.rem << 1;
+function DivideUState#(size) divideStep(DivideUState#(size) state);
+  state.rem = (state.num & state.index) != 0 ? (state.rem << 1) | 1 : state.rem << 1;
 
-  if (state.rem >= den) begin
-    state.rem = state.rem - den;
+  if (state.rem >= state.den) begin
+    state.rem = state.rem - state.den;
     state.div = state.div | state.index;
   end
 
@@ -183,28 +194,26 @@ module mkDivServer(DivServer);
   endfunction
 
   rule step if (state[0] matches tagged Busy .st &&& st.index != 0);
-    let req = requests.first;
-
-    Bit#(DivideSize) n = (req.isSigned ? signExtend(req.x1) : zeroExtend(req.x1));
-    Bit#(DivideSize) d = (req.isSigned ? signExtend(req.x2) : zeroExtend(req.x2));
-    Int#(DivideSize) n_int = unpack(n);
-    Int#(DivideSize) d_int = unpack(d);
-
-    n = req.isSigned && n_int < 0 ? -n : n;
-    d = req.isSigned && d_int < 0 ? -d : d;
-
-    state[0] <= tagged Busy divideStep(n, d, st);
+    state[0] <= tagged Busy divideStep(st);
   endrule
 
   interface Put request;
     method Action put(DivRequest req) if (state[1] matches Idle);
+
+      Bit#(DivideSize) n = (req.isSigned ? signExtend(req.x1) : zeroExtend(req.x1));
+      Bit#(DivideSize) d = (req.isSigned ? signExtend(req.x2) : zeroExtend(req.x2));
+      Int#(DivideSize) n_int = unpack(n);
+      Int#(DivideSize) d_int = unpack(d);
+
+      n = req.isSigned && n_int < 0 ? -n : n;
+      d = req.isSigned && d_int < 0 ? -d : d;
 
       if (req.x2 == 0)
         state[1] <= Zero;
       else if (req.x1 == -(1 << 31) && req.x2 == -1 && req.isSigned)
         state[1] <= Overflow;
       else
-        state[1] <= tagged Busy divideInit;
+        state[1] <= Busy(divideInit(n, d));
 
       requests.enq(req);
     endmethod

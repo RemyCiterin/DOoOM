@@ -272,12 +272,6 @@ module mkUART#(Bit#(32) cycle_per_bit, Bit#(32) uart_addr) (UART);
     cycle <= cycle+1;
   endrule
 
-`ifndef BSIM
-  rule update_data;
-    data[0] <= rx_uart.data;
-  endrule
-`endif
-
   rule read;
     let req = rrequest.first;
     rrequest.deq;
@@ -309,13 +303,16 @@ module mkUART#(Bit#(32) cycle_per_bit, Bit#(32) uart_addr) (UART);
       end
     end
 
-`ifdef BSIM
     // Read next char for simulation
     if (req.addr == uart_addr + 4 && req.strb[0] == 1) begin
+`ifdef BSIM
       let char <- $fgetc(stdin);
       data[0] <= char == -1 ? 8'b0 : pack(char)[7:0];
-    end
+`else
+      data[0] <= when(rx_uart.valid, rx_uart.data);
+      rx_uart.ack;
 `endif
+    end
 
     wresponse.enq(AXI4_Lite_WResponse{resp: OKAY});
   endrule
@@ -338,15 +335,15 @@ module mkUART#(Bit#(32) cycle_per_bit, Bit#(32) uart_addr) (UART);
   method transmit = tx_uart.transmit;
   method receive = rx_uart.receive;
 
-`ifdef BSIM
+//`ifdef BSIM
   method Action interrupt if (False);
     noAction;
   endmethod
-`else
-  method Action interrupt if (rx_uart.valid);
-    rx_uart.ack;
-  endmethod
-`endif
+//`else
+//  method Action interrupt if (rx_uart.valid);
+//    rx_uart.ack;
+//  endmethod
+//`endif
 endmodule
 
 
